@@ -50,9 +50,6 @@ pip install -r requirements.txt
 # 3. 首次全量抓取数据（6年历史数据）
 python main.py init
 
-# 4. 执行选股（自动更新数据、执行选股）
-python main.py run
-
 # 5. 启动Web界面
 python main.py web
 ```
@@ -90,12 +87,6 @@ python main.py init
 # 完整流程：更新数据 → 执行选股
 python main.py run
 
-# 快速测试模式（只处理前500只股票）
-python main.py run --max-stocks 500
-
-# 按分类筛选（bowl_center/near_duokong/near_short_trend）
-python main.py run --category bowl_center
-
 # 启动Web界面（默认端口5000）
 python main.py web
 
@@ -103,21 +94,7 @@ python main.py web
 python main.py --version
 ```
 
-### B1完美图形匹配命令
 
-```bash
-# 启用B1完美图形匹配排序（默认回看25天）
-python main.py run --b1-match
-
-# 使用30天回看期进行匹配
-python main.py run --b1-match --lookback-days 30
-
-# 提高相似度阈值到70%
-python main.py run --b1-match --min-similarity 70
-
-# 快速测试，只处理前100只股票
-python main.py run --b1-match --max-stocks 100
-```
 
 ## 🌐 Web界面功能
 
