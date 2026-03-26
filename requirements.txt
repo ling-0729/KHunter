@@ -1,0 +1,12 @@
+akshare>=1.11.0
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+PyYAML>=6.0
+schedule>=1.2.0
+flask>=3.0.0
+flask-socketio>=5.3.0
+matplotlib>=3.7.0
+scipy>=1.10.0
+Pillow>=10.0.0
+fastdtw>=0.3.4

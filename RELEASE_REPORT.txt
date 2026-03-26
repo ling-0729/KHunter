@@ -1,0 +1,26 @@
+
+发布时间: 2026-03-26 13:55:44
+源目录: D:\project\KHunter
+目标目录: d:\khunter
+
+复制统计:
+  - 文件总数: 5462
+  - 目录总数: 25
+  - 缺失文件: 0
+
+关键文件验证:
+  - 总数: 9
+  - 存在: 9
+  - 缺失: 0
+
+下一步:
+  1. 进入目录: cd d:\khunter
+  2. 安装依赖: pip install -r requirements.txt
+  3. 运行系统: python main.py run
+  4. 启动Web: python main.py web
+
+项目信息:
+  - 项目名称: KHunter
+  - 版本: 1.0.0
+  - 策略数量: 12
+  - 许可证: MIT

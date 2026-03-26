@@ -1,0 +1,80 @@
+
+============================================================
+时间: 2026-03-19 20:23:17
+调用者: D:\project\a-share-quant-selector-main\test\test_param_modification_diagnosis.py:49 in test_param_modification_tracking
+参数变化:
+
+  策略: BowlReboundStrategy
+    J_VAL: 30 -> 40
+    CAP: 40 -> 50
+============================================================
+
+============================================================
+时间: 2026-03-19 20:23:17
+调用者: D:\project\a-share-quant-selector-main\test\test_param_modification_diagnosis.py:72 in test_param_modification_tracking
+参数变化:
+
+  策略: BowlReboundStrategy
+    J_VAL: 40 -> 34
+    CAP: 50 -> 44
+============================================================
+
+============================================================
+时间: 2026-03-20 15:24:35
+调用者: D:\project\a-share-quant-selector-main\web_server.py:295 in run_selection
+参数变化:
+
+  策略: MorningStarStrategy
+    lookback_days: 3 -> 10
+============================================================
+
+============================================================
+时间: 2026-03-20 15:29:21
+调用者: D:\project\a-share-quant-selector-main\web_server.py:295 in run_selection
+参数变化:
+
+  策略: BowlReboundStrategy
+    M: 5 -> 15
+============================================================
+
+============================================================
+时间: 2026-03-20 15:44:48
+调用者: D:\project\a-share-quant-selector-main\web_server.py:295 in run_selection
+参数变化:
+
+  策略: MorningStarStrategy
+    lookback_days: 3 -> 20
+
+  策略: BowlReboundStrategy
+    M: 5 -> 15
+============================================================
+
+============================================================
+时间: 2026-03-20 16:31:59
+调用者: D:\project\a-share-quant-selector-main\web_server.py:295 in run_selection
+参数变化:
+
+  策略: BowlReboundStrategy
+    M: 15 -> 5
+
+  策略: MorningStarStrategy
+    lookback_days: 20 -> 3
+============================================================
+
+============================================================
+时间: 2026-03-22 21:21:12
+调用者: D:\project\a-share-quant-selector-main\web_server.py:295 in run_selection
+参数变化:
+
+  策略: BottomTrendInflectionStrategy
+    decline_threshold: 0.45 -> 0.35
+============================================================
+
+============================================================
+时间: 2026-03-23 22:25:14
+调用者: D:\project\a-share-quant-selector-main\web_server.py:320 in run_selection
+参数变化:
+
+  策略: BottomTrendInflectionStrategy
+    decline_threshold: 0.35 -> 0.45
+============================================================

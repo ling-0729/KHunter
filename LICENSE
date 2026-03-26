@@ -1,0 +1,50 @@
+MIT License
+
+Copyright (c) 2026 KHunter Contributors
+
+## 项目来源说明
+
+本项目（KHunter）是基于开源项目 **a-share-quant-selector** 的衍生作品。
+
+**原项目信息**：
+- 项目名称：a-share-quant-selector
+- 项目地址：https://github.com/Dzy-HW-XD/a-share-quant-selector
+- 原作者：Dzy-HW-XD
+- 原项目许可证：MIT License
+
+**扩展与改进**：
+本项目在原项目优秀的基础架构上，进行了以下主要扩展：
+- **核心策略**：融入了个人的交易体系，扩展了多项选股策略
+- **交互方式**：实现了完整的Web管理界面
+- **功能模块**：添加了模拟交易系统和策略跟进框架
+- **数据层**：重构了数据管理和更新机制，优化了架构
+
+**许可证条款**：
+根据MIT许可证的要求，本项目的所有分发版本必须保留上述版权声明和本许可声明。除另有说明外，本项目代码沿用MIT许可证。
+
+---
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 致谢与声明
+
+- **致谢**：特别感谢原项目作者 **Dzy-HW-XD** 的开源贡献。本项目的开发深度依赖其构建的 `akshare` 数据获取、策略执行、技术指标计算和Web框架等基础能力。详细的致谢信息请参阅项目根目录下的 notice.md 文件。
+- **独立性说明**：KHunter 是一个独立的开源项目，与原项目 `a-share-quant-selector` 及其原作者无直接关联。本项目对原项目的使用和修改均遵循MIT许可证的规定。

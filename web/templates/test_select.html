@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>下拉框测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 15px;
+            max-width: 300px;
+        }
+        .filter-group label {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        .filter-group select {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            height: 36px;
+        }
+    </style>
+</head>
+<body>
+    <h1>下拉框测试页面</h1>
+    <div class="filter-group">
+        <label for="strategy-filter">选股方案</label>
+        <select id="strategy-filter">
+            <option value="">全部策略</option>
+        </select>
+    </div>
+    <div id="status">正在加载策略...</div>
+    
+    <script>
+        fetch('/api/strategies')
+            .then(response => response.json())
+            .then(data => {
+                const strategySelect = document.getElementById('strategy-filter');
+                const status = document.getElementById('status');
+                if (data.success && data.data) {
+                    data.data.forEach(strategy => {
+                        const option = document.createElement('option');
+                        option.value = strategy.name;
+                        option.textContent = strategy.display_name || strategy.name;
+                        strategySelect.appendChild(option);
+                    });
+                    status.textContent = '成功加载 ' + data.data.length + ' 个策略';
+                    status.style.color = 'green';
+                } else {
+                    status.textContent = '加载失败: ' + (data.error || '未知错误');
+                    status.style.color = 'red';
+                }
+            })
+            .catch(error => {
+                document.getElementById('status').textContent = '错误: ' + error.message;
+                document.getElementById('status').style.color = 'red';
+            });
+    </script>
+</body>
+</html>
