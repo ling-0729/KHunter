@@ -1,0 +1,887 @@
+/* 模拟交易系统 - 样式 */
+
+/* 交易页面容器 */
+.trading-container {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* 账户总览卡片 */
+.account-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.account-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.account-card-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.account-card-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+}
+
+.account-card-change {
+    font-size: 12px;
+    color: var(--success-color);
+}
+
+.account-card-change.negative {
+    color: var(--danger-color);
+}
+
+/* 快速操作按钮组 */
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.quick-action-btn {
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.quick-action-btn:hover {
+    background: var(--bg-color);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+/* 表单样式 */
+.trading-form {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--text-color);
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+/* 计算结果显示 */
+.calculation-result {
+    background: #f0f9ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.result-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 14px;
+}
+
+.result-item-label {
+    color: var(--text-muted);
+}
+
+.result-item-value {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.result-item-value.profit {
+    color: var(--success-color);
+}
+
+.result-item-value.loss {
+    color: var(--danger-color);
+}
+
+/* 表格样式 */
+.trading-table,
+.positions-table,
+.transactions-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.trading-table thead,
+.positions-table thead,
+.transactions-table thead {
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trading-table th,
+.positions-table th,
+.transactions-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-muted);
+    border-right: 1px solid var(--border-color);
+}
+
+.trading-table th:last-child,
+.positions-table th:last-child,
+.transactions-table th:last-child {
+    border-right: none;
+}
+
+.trading-table td,
+.positions-table td,
+.transactions-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    font-size: 14px;
+}
+
+.trading-table td:last-child,
+.positions-table td:last-child,
+.transactions-table td:last-child {
+    border-right: none;
+}
+
+.trading-table tbody tr:hover,
+.positions-table tbody tr:hover,
+.transactions-table tbody tr:hover {
+    background: var(--bg-color);
+}
+
+.trading-table tbody tr:last-child td,
+.positions-table tbody tr:last-child td,
+.transactions-table tbody tr:last-child td {
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* 持仓列表 */
+.position-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.position-item:hover {
+    background: var(--bg-color);
+    border-color: var(--primary-color);
+}
+
+.position-item.selected {
+    background: #eff6ff;
+    border-color: var(--primary-color);
+}
+
+.position-info {
+    flex: 1;
+}
+
+.position-code {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+}
+
+.position-details {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.position-value {
+    text-align: right;
+}
+
+.position-quantity {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.position-cost {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* 分页样式 */
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.pagination-btn {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-btn.active {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.pagination-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* 按钮样式 */
+.btn-group {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.btn-group .btn {
+    flex: 1;
+}
+
+.btn {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--primary-dark);
+}
+
+.btn-primary:disabled {
+    background: var(--text-muted);
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--border-color);
+}
+
+.btn-danger {
+    background: var(--danger-color);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
+/* 通知样式 */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 16px 20px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.notification.success {
+    background: var(--success-color);
+    color: white;
+}
+
+.notification.error {
+    background: var(--danger-color);
+    color: white;
+}
+
+.notification.warning {
+    background: var(--warning-color);
+    color: white;
+}
+
+.notification.info {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* 加载状态 */
+.loading {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+}
+
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.empty-state-text {
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+/* 错误提示 */
+.error-message {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 12px 16px;
+    color: #991b1b;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+/* 成功提示 */
+.success-message {
+    background: #dcfce7;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 12px 16px;
+    color: #166534;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .trading-container {
+        padding: 16px;
+    }
+
+    .account-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .quick-actions {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .trading-table {
+        font-size: 12px;
+    }
+
+    .trading-table th,
+    .trading-table td {
+        padding: 8px 12px;
+    }
+
+    .btn-group {
+        flex-direction: column;
+    }
+
+    .notification {
+        left: 10px;
+        right: 10px;
+        top: auto;
+        bottom: 20px;
+    }
+}
+
+/* 交易页面特定样式 */
+#trading-page {
+    padding: 24px;
+}
+
+.trading-page-header {
+    margin-bottom: 24px;
+}
+
+.trading-page-header h2 {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.trading-page-header p {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* 交易操作卡片 */
+.trading-operation-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.trading-operation-card h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 交易结果提示 */
+.trading-result {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.trading-result.success {
+    border-color: var(--success-color);
+    background: #f0fdf4;
+}
+
+.trading-result.error {
+    border-color: var(--danger-color);
+    background: #fef2f2;
+}
+
+.trading-result-title {
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.trading-result.success .trading-result-title {
+    color: var(--success-color);
+}
+
+.trading-result.error .trading-result-title {
+    color: var(--danger-color);
+}
+
+.trading-result-details {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.8;
+}
+
+/* 交易统计 */
+.trading-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.trading-stat-item {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+}
+
+.trading-stat-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.trading-stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+/* 持仓合计行 */
+.position-total {
+    background: var(--bg-color);
+    font-weight: 600;
+    border-top: 2px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.position-total td {
+    padding: 12px 16px;
+    border-right: 1px solid var(--border-color);
+}
+
+.position-total td:last-child {
+    border-right: none;
+}
+
+/* 持仓明细表格的合计行 */
+.positions-table tfoot tr {
+    background: var(--bg-color);
+    font-weight: 600;
+    border-top: 2px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.positions-table tfoot td {
+    padding: 12px 16px;
+    border-right: 1px solid var(--border-color);
+}
+
+.positions-table tfoot td:last-child {
+    border-right: none;
+}
+
+/* 交易类型标签 */
+.trade-type-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.trade-type-badge.buy {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.trade-type-badge.sell {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* 收益率颜色 */
+.profit-rate {
+    font-weight: 600;
+}
+
+.profit-rate.positive {
+    color: var(--success-color);
+}
+
+.profit-rate.negative {
+    color: var(--danger-color);
+}
+
+.profit-rate.neutral {
+    color: var(--text-color);
+}
+
+
+/* 价格区间信息显示 */
+.price-range-info {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: #166534;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.price-range-info::before {
+    content: "ℹ️";
+    font-size: 16px;
+}
+
+.price-range-info span {
+    font-weight: 500;
+}
+
+
+/* 账户选择器样式 */
+.account-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.account-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-color);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 150px;
+}
+
+.account-select:hover {
+    border-color: var(--primary-color);
+}
+
+.account-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* 价格区间信息样式 */
+.price-range-info {
+    background: #f0f9ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #0369a1;
+    margin-bottom: 8px;
+}
+
+/* 表单摘要样式 */
+.form-summary {
+    background: #f9fafb;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.summary-item label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.summary-item value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.summary-item value.profit {
+    color: var(--success-color);
+}
+
+.summary-item value.loss {
+    color: var(--danger-color);
+}
+
+/* 表单按钮样式 */
+.form-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.form-buttons button {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.form-buttons button[type="submit"] {
+    background: var(--primary-color);
+    color: white;
+}
+
+.form-buttons button[type="submit"]:hover {
+    background: var(--primary-dark);
+}
+
+.form-buttons button[type="button"] {
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+.form-buttons button[type="button"]:hover {
+    background: var(--border-color);
+}
+
+/* 交易操作卡片 */
+.trading-operation-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.trading-operation-card h3 {
+    margin-bottom: 12px;
+    color: var(--text-color);
+}
+
+.trading-operation-card p {
+    margin-bottom: 16px;
+}
+
+/* 账户卡片样式 */
+.account-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.account-card-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.account-card-value {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.account-card-value.profit {
+    color: var(--success-color);
+}
+
+.account-card-value.loss {
+    color: var(--danger-color);
+}
+
+/* 账户总览容器 */
+.account-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+/* 快速操作容器 */
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}

@@ -1,0 +1,26 @@
+# ============================================
+# A股量化选股系统 - 主配置文件模板
+# ============================================
+# 使用说明：
+# 1. 复制此文件为 config.yaml
+# 2. 填入你的钉钉机器人配置
+# 3. 不要提交 config.yaml 到Git仓库（已加入.gitignore）
+
+data_dir: data
+
+# 钉钉机器人配置
+# 1. 在钉钉群中添加自定义机器人
+# 2. 复制 webhook URL 和加签密钥
+# 3. 填入下方（去掉引号内的占位符）
+dingtalk:
+  webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN_HERE"
+  secret: "YOUR_SECRET_HERE"
+
+# 定时任务配置
+schedule:
+  time: "17:00"  # 每日执行时间
+
+# 数据更新配置
+update:
+  lookback_days: 10
+  skip_failed: true

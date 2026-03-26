@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>形态猎手-KHunter</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/trading.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏 -->
+        <nav class="sidebar">
+            <div class="logo">
+                <img src="/static/images/logo.svg" alt="KHunter Logo" class="logo-img" style="width: 60px; height: 60px; margin-bottom: 10px;">
+                <h1>形态猎手KHunter</h1>
+            </div>
+            <ul class="nav-menu">
+                <!-- 驾驶舱 -->
+                <li class="nav-group-title">驾驶舱</li>
+                <li class="nav-item active" data-page="dashboard">
+                    <span class="icon">🏠</span> 市场速览
+                </li>
+                
+                <!-- 形态选股 -->
+                <li class="nav-group-title">形态选股</li>
+                <li class="nav-item" data-page="selection">
+                    <span class="icon">⚡</span> 选股结果
+                </li>
+                <li class="nav-item" data-page="history">
+                    <span class="icon">📊</span> 历史选股
+                </li>
+                <li class="nav-item" data-page="strategies">
+                    <span class="icon">⚙️</span> 策略配置
+                </li>
+                               
+                <!-- 模拟交易 -->
+                <li class="nav-group-title">模拟交易</li>
+                <li class="nav-item" data-page="trading">
+                    <span class="icon">💼</span> 账户总览
+                </li>
+                <li class="nav-item" data-page="positions">
+                    <span class="icon">📋</span> 持仓明细
+                </li>
+                <li class="nav-item" data-page="transactions">
+                    <span class="icon">📜</span> 交易历史
+                </li>
+                
+                <!-- 数据管理 -->
+                <li class="nav-group-title">数据管理</li>
+                <li class="nav-item" data-page="stocks">
+                    <span class="icon">📊</span> 基础数据
+                </li>
+                <li class="nav-item nav-action" onclick="triggerUpdate()">
+                    <span class="icon">🔄</span> 数据更新
+                </li>
+                 <!-- 技术分析 （待完善）-->
+                <li class="nav-group-title">技术分析（待完善）</li>
+                <li class="nav-item" data-page="analysis">
+                    <span class="icon">📈</span> 个股图谱
+                </li>
+                <!-- 系统设置 （待开发）-->
+                <li class="nav-group-title">系统设置（待开发）</li>
+                <li class="nav-item" data-page="personal">
+                    <span class="icon">👤</span> 个人设置
+                </li>
+                <li class="nav-item" data-page="preference">
+                    <span class="icon">⚙️</span> 偏好配置
+                </li>
+            </ul>
+
+        </nav>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 顶部栏 -->
+            <header class="header">
+                <h2 id="page-title">系统概览</h2>
+                <div class="header-actions">
+                    <!-- 账户选择器 -->
+                    <div class="account-selector" id="account-selector-container" style="display: none;">
+                        <select id="account-selector" class="account-select" onchange="switchAccount()">
+                            <option value="">加载账户中...</option>
+                        </select>
+                    </div>
+                    
+                    <button class="btn btn-primary" id="run-selection-btn">
+                        <span class="icon">▶️</span> 执行选股
+                    </button>
+                    <span class="status-indicator" id="status-indicator">
+                        <span class="dot green"></span> 就绪
+                    </span>
+                </div>
+            </header>
+
+            <!-- 页面内容 -->
+            <div class="content">
+                <!-- 概览页 -->
+                <div id="dashboard-page" class="page active">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-info">
+                                <h3 id="stat-stocks">-</h3>
+                                <p>股票数量</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">📅</div>
+                            <div class="stat-info">
+                                <h3 id="stat-date">-</h3>
+                                <p>最新数据</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🎯</div>
+                            <div class="stat-info">
+                                <h3 id="stat-strategies">-</h3>
+                                <p>策略数量</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 数据更新进度 -->
+                    <div id="update-progress-card" class="card" style="display: none;">
+                        <h3>📊 数据更新进度</h3>
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-info">
+                                <span id="progress-text">准备中...</span>
+                                <span id="progress-percent">0%</span>
+                            </div>
+                        </div>
+                        <div class="update-stats">
+                            <div class="stat-item">
+                                <span class="label">成功:</span>
+                                <span id="update-success" class="value">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="label">失败:</span>
+                                <span id="update-failed" class="value">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="label">状态:</span>
+                                <span id="update-message" class="value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 股票列表页 -->
+                <div id="stocks-page" class="page">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>基础数据</h3>
+                            <input type="text" id="stock-search" placeholder="搜索股票代码或名称..." class="search-input">
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table" id="stocks-table">
+                                <thead>
+                                    <tr>
+                                        <th>股票代码</th>
+                                        <th>股票名称</th>
+                                        <th>最新价</th>
+                                        <th>最新日期</th>
+                                        <th>市值(亿)</th>
+                                        <th>数据条数</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stocks-tbody">
+                                    <tr><td colspan="7" class="loading">加载中...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 选股结果页 -->
+                <div id="selection-page" class="page">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>选股结果</h3>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <span id="selection-time" class="text-muted"></span>
+                                <button class="btn btn-primary" id="save-selection-btn" onclick="saveSelectionResults()" style="display:none;">
+                                    <span class="icon">💾</span> 保存结果
+                                </button>
+                            </div>
+                        </div>
+                        <div id="selection-results">
+                            <p class="placeholder">点击"执行选股"按钮开始选股</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 选股历史页 -->
+                <div id="history-page" class="page">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>📊 选股历史查询</h3>
+                        </div>
+                        
+                        <!-- 筛选条件 -->
+                        <div class="filter-section" style="background: #f9fafb; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                                <div>
+                                    <label style="font-size: 12px; font-weight: 600; color: #374151; display: block; margin-bottom: 5px;">选股方案</label>
+                                    <select id="history-strategy-filter" style="width: 100%; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; background-color: white;">
+                                        <option value="">全部策略</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size: 12px; font-weight: 600; color: #374151; display: block; margin-bottom: 5px;">开始日期</label>
+                                    <input type="date" id="history-start-date" style="width: 100%; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
+                                </div>
+                                <div>
+                                    <label style="font-size: 12px; font-weight: 600; color: #374151; display: block; margin-bottom: 5px;">结束日期</label>
+                                    <input type="date" id="history-end-date" style="width: 100%; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="searchSelectionHistory()" style="padding: 6px 12px; font-size: 12px;">🔍 查询</button>
+                                <button class="btn btn-secondary" onclick="resetHistoryFilters()" style="padding: 6px 12px; font-size: 12px;">↺ 重置</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 结果统计 -->
+                        <div id="history-stats" style="display: none; background: #f0f9ff; padding: 10px; border-left: 4px solid #0284c7; border-radius: 4px; margin-bottom: 15px; font-size: 12px;">
+                            <span>总记录: <strong id="history-total">0</strong> | 当前页: <strong id="history-current-page">1</strong> / <strong id="history-total-pages">1</strong></span>
+                        </div>
+                        
+                        <!-- 表格 -->
+                        <div class="table-container">
+                            <table class="data-table" id="history-table" style="display: none;">
+                                <thead>
+                                    <tr>
+                                        <th>选股方案</th>
+                                        <th>股票代码</th>
+                                        <th>股票名称</th>
+                                        <th>选入日期</th>
+                                        <th>选入价格</th>
+                                        <th>当前价格</th>
+                                        <th>最高/最低</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-tbody">
+                                </tbody>
+                            </table>
+                            <div id="history-empty" style="text-align: center; padding: 40px; color: #6b7280;">
+                                <p>暂无数据，请调整筛选条件后重试</p>
+                            </div>
+                        </div>
+                        
+                        <!-- 分页 -->
+                        <div id="history-pagination" style="display: none; text-align: center; margin-top: 15px; font-size: 12px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模拟交易页 -->
+                <div id="trading-page" class="page">
+                    <div class="trading-container">
+                        <!-- 账户总览 -->
+                        <div id="trading-account-summary"></div>
+                        
+                        <!-- 快速操作 -->
+                        <div id="trading-quick-actions"></div>
+                        
+                        <!-- 主要内容区 -->
+                        <div id="trading-main-content"></div>
+                    </div>
+                </div>
+
+                <!-- 持仓明细页 -->
+                <div id="positions-page" class="page">
+                    <div class="trading-container">
+                        <!-- 持仓列表 -->
+                        <div id="positions-content"></div>
+                    </div>
+                </div>
+
+                <!-- 交易历史页 -->
+                <div id="transactions-page" class="page">
+                    <div class="trading-container">
+                        <!-- 交易记录 -->
+                        <div id="transactions-content"></div>
+                    </div>
+                </div>
+
+                <!-- 策略配置页 -->
+                <div id="strategies-page" class="page">
+                    <!-- 策略列表视图 -->
+                    <div id="strategies-list-view">
+                        <div class="strategies-grid" id="strategies-grid">
+                            <!-- 动态生成策略卡片 -->
+                        </div>
+                    </div>
+
+                    <!-- 策略详情视图 -->
+                    <div id="strategies-detail-view" style="display: none;">
+                        <button class="btn btn-secondary" onclick="backToStrategyList()" style="margin-bottom: 20px;">
+                            <span class="icon">←</span> 返回列表
+                        </button>
+                        <div class="card">
+                            <div class="strategy-detail-header">
+                                <div class="strategy-detail-title">
+                                    <span id="detail-icon" class="strategy-icon"></span>
+                                    <div>
+                                        <h2 id="detail-name"></h2>
+                                        <p id="detail-description" class="text-muted"></p>
+                                    </div>
+                                </div>
+                                <div id="detail-color" class="strategy-color-indicator"></div>
+                            </div>
+
+                            <div class="strategy-detail-content">
+                                <div class="detail-section">
+                                    <h4>策略原理</h4>
+                                    <p id="detail-principle"></p>
+                                </div>
+
+                                <div class="detail-section">
+                                    <h4>参数配置</h4>
+                                    <div id="strategy-params-form">
+                                        <!-- 动态生成参数表单 -->
+                                    </div>
+                                </div>
+
+                                <div class="detail-actions" style="display: flex; gap: 12px; margin-top: 20px;">
+                                    <button class="btn btn-primary" onclick="saveStrategyParams()">
+                                        <span class="icon">💾</span> 保存参数
+                                    </button>
+                                    <button class="btn btn-secondary" onclick="resetStrategyParams()">
+                                        <span class="icon">🔄</span> 恢复默认
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 股票分析页 -->
+                <div id="analysis-page" class="page">
+                    <!-- 分析表单卡片 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>股票分析报告</h3>
+                        </div>
+                        <div class="card-body">
+                            <!-- 分析表单 -->
+                            <form id="analysis-form" class="analysis-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="stock-code">股票代码</label>
+                                        <input type="text" id="stock-code" name="stock-code" placeholder="例如: 600519" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="period">分析周期</label>
+                                        <select id="period" name="period">
+                                            <option value="30d">30天</option>
+                                            <option value="60d">60天</option>
+                                            <option value="90d">90天</option>
+                                            <option value="1y">1年</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="submit" id="analyze-btn" class="btn btn-primary">
+                                            <span id="btn-text">开始分析</span>
+                                            <span id="loading" class="loading hidden" style="display: none;">⏳</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- 分析结果 -->
+                    <div id="analysis-result" class="analysis-result hidden">
+                        <!-- 顶部：基本信息 + 结论 -->
+                        <div class="analysis-header">
+                            <div class="header-info">
+                                <div class="info-item">
+                                    <span class="label">股票名称</span>
+                                    <span id="stock-name" class="value"></span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="label">股票代码</span>
+                                    <span id="stock-code-display" class="value"></span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="label">所属行业</span>
+                                    <span id="stock-industry" class="value"></span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="label">所属板块</span>
+                                    <span id="stock-sector" class="value"></span>
+                                </div>
+                            </div>
+                            <div class="header-conclusion">
+                                <div class="conclusion-item">
+                                    <span class="label">评级</span>
+                                    <span id="conclusion-rating" class="value rating"></span>
+                                </div>
+                                <div class="conclusion-item">
+                                    <span class="label">理由</span>
+                                    <span id="conclusion-reason" class="value"></span>
+                                </div>
+                                <div class="conclusion-item">
+                                    <span class="label">风险</span>
+                                    <span id="conclusion-risk" class="value"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 中间：技术面 + 基本面 -->
+                        <div class="analysis-grid">
+                            <!-- 技术面分析 -->
+                            <div class="analysis-card">
+                                <h4>技术面分析</h4>
+                                <div class="analysis-content">
+                                    <div class="metric-row">
+                                        <span class="metric-label">趋势</span>
+                                        <span id="technical-trend" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">MACD</span>
+                                        <span id="technical-macd" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">KDJ</span>
+                                        <span id="technical-kdj" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">RSI</span>
+                                        <span id="technical-rsi" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Bollinger</span>
+                                        <span id="technical-bollinger" class="metric-value"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 基本面分析 -->
+                            <div class="analysis-card">
+                                <h4>基本面分析</h4>
+                                <div class="analysis-content">
+                                    <div class="metric-group">
+                                        <div class="group-title">财务指标</div>
+                                        <div class="metric-row">
+                                            <span class="metric-label">营业收入</span>
+                                            <span id="fundamental-revenue" class="metric-value"></span>
+                                        </div>
+                                        <div class="metric-row">
+                                            <span class="metric-label">净利润</span>
+                                            <span id="fundamental-profit" class="metric-value"></span>
+                                        </div>
+                                        <div class="metric-row">
+                                            <span class="metric-label">ROE</span>
+                                            <span id="fundamental-roe" class="metric-value"></span>
+                                        </div>
+                                    </div>
+                                    <div class="metric-group">
+                                        <div class="group-title">估值指标</div>
+                                        <div class="metric-row">
+                                            <span class="metric-label">PE</span>
+                                            <span id="fundamental-pe" class="metric-value"></span>
+                                        </div>
+                                        <div class="metric-row">
+                                            <span class="metric-label">PB</span>
+                                            <span id="fundamental-pb" class="metric-value"></span>
+                                        </div>
+                                        <div class="metric-row">
+                                            <span class="metric-label">PS</span>
+                                            <span id="fundamental-ps" class="metric-value"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 底部：资金流向 + 板块分析 -->
+                        <div class="analysis-grid">
+                            <!-- 资金流向分析 -->
+                            <div class="analysis-card">
+                                <h4>资金流向分析</h4>
+                                <div class="analysis-content">
+                                    <div class="metric-row">
+                                        <span class="metric-label">资金流向</span>
+                                        <span id="fund-flow-direction" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">主力净流入</span>
+                                        <span id="fund-flow-main-inflow" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">成交量趋势</span>
+                                        <span id="fund-flow-volume-trend" class="metric-value"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 板块分析 -->
+                            <div class="analysis-card">
+                                <h4>板块分析</h4>
+                                <div class="analysis-content">
+                                    <div class="metric-row">
+                                        <span class="metric-label">板块名称</span>
+                                        <span id="sector-name" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">涨跌幅</span>
+                                        <span id="sector-change" class="metric-value"></span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">板块表现</span>
+                                        <span id="sector-performance" class="metric-value"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="analysis-actions">
+                            <button id="export-btn" class="btn btn-secondary">
+                                <span class="icon">📥</span> 导出报告
+                            </button>
+                            <button id="new-analysis-btn" class="btn btn-primary">
+                                <span class="icon">🔄</span> 重新分析
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 历史分析记录 -->
+                    <div class="card" style="margin-top: 24px;">
+                        <div class="card-header">
+                            <h3>历史分析记录</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="history-container">
+                                <!-- 历史记录将通过JavaScript动态添加 -->
+                                <p class="text-muted">暂无分析记录</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 股票详情弹窗 -->
+    <div id="stock-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">股票详情</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <canvas id="stock-chart" width="800" height="400"></canvas>
+                <div class="stock-info" id="stock-info"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 策略选择对话框 -->
+    <div id="strategy-selection-modal" class="modal">
+        <div class="modal-content" style="max-width: 700px; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h3>选择执行策略</h3>
+                <button class="close-btn" onclick="closeStrategyModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="flex: 1; overflow-y: auto; min-height: 0;">
+                <div class="logic-selector" style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 12px; font-weight: 600;">选股逻辑：</label>
+                    <div style="display: flex; gap: 40px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" name="logic" value="or" checked>
+                            <span>OR（并集）- 任意策略选中即可</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" name="logic" value="and">
+                            <span>AND（交集）- 所有策略都选中</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="strategy-list" id="strategy-list">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border-color); flex-shrink: 0;">
+                <div class="modal-actions" style="display: flex; gap: 12px; margin: 0;">
+                    <button class="btn btn-secondary" onclick="closeStrategyModal()" style="flex: 1;">取消</button>
+                    <button class="btn btn-primary" onclick="confirmStrategySelection()" style="flex: 1;">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=9"></script>
+    <script src="/static/js/trading.js"></script>
+</body>
+</html>

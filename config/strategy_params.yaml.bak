@@ -1,0 +1,203 @@
+strategies:
+  B1PatternMatch:
+    color: '#06b6d4'
+    description: B1形态的历史相似度匹配
+    display_name: B1形态匹配
+    icon: 📊
+    param_details:
+      lookback_days:
+        default: 25
+        description: 向前回看的交易日数
+        display_name: 回看天数
+        group: 匹配参数
+        max: 60
+        min: 10
+        type: int
+      min_similarity:
+        default: 60.0
+        description: 形态相似度的最小阈值(0-100)
+        display_name: 最小相似度
+        group: 匹配参数
+        max: 100.0
+        min: 30.0
+        type: float
+      top_n_results:
+        default: 15
+        description: 显示Top N个匹配结果
+        display_name: 结果数量
+        group: 匹配参数
+        max: 50
+        min: 5
+        type: int
+    param_groups:
+    - description: 控制形态匹配的参数
+      name: 匹配参数
+    params:
+      lookback_days: 25
+      min_similarity: 60.0
+      tolerances:
+        drawdown: 15
+        j_value: 30
+        price_bias: 10
+        trend_ratio: 0.1
+        trend_spread: 10
+      top_n_results: 15
+      weights:
+        kdj_state: 0.2
+        price_shape: 0.25
+        trend_structure: 0.3
+        volume_pattern: 0.25
+  BowlReboundStrategy:
+    color: '#8b5cf6'
+    description: 知行趋势线与多空线的碗口反弹形态
+    display_name: 碗口反弹策略
+    icon: 🍲
+    param_details:
+      CAP:
+        default: 40
+        description: 总市值大于此值(单位:亿元)
+        display_name: 总市值(亿)
+        group: 阈值参数
+        max: 500
+        min: 10
+        type: int
+      J_VAL:
+        default: 30
+        description: J值低于此值认为超卖
+        display_name: J值上限
+        group: 阈值参数
+        max: 100
+        min: 0
+        type: int
+      M:
+        default: 15
+        description: 在M天内存在关键K线
+        display_name: 回溯天数
+        group: 时间参数
+        max: 60
+        min: 5
+        type: int
+      M1:
+        default: 14
+        description: 多空线计算的第一个均线周期
+        display_name: 均线周期1
+        group: 均线参数
+        max: 30
+        min: 5
+        type: int
+      M2:
+        default: 28
+        description: 多空线计算的第二个均线周期
+        display_name: 均线周期2
+        group: 均线参数
+        max: 60
+        min: 10
+        type: int
+      M3:
+        default: 57
+        description: 多空线计算的第三个均线周期
+        display_name: 均线周期3
+        group: 均线参数
+        max: 120
+        min: 20
+        type: int
+      M4:
+        default: 114
+        description: 多空线计算的第四个均线周期
+        display_name: 均线周期4
+        group: 均线参数
+        max: 240
+        min: 40
+        type: int
+      N:
+        default: 4
+        description: 成交量是前一天的N倍以上
+        display_name: 成交量倍数
+        group: 阈值参数
+        max: 10
+        min: 1
+        type: int
+      duokong_pct:
+        default: 3
+        description: 距离多空线的百分比范围
+        display_name: 多空线偏离(%)
+        group: 阈值参数
+        max: 10
+        min: 1
+        type: float
+      short_pct:
+        default: 2
+        description: 距离短期趋势线的百分比范围
+        display_name: 趋势线偏离(%)
+        group: 阈值参数
+        max: 10
+        min: 1
+        type: float
+    param_groups:
+    - description: 控制回溯时间范围的参数
+      name: 时间参数
+    - description: 控制信号强度的参数
+      name: 阈值参数
+    - description: 控制多空线计算的参数
+      name: 均线参数
+    params:
+      CAP: 44
+      J_VAL: 34
+      M: 19
+      M1: 18
+      M2: 32
+      M3: 61
+      M4: 118
+      N: 7
+      duokong_pct: 7
+      short_pct: 6
+  MorningStarStrategy:
+    color: '#f59e0b'
+    description: 三根K线底部反转形态识别
+    display_name: 启明星策略
+    icon: ⭐
+    param_details:
+      long_candle_ratio:
+        default: 0.5
+        description: 第三根K线实体与第一根K线实体的最小比例
+        display_name: 长阳线比例
+        group: 形态参数
+        max: 1.0
+        min: 0.3
+        type: float
+      lookback_days:
+        default: 30
+        description: 向前回溯的交易日数，在此范围内寻找启明星形态
+        display_name: 回溯天数
+        group: 时间参数
+        max: 100
+        min: 5
+        type: int
+      small_body_ratio:
+        default: 0.3
+        description: 第二根K线实体与第一根K线实体的比例阈值
+        display_name: 小实体比例
+        group: 形态参数
+        max: 0.5
+        min: 0.1
+        type: float
+      volume_ratio:
+        default: 1.5
+        description: 第三根K线成交量与第二根K线的比例
+        display_name: 成交量比例
+        group: 成交量参数
+        max: 5.0
+        min: 0.5
+        type: float
+    param_groups:
+    - description: 控制回溯时间范围的参数
+      name: 时间参数
+    - description: 控制K线形态识别的参数
+      name: 形态参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    params:
+      long_candle_ratio: 0.5
+      lookback_days: 20
+      small_body_ratio: 0.3
+      volume_ratio: 1.5

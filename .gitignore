@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data files (large, should not be committed)
+data/
+!data/.gitkeep
+
+# Logs
+*.log
+
+# Config with sensitive info (user should create their own)
+config/config.yaml
+config/config_local.yaml
+config/github.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# One-off scripts (not part of main workflow)
+fix_market_cap.py
