@@ -36,8 +36,13 @@
 
 ```bash
 # 1. 克隆项目
+<<<<<<< HEAD
 git clone https://github.com/ling-0729/kHunter.git
 cd kHunter
+=======
+git clone https://github.com/your-repo/kunter.git
+cd kunter
+>>>>>>> 06889daeebf480980b17d9eef35580e0ecc9e412
 
 # 2. 安装依赖
 pip install -r requirements.txt
