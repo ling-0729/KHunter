@@ -36,13 +36,8 @@
 
 ```bash
 # 1. 克隆项目
-<<<<<<< HEAD
-git clone https://github.com/ling-0729/kHunter.git
-cd kHunter
-=======
-git clone https://github.com/your-repo/kunter.git
-cd kunter
->>>>>>> 06889daeebf480980b17d9eef35580e0ecc9e412
+git clone https://github.com/ling-0729/KHunter.git
+cd KHunter
 
 # 2. 安装依赖
 pip install -r requirements.txt
@@ -83,9 +78,6 @@ python main.py web
 ```bash
 # 首次全量抓取6年历史数据
 python main.py init
-
-# 完整流程：更新数据 → 执行选股
-python main.py run
 
 # 启动Web界面（默认端口5000）
 python main.py web
