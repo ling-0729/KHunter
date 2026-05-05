@@ -42,7 +42,32 @@ class KHunterDAO:
         """
         # db_manager: 数据库管理器，类型object，必填
         self.db_manager = db_manager
+        # 检查并添加缺失的字段
+        self._ensure_table_columns()
         logger.info("KHunter DAO 初始化完成")
+    
+    def _ensure_table_columns(self):
+        """
+        确保表包含所需的字段，如果缺失则添加
+        """
+        try:
+            # 查询表的现有字段
+            result = self.db_manager.query(f"PRAGMA table_info({self.TABLE_NAME})")
+            existing_columns = {row['name'] for row in result}
+            
+            # 需要检查的字段
+            required_columns = [
+                ('key_date', 'TEXT')
+            ]
+            
+            # 检查每个字段是否存在
+            for column_name, column_type in required_columns:
+                if column_name not in existing_columns:
+                    # 添加缺失的字段
+                    self.db_manager.execute(f"ALTER TABLE {self.TABLE_NAME} ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+                    logger.info(f"为表 {self.TABLE_NAME} 添加缺失字段: {column_name} ({column_type})")
+        except Exception as e:
+            logger.warning(f"检查表 {self.TABLE_NAME} 的字段时出错: {e}")
     
     # ==================== 公开方法 ====================
     

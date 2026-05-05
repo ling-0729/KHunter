@@ -82,6 +82,9 @@ class DatabaseInitializer:
             else:
                 logger.warning(f"数据库表定义脚本不存在: {data_sql_path}")
             
+            # 检查并添加缺失的字段
+            self._check_and_add_missing_columns(cursor)
+            
             # 验证新增表是否创建成功
             self._verify_new_tables(cursor)
             
@@ -206,6 +209,35 @@ class DatabaseInitializer:
             logger.info(f"所有新增表创建成功: {', '.join(new_tables)}")
         
         return len(missing_tables) == 0
+    
+    def _check_and_add_missing_columns(self, cursor):
+        """
+        检查并添加缺失的字段
+        
+        Args:
+            cursor: 数据库游标
+        """
+        # 定义需要检查的表和字段
+        table_columns = {
+            'khunter': [
+                ('key_date', 'TEXT', '关键日期信息')
+            ]
+        }
+        
+        for table_name, columns in table_columns.items():
+            try:
+                # 查询表的现有字段
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                existing_columns = {row[1] for row in cursor.fetchall()}
+                
+                # 检查每个字段是否存在
+                for column_name, column_type, description in columns:
+                    if column_name not in existing_columns:
+                        # 添加缺失的字段
+                        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+                        logger.info(f"为表 {table_name} 添加缺失字段: {column_name} ({column_type}) - {description}")
+            except Exception as e:
+                logger.warning(f"检查表 {table_name} 的字段时出错: {e}")
     
     def check_databases_exist(self) -> bool:
         """

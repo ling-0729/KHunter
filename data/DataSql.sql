@@ -783,6 +783,8 @@ CREATE TABLE IF NOT EXISTS khunter (
     -- score_date: 评分对应的日期，类型DATE，可选，格式YYYY-MM-DD，用于调用评分API时传递正确的日期
     selection_record_id INTEGER,
     -- selection_record_id: 关联的选股记录ID，类型INTEGER，可选，外键关联stock_selection_record
+    key_date TEXT,
+    -- key_date: 关键日期信息，类型TEXT，可选，JSON格式，存储策略的关键日期
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- created_at: 创建时间，类型DATETIME，必填，默认当前时间
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
