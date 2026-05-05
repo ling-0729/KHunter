@@ -1,0 +1,93 @@
+# ============================================
+# 策略支撑位计算方法配置
+# ============================================
+# 说明：定义每个策略使用的支撑位计算方法
+# 支持的方法：ma20、key_close_5、key_open、key_close
+# 默认方法：ma20
+
+# 支撑位计算方法说明：
+# - ma20: 使用 20 日均线作为支撑位
+# - key_close_5: 使用关键日收盘价下跌 5% 作为支撑位
+# - key_open: 使用关键日开盘价作为支撑位
+# - key_close: 使用关键日收盘价作为支撑位
+
+strategies:
+  # 仙人指路策略
+  ImmortalGuidanceStrategy:
+    support_method: key_close_5
+    description: 仙人指路形态，使用关键日收盘价下跌5%作为支撑位
+
+  # 涨停回马枪策略
+  LimitUpPullbackStrategy:
+    support_method: key_close_5
+    description: 涨停后回调再次上涨，使用关键日收盘价下跌5%作为支撑位
+
+  # 多金叉共振策略
+  MultiGoldenCrossStrategy:
+    support_method: ma20
+    description: 多指标金叉共振，使用20日均线作为支撑位
+
+  # 多方炮策略
+  MultiPartyCannonStrategy:
+    support_method: key_open
+    description: 两阳夹一阴形态，使用关键日开盘价作为支撑位
+
+  # 阻力位突破策略
+  ResistanceBreakoutStrategy:
+    support_method: key_close_5
+    description: 突破关键阻力位，使用关键日收盘价下跌5%作为支撑位
+
+  # 强势洗盘弱转强策略
+  StrongWashWeakToStrongStrategy:
+    support_method: key_close
+    description: 放量洗盘后反包，使用关键日收盘价作为支撑位
+
+  # 趋势加速拐点策略
+  TrendAccelerationInflectionStrategy:
+    support_method: key_close_5
+    description: 上升趋势加速拐点，使用关键日收盘价下跌5%作为支撑位
+
+  # W底策略
+  WBottomStrategy:
+    support_method: ma20
+    description: W底双底反转形态，使用20日均线作为支撑位
+
+  # 涨停横盘策略
+  LimitUpSidewaysStrategy:
+    support_method: key_close_5
+    description: 涨停后横盘整理，使用关键日收盘价下跌5%作为支撑位
+
+  # 启明星策略
+  MorningStarStrategy:
+    support_method: ma20
+    description: 三根K线启明星形态，使用20日均线作为支撑位
+
+  # 底部趋势拐点策略
+  BottomTrendInflectionStrategy:
+    support_method: ma20
+    description: 深度下跌后底部反转，使用20日均线作为支撑位
+
+# 默认支撑位计算方法（当策略未配置时使用）
+default_support_method: ma20
+
+# 支撑位计算方法定义
+support_methods:
+  ma20:
+    name: 20日均线
+    description: 使用20日均线作为支撑位
+    requires_key_date: false
+    
+  key_close_5:
+    name: 关键日收盘价-5%
+    description: 使用关键日收盘价下跌5%作为支撑位
+    requires_key_date: true
+    
+  key_open:
+    name: 关键日开盘价
+    description: 使用关键日开盘价作为支撑位
+    requires_key_date: true
+    
+  key_close:
+    name: 关键日收盘价
+    description: 使用关键日收盘价作为支撑位
+    requires_key_date: true

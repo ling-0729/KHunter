@@ -1,0 +1,628 @@
+/* KHunter 狩猎场 - 样式文件 */
+
+/* 顶部控制区 */
+.khunter-header {
+    margin-bottom: 24px;
+}
+
+.khunter-controls {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+}
+
+.form-control {
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.2s;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #E74C3C;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+/* 加载指示器 */
+.loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #f0f9ff;
+    border-radius: 6px;
+    color: #0284c7;
+    font-size: 14px;
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #0284c7;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 内容区 */
+.khunter-content {
+    margin-bottom: 24px;
+}
+
+.table-container {
+    overflow-x: auto;
+    width: 100%;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.data-table th,
+.data-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.data-table th {
+    font-weight: 600;
+    color: #6b7280;
+    background-color: #f9fafb;
+    text-transform: uppercase;
+    font-size: 12px;
+}
+
+.data-table tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+.data-table td {
+    color: #374151;
+}
+
+/* 股票代码链接 */
+.stock-link {
+    color: #E74C3C;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-bottom: 1px solid transparent;
+}
+
+.stock-link:hover {
+    color: #C0392B;
+    border-bottom-color: #E74C3C;
+    text-decoration: underline;
+}
+
+/* 评分链接 */
+.score-link {
+    color: #10b981;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-bottom: 1px solid transparent;
+}
+
+.score-link:hover {
+    color: #059669;
+    border-bottom-color: #10b981;
+    text-decoration: underline;
+}
+
+/* 占位符 */
+.placeholder {
+    text-align: center;
+    padding: 60px 20px;
+    color: #9ca3af;
+    font-size: 14px;
+}
+
+/* 分页控件 */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+}
+
+#page-info {
+    font-size: 14px;
+    color: #6b7280;
+    min-width: 100px;
+}
+
+/* 底部统计 */
+.khunter-footer {
+    margin-bottom: 24px;
+}
+
+.stats-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #f9fafb;
+    border-radius: 6px;
+}
+
+.stat-item .label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #6b7280;
+}
+
+.stat-item .value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #E74C3C;
+}
+
+/* 模态窗口 */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    overflow-y: auto;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 1000px;
+    max-height: 90vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    margin: auto;
+}
+
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #9ca3af;
+    transition: all 0.2s;
+}
+
+.close-btn:hover {
+    color: #374151;
+}
+
+/* 按钮样式 */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.btn-primary {
+    background: #E74C3C;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #C0392B;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.btn-success {
+    background: #10b981;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #059669;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-success:active {
+    transform: translateY(0);
+}
+
+.btn-secondary {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+.btn-secondary:hover {
+    background: #e5e7eb;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 文本样式 */
+.text-muted {
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.text-success {
+    color: #10b981;
+}
+
+.text-danger {
+    color: #ef4444;
+}
+
+.text-warning {
+    color: #f59e0b;
+}
+
+/* 加载动画 */
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #9ca3af;
+}
+
+.loading::after {
+    content: '';
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-left: 8px;
+    border: 2px solid #E74C3C;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+    .khunter-controls {
+        gap: 12px;
+    }
+    
+    .data-table {
+        font-size: 12px;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 8px;
+    }
+}
+
+@media (max-width: 768px) {
+    .khunter-controls {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-group {
+        width: 100%;
+    }
+    
+    .data-table {
+        font-size: 11px;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 6px;
+    }
+    
+    .modal-content {
+        width: 95%;
+        max-height: 95vh;
+    }
+    
+    .modal-header {
+        padding: 16px;
+    }
+    
+    .modal-body {
+        padding: 16px;
+    }
+    
+    .stat-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .pagination {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .khunter-controls {
+        grid-template-columns: 1fr;
+    }
+    
+    .data-table {
+        font-size: 10px;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 4px;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .modal-content {
+        width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+}
+
+/* 卡片样式 */
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.card-body {
+    padding: 0;
+}
+
+/* 页面容器 */
+.page {
+    display: none;
+}
+
+.page.active {
+    display: block;
+}
+
+/* 内容区 */
+.content {
+    padding: 24px;
+}
+
+/* 页面标题 */
+#page-title {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+/* 结果摘要 */
+#result-summary {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+/* 成功提示 */
+.alert {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.alert-success {
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.alert-error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.alert-warning {
+    background: #fffbeb;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.alert-info {
+    background: #f0f9ff;
+    color: #0c2d6b;
+    border: 1px solid #7dd3fc;
+}
+
+/* 策略执行器样式 */
+.execution-status {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.execution-status.status-idle {
+    background: #f0fdf4;
+    color: #16a34a;
+}
+
+.execution-status.status-running {
+    background: #fffbeb;
+    color: #d97706;
+    animation: pulse 1.5s infinite;
+}
+
+.execution-status.status-error {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.save-status {
+    display: none;
+    padding: 6px 12px;
+    background: #f0fdf4;
+    color: #16a34a;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.save-status.show {
+    display: inline-block;
+}
+
+.strategy-combo-item {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+}
+
+.combo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.combo-body {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.combo-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.combo-field label {
+    font-weight: 600;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.combo-field span {
+    color: #1f2937;
+    font-size: 13px;
+}
+
+.plan-list-item {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.plan-list-item:hover {
+    background: #f3f4f6;
+}
+
+.plan-list-item.active {
+    background: #e74c3c;
+    color: white;
+}
+
+.plan-list-item.active .text-muted {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.log-container {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #374151;
+}

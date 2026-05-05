@@ -1,0 +1,36 @@
+# 策略名称映射配置
+# 将策略的英文类名映射到中文名称
+# 格式: 英文类名: 中文名称
+
+strategy_names:
+  # 选股策略
+  ContinuousRisingWithVolumeStrategyV2: 连阳回调策略
+  ResistanceBreakoutStrategy: 阻力位突破策略
+  TrendAccelerationInflectionStrategy: 趋势加速拐点
+  MorningStarStrategy: 启明星策略
+  MultiGoldenCrossStrategy: 多金叉共振
+  MultiPartyCannonStrategy: 多方炮策略
+  BottomTrendInflectionStrategy: 底部趋势拐点
+  LimitUpPullbackStrategy: 涨停回马枪策略
+  LimitUpSidewaysStrategy: 涨停横盘策略
+  StrongWashWeakToStrongStrategy: 强势洗盘弱转强
+  WBottomStrategy: W底策略
+  ImmortalGuidanceStrategy: 仙人指路策略
+  MA20MA60Strategy: 520560策略
+
+# 反向映射（中文名称到英文类名）
+# 自动生成，不需要手动维护
+reverse_mapping:
+  连阳回调策略: ContinuousRisingWithVolumeStrategyV2
+  阻力位突破策略: ResistanceBreakoutStrategy
+  趋势加速拐点: TrendAccelerationInflectionStrategy
+  启明星策略: MorningStarStrategy
+  多金叉共振: MultiGoldenCrossStrategy
+  多方炮策略: MultiPartyCannonStrategy
+  底部趋势拐点: BottomTrendInflectionStrategy
+  涨停回马枪策略: LimitUpPullbackStrategy
+  涨停横盘策略: LimitUpSidewaysStrategy
+  强势洗盘弱转强: StrongWashWeakToStrongStrategy
+  W底策略: WBottomStrategy
+  仙人指路策略: ImmortalGuidanceStrategy
+  520560策略: MA20MA60Strategy

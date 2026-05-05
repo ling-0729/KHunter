@@ -1,0 +1,70 @@
+# 策略凯莉公式配置
+# 用于根据胜率和盈亏比计算首次建仓金额
+# 公式: f* = (p × b - q) / b = (胜率 × 盈亏比 - 败率) / 盈亏比
+
+strategies:
+  WBottomStrategy:
+    win_rate: 0.28
+    profit_loss_ratio: 3.2
+    description: W底策略
+
+  ImmortalGuidanceStrategy:
+    win_rate: 0.28
+    profit_loss_ratio: 3.2
+    description: 仙人指路策略
+
+  LimitUpPullbackStrategy:
+    win_rate: 0.28
+    profit_loss_ratio: 3.2
+    description: 涨停回调策略
+
+  LimitUpSidewaysStrategy:
+    win_rate: 0.3
+    profit_loss_ratio: 3.2
+    description: 涨停横盘策略
+
+  MorningStarStrategy:
+    win_rate: 0.25
+    profit_loss_ratio: 3.5
+    description: 启明星策略
+
+  BottomTrendInflectionStrategy:
+    win_rate: 0.25
+    profit_loss_ratio: 3.5
+    description: 底部趋势拐点策略
+
+  ResistanceBreakoutStrategy:
+    win_rate: 0.3
+    profit_loss_ratio: 3.4
+    description: 阻力突破策略
+
+  StrongWashWeakToStrongStrategy:
+    win_rate: 0.25
+    profit_loss_ratio: 3.5
+    description: 强洗弱转强策略
+
+  MultiGoldenCrossStrategy:
+    win_rate: 0.3
+    profit_loss_ratio: 3.4
+    description: 多金叉共振策略
+
+  MultiPartyCannonStrategy:
+    win_rate: 0.25
+    profit_loss_ratio: 3.5
+    description: 多方炮策略
+
+  TrendAccelerationInflectionStrategy:
+    win_rate: 0.25
+    profit_loss_ratio: 3.5
+    description: 趋势加速拐点策略
+
+  _default_:
+    win_rate: 0.28
+    profit_loss_ratio: 3.2
+    description: 默认配置（策略未配置时使用）
+
+constraints:
+  min_kelly_ratio: 0.0
+  max_kelly_ratio: 0.30
+  max_position_ratio: 0.80
+  min_invest_amount: 100

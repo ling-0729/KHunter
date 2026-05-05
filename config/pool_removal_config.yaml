@@ -1,0 +1,81 @@
+# 股票池移除策略配置
+# 说明：配置哪些选股策略需要执行股票池移除，以及移除条件的参数
+# 择时策略（TurtleStrategy、SupportStrategy等）不用于选股，不参与股票池移除
+
+removal_strategies:
+  # 仙人指路策略
+  ImmortalGuidanceStrategy:
+    display_name: "仙人指路策略"
+    min_hold_days: 5
+    is_enabled: true
+    remark: "加入股票池后立即验证趋势"
+
+  # 阻力突破策略
+  ResistanceBreakoutStrategy:
+    display_name: "阻力位突破策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池5天后验证趋势"
+
+  # 底部反转策略
+  BottomTrendInflectionStrategy:
+    display_name: "底部趋势拐点"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池10天后验证趋势"
+
+  # W底策略
+  WBottomStrategy:
+    display_name: "W底策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池10天后验证趋势"
+
+  # 多重金叉策略
+  MultiGoldenCrossStrategy:
+    display_name: "多金叉共振策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池7天后验证趋势"
+
+  # 多方炮策略
+  MultiPartyCannonStrategy:
+    display_name: "多方炮策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池7天后验证趋势"
+
+  # 强洗弱转强策略
+  StrongWashWeakToStrongStrategy:
+    display_name: "强势洗盘弱转强策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池7天后验证趋势"
+
+  # 趋势加速拐点策略
+  TrendAccelerationInflectionStrategy:
+    display_name: "趋势加速拐点"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池7天后验证趋势"
+
+  # 涨停横盘策略
+  LimitUpSidewaysStrategy:
+    display_name: "涨停横盘策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池5天后验证趋势"
+
+  # 晨星策略
+  MorningStarStrategy:
+    display_name: "启明星策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池10天后验证趋势"
+
+  # 涨停回马枪策略
+  LimitUpPullbackStrategy:
+    display_name: "涨停回马枪策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池5天后验证趋势"

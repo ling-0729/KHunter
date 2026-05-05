@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KHunter Logo 预览</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        
+        h1 {
+            color: #1e3a8a;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+        
+        .logo-section {
+            margin-bottom: 40px;
+        }
+        
+        .logo-section h2 {
+            color: #2563eb;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        
+        .logo-display {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 30px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+        
+        .logo-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .logo-item p {
+            color: #666;
+            font-size: 14px;
+            margin: 0;
+        }
+        
+        svg {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #f9fafb;
+        }
+        
+        .logo-main {
+            width: 200px;
+            height: 200px;
+        }
+        
+        .logo-favicon {
+            width: 80px;
+            height: 80px;
+        }
+        
+        .description {
+            background: #f0f9ff;
+            border-left: 4px solid #0284c7;
+            padding: 20px;
+            text-align: left;
+            border-radius: 6px;
+            margin-top: 30px;
+        }
+        
+        .description h3 {
+            color: #1e3a8a;
+            margin-top: 0;
+        }
+        
+        .description ul {
+            color: #475569;
+            line-height: 1.8;
+        }
+        
+        .description li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 形态猎手 KHunter - Logo 设计</h1>
+        
+        <div class="logo-section">
+            <h2>主Logo</h2>
+            <div class="logo-display">
+                <div class="logo-item">
+                    <svg class="logo-main" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                        <!-- 背景圆形 -->
+                        <circle cx="100" cy="100" r="95" fill="#1e3a8a" opacity="0.1"/>
+                        
+                        <!-- 外圆环 -->
+                        <circle cx="100" cy="100" r="90" fill="none" stroke="#1e3a8a" stroke-width="2"/>
+                        
+                        <!-- 猎手的头部（三角形，代表猎手的帽子） -->
+                        <polygon points="100,30 130,70 70,70" fill="#2563eb" opacity="0.9"/>
+                        
+                        <!-- 猎手的身体（代表K线图） -->
+                        <g id="hunter-body">
+                            <!-- 左肩 -->
+                            <line x1="70" y1="70" x2="60" y2="100" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+                            <!-- 右肩 -->
+                            <line x1="130" y1="70" x2="140" y2="100" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+                            <!-- 躯干 -->
+                            <rect x="90" y="70" width="20" height="50" fill="#2563eb" opacity="0.8"/>
+                        </g>
+                        
+                        <!-- K线图表示（代表股票分析） -->
+                        <g id="chart" transform="translate(100, 120)">
+                            <!-- K线1 -->
+                            <line x1="-30" y1="-5" x2="-30" y2="15" stroke="#10b981" stroke-width="2"/>
+                            <rect x="-35" y="-5" width="10" height="10" fill="#10b981"/>
+                            
+                            <!-- K线2 -->
+                            <line x1="-10" y1="-15" x2="-10" y2="10" stroke="#ef4444" stroke-width="2"/>
+                            <rect x="-15" y="-10" width="10" height="8" fill="#ef4444"/>
+                            
+                            <!-- K线3 -->
+                            <line x1="10" y1="0" x2="10" y2="20" stroke="#10b981" stroke-width="2"/>
+                            <rect x="5" y="5" width="10" height="10" fill="#10b981"/>
+                            
+                            <!-- K线4 -->
+                            <line x1="30" y1="-10" x2="30" y2="15" stroke="#f59e0b" stroke-width="2"/>
+                            <rect x="25" y="-5" width="10" height="12" fill="#f59e0b"/>
+                        </g>
+                        
+                        <!-- 猎手的腿（代表向下的箭头，表示捕猎） -->
+                        <g id="hunter-legs">
+                            <!-- 左腿 -->
+                            <line x1="85" y1="120" x2="75" y2="155" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+                            <!-- 右腿 -->
+                            <line x1="115" y1="120" x2="125" y2="155" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+                        </g>
+                        
+                        <!-- 猎手的武器（代表上升的箭头，表示收益） -->
+                        <g id="weapon">
+                            <!-- 箭杆 -->
+                            <line x1="155" y1="100" x2="175" y2="60" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+                            <!-- 箭头 -->
+                            <polygon points="175,60 170,70 180,65" fill="#2563eb"/>
+                        </g>
+                        
+                        <!-- 装饰元素：上升趋势线 -->
+                        <path d="M 30 140 Q 60 120 90 100 T 150 60" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.6" stroke-dasharray="5,5"/>
+                        
+                        <!-- 文字：KHunter -->
+                        <text x="100" y="175" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#1e3a8a">KHunter</text>
+                    </svg>
+                    <p>主Logo (200x200)</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="logo-section">
+            <h2>Favicon (网站图标)</h2>
+            <div class="logo-display">
+                <div class="logo-item">
+                    <svg class="logo-favicon" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                        <!-- 背景 -->
+                        <rect width="64" height="64" fill="#1e3a8a" rx="8"/>
+                        
+                        <!-- 猎手的头部 -->
+                        <polygon points="32,8 44,24 20,24" fill="#2563eb"/>
+                        
+                        <!-- 猎手的身体 -->
+                        <rect x="28" y="24" width="8" height="16" fill="#2563eb"/>
+                        
+                        <!-- K线图表 -->
+                        <g transform="translate(32, 40)">
+                            <!-- K线1 -->
+                            <line x1="-10" y1="-2" x2="-10" y2="6" stroke="#10b981" stroke-width="1"/>
+                            <rect x="-12" y="-2" width="4" height="4" fill="#10b981"/>
+                            
+                            <!-- K线2 -->
+                            <line x1="0" y1="-5" x2="0" y2="4" stroke="#ef4444" stroke-width="1"/>
+                            <rect x="-2" y="-3" width="4" height="3" fill="#ef4444"/>
+                            
+                            <!-- K线3 -->
+                            <line x1="10" y1="0" x2="10" y2="8" stroke="#10b981" stroke-width="1"/>
+                            <rect x="8" y="2" width="4" height="4" fill="#10b981"/>
+                        </g>
+                        
+                        <!-- 上升箭头 -->
+                        <polygon points="48,20 52,28 44,28" fill="#10b981"/>
+                    </svg>
+                    <p>Favicon (64x64)</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="description">
+            <h3>📐 Logo 设计说明</h3>
+            <ul>
+                <li><strong>猎手形象</strong>：三角形头部代表猎手的帽子，身体代表K线图，象征系统的核心功能</li>
+                <li><strong>K线图表</strong>：中间的四条K线代表股票价格变动，展示系统的股票分析能力</li>
+                <li><strong>上升箭头</strong>：代表收益和上升趋势，体现系统的目标是帮助用户获利</li>
+                <li><strong>色彩搭配</strong>：
+                    <ul>
+                        <li>深蓝色 (#1e3a8a)：专业、稳定、信任</li>
+                        <li>蓝色 (#2563eb)：主体颜色，代表猎手</li>
+                        <li>绿色 (#10b981)：上升、收益、正向</li>
+                        <li>红色 (#ef4444)：下跌、风险、警示</li>
+                        <li>橙色 (#f59e0b)：中立、平衡</li>
+                    </ul>
+                </li>
+                <li><strong>设计理念</strong>：将"猎手"和"股票分析"完美结合，简洁而富有含义</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

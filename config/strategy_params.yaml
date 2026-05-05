@@ -1,0 +1,1579 @@
+strategies:
+  BottomTrendInflectionStrategy:
+    color: '#10b981'
+    description: 识别深度下跌后的底部反转拐点，通过深度下跌、MACD底背离、放量反弹的组合判断
+    display_name: 底部趋势拐点
+    icon: 🔻
+    param_details:
+      decline_threshold:
+        default: 0.45
+        description: 下跌幅度阈值，从最高点到最低点的下跌幅度
+        display_name: 下跌幅度(%)
+        group: 深度下跌条件
+        max: 0.6
+        min: 0.3
+        type: float
+      lookback_days:
+        default: 120
+        description: 回溯天数，用于寻找最高点和最低点
+        display_name: 回溯天数
+        group: 深度下跌条件
+        max: 250
+        min: 60
+        type: int
+      macd_divergence_days:
+        default: 20
+        description: MACD底背离时间窗口
+        display_name: 底背离窗口
+        group: MACD底背离条件
+        max: 40
+        min: 10
+        type: int
+      price_increase_threshold:
+        default: 0.08
+        description: 当日涨幅需要超过此值
+        display_name: 涨幅阈值(%)
+        group: 放量反弹条件
+        max: 0.15
+        min: 0.05
+        type: float
+      volume_ma_period:
+        default: 10
+        description: 成交量均值计算周期
+        display_name: 成交量周期
+        group: 放量反弹条件
+        max: 20
+        min: 5
+        type: int
+      volume_ratio_threshold:
+        default: 2.5
+        description: 当日成交量需要是成交量均值的此倍数以上
+        display_name: 成交量倍数
+        group: 放量反弹条件
+        max: 5.0
+        min: 1.5
+        type: float
+    param_groups:
+    - description: 控制深度下跌判断的参数
+      name: 深度下跌条件
+    - description: 控制MACD底背离判断的参数
+      name: MACD底背离条件
+    - description: 控制放量反弹判断的参数
+      name: 放量反弹条件
+    params:
+      decline_threshold: 0.45
+      lookback_days: 120
+      macd_divergence_days: 20
+      price_increase_threshold: 0.08
+      volume_ma_period: 10
+      volume_ratio_threshold: 2.5
+    support_method: ma20
+  ContinuousRisingWithVolumeStrategyV2:
+    color: '#8b5cf6'
+    description: 识别4~5天连阳后出现倍量阳线（收盘>MA5），随后缩量调整3~4天，捕捉回调买点
+    display_name: 连阳回调策略
+    icon: 📈
+    param_details:
+      body_ratio_min:
+        default: 0.01
+        description: 阳线最小实体比例（收盘-开盘）/开盘价
+        display_name: 阳线最小实体比例
+        group: 形态参数
+        max: 0.03
+        min: 0.005
+        type: float
+      enable_ma_filter:
+        default: true
+        description: 是否启用均线多头过滤（MA5>MA10>MA20）
+        display_name: 均线多头过滤
+        group: 趋势参数
+        type: bool
+      key_day_offset_max:
+        default: 4
+        description: 关键日距今最大天数（交易日）
+        display_name: 关键日最大距离(天)
+        group: 关键日参数
+        max: 7
+        min: 3
+        type: int
+      key_day_offset_min:
+        default: 3
+        description: 关键日距今最小天数（交易日）
+        display_name: 关键日最小距离(天)
+        group: 关键日参数
+        max: 5
+        min: 2
+        type: int
+      key_day_rise_min:
+        default: 0.07
+        description: 倍量阳线最小涨幅
+        display_name: 倍量阳线最小涨幅(%)
+        group: 倍量参数
+        max: 0.1
+        min: 0.01
+        type: float
+      ma_period:
+        default: 5
+        description: 均线周期（关键日收盘需站上该均线）
+        display_name: 均线周期
+        group: 趋势参数
+        max: 20
+        min: 5
+        type: int
+      max_adjust_days:
+        default: 4
+        description: 缩量调整最大天数
+        display_name: 缩量调整最大天数
+        group: 调整参数
+        max: 6
+        min: 3
+        type: int
+      max_consecutive_阳:
+        default: 5
+        description: 最大连续阳线天数
+        display_name: 最大连续阳线天数
+        group: 连阳参数
+        max: 8
+        min: 3
+        type: int
+      max_rally_pct:
+        default: 0.25
+        description: 连续阳线期间最大累计涨幅
+        display_name: 连阳最大累计涨幅
+        group: 形态参数
+        max: 0.35
+        min: 0.1
+        type: float
+      min_adjust_days:
+        default: 3
+        description: 缩量调整最小天数
+        display_name: 缩量调整最小天数
+        group: 调整参数
+        max: 6
+        min: 3
+        type: int
+      min_consecutive_阳:
+        default: 3
+        description: 最小连续阳线天数
+        display_name: 最小连续阳线天数
+        group: 连阳参数
+        max: 6
+        min: 3
+        type: int
+      strategy_weight:
+        default: 50
+        description: 技术面评分权重
+        display_name: 策略权重
+        group: 评分参数
+        max: null
+        min: null
+        type: int
+      trend_lookback_days:
+        default: 20
+        description: 趋势判断天数
+        display_name: 趋势判断天数
+        group: 趋势参数
+        max: 30
+        min: 10
+        type: int
+      trend_r_squared_threshold:
+        default: 0.3
+        description: 趋势R²阈值（趋势稳定性）
+        display_name: 趋势R²阈值
+        group: 趋势参数
+        max: 0.7
+        min: 0.1
+        type: float
+      volume_multiplier:
+        default: 2.2
+        description: 倍量阈值（当日成交量/前五日平均成交量）
+        display_name: 倍量阈值
+        group: 成交量参数
+        max: 3.0
+        min: 1.5
+        type: float
+    param_groups:
+    - description: 控制连续阳线判断的参数
+      name: 连阳参数
+    - description: 控制倍量阳线判断的参数
+      name: 倍量参数
+    - description: 控制关键日位置的参数
+      name: 关键日参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    - description: 控制缩量调整判断的参数
+      name: 调整参数
+    - description: 控制阳线形态的参数
+      name: 形态参数
+    - description: 控制趋势判断的参数
+      name: 趋势参数
+    params:
+      body_ratio_min: 0.01
+      enable_ma_filter: true
+      key_day_offset_max: 4
+      key_day_offset_min: 3
+      key_day_rise_min: 0.07
+      ma_period: 5
+      max_adjust_days: 4
+      max_consecutive_阳: 5
+      max_rally_pct: 0.25
+      min_adjust_days: 3
+      min_consecutive_阳: 3
+      strategy_weight: 50
+      trend_lookback_days: 20
+      trend_r_squared_threshold: 0.3
+      volume_multiplier: 2.2
+    support_method: key_open
+  ImmortalGuidanceStrategy:
+    color: '#f59e0b'
+    description: 识别仙人指路形态，通过冲高回落+长上影+放量+趋势向上的组合判断，筛选强势股回调买点
+    display_name: 仙人指路策略
+    icon: 🌟
+    param_details:
+      anti_body_ratio:
+        default: 0.5
+        description: 反包上影线比例
+        display_name: 反包比例
+        group: 反包参数
+        max: 0.6
+        min: 0.4
+        type: float
+      anti_body_window:
+        default: 4
+        description: 反包时间窗口(天)，且当天必须是反包日
+        display_name: 反包窗口(天)
+        group: 反包参数
+        max: 5
+        min: 1
+        type: int
+      ma_periods:
+        default:
+        - 5
+        - 10
+        - 20
+        description: 均线周期列表
+        display_name: 均线周期
+        group: 均线参数
+        max: null
+        min: null
+        type: list
+      strategy_weight:
+        default: 70
+        description: 技术面评分权重
+        display_name: 策略权重
+        group: 评分参数
+        max: null
+        min: null
+        type: int
+      surge_threshold:
+        default: 0.08
+        description: 冲高幅度阈值（筛选更强势信号）
+        display_name: 冲高幅度(%)
+        group: 上影线参数
+        max: 0.1
+        min: 0.05
+        type: float
+      trend_lookback_days:
+        default: 20
+        description: 趋势判断天数
+        display_name: 趋势天数
+        group: 趋势参数
+        max: 30
+        min: 10
+        type: int
+      trend_r_squared_threshold:
+        default: 0.5
+        description: 趋势R²阈值
+        display_name: 趋势R²
+        group: 趋势参数
+        max: 0.7
+        min: 0.3
+        type: float
+      upper_shadow_ratio:
+        default: 0.04
+        description: 上影线比例阈值（筛选更明显上影线）
+        display_name: 上影线比例(%)
+        group: 上影线参数
+        max: 0.05
+        min: 0.02
+        type: float
+      volume_ratio_max:
+        default: null
+        description: 放量上限倍数（null表示不设上限）
+        display_name: 放量上限
+        group: 成交量参数
+        max: null
+        min: null
+        type: float
+      volume_ratio_min:
+        default: 1.5
+        description: 放量下限倍数
+        display_name: 放量下限
+        group: 成交量参数
+        max: 2.0
+        min: 1.2
+        type: float
+    param_groups:
+    - description: 控制上影线识别的参数
+      name: 上影线参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    - description: 控制均线判断的参数
+      name: 均线参数
+    - description: 控制趋势判断的参数
+      name: 趋势参数
+    - description: 控制反包确认的参数
+      name: 反包参数
+    - description: 控制评分参数
+      name: 评分参数
+    params:
+      anti_body_ratio: 0.5
+      anti_body_window: 3
+      lookback_days: 3
+      ma_periods:
+        - 5
+        - 10
+        - 20
+      strategy_weight: 70
+      surge_threshold: 0.08
+      trend_lookback_days: 20
+      trend_r_squared_threshold: 0.5
+      upper_shadow_ratio: 0.04
+      volume_ratio_max: 'null'
+      volume_ratio_min: 1.5
+    support_method: key_open
+  LimitUpPullbackStrategy:
+    color: '#ef4444'
+    description: 识别涨停后回调再次上涨的形态，通过涨停、回调、KDJ金叉、MACD金叉等条件的组合判断
+    display_name: 涨停回马枪策略
+    icon: 🔫
+    param_details:
+      kdj_gold_cross_threshold:
+        default: 20
+        description: KDJ金叉阈值
+        display_name: KDJ金叉阈值
+        group: KDJ参数
+        max: 50
+        min: 10
+        type: int
+      limit_up_lookback_days:
+        default: 6
+        description: 涨停回溯天数
+        display_name: 涨停回溯天数
+        group: 涨停参数
+        max: 20
+        min: 5
+        type: int
+      limit_up_threshold:
+        default: 0.095
+        description: 涨停阈值
+        display_name: 涨停阈值(%)
+        group: 涨停参数
+        max: 0.12
+        min: 0.08
+        type: float
+      macd_gold_cross_days:
+        default: 3
+        description: MACD金叉天数
+        display_name: MACD金叉天数
+        group: MACD参数
+        max: 5
+        min: 1
+        type: int
+      pullback_days_max:
+        default: 7
+        description: 回调最大天数
+        display_name: 回调最大天数
+        group: 回调参数
+        max: 15
+        min: 3
+        type: int
+      pullback_days_min:
+        default: 1
+        description: 回调最小天数
+        display_name: 回调最小天数
+        group: 回调参数
+        max: 5
+        min: 1
+        type: int
+      pullback_range_max:
+        default: 0.15
+        description: 回调最大幅度
+        display_name: 回调最大幅度(%)
+        group: 回调参数
+        max: 0.3
+        min: 0.1
+        type: float
+      pullback_range_min:
+        default: 0.0
+        description: 回调最小幅度
+        display_name: 回调最小幅度(%)
+        group: 回调参数
+        max: 0.1
+        min: 0.0
+        type: float
+      support_ratio:
+        default: 0.95
+        description: 支撑比例（不破涨停收盘价的此比例）
+        display_name: 支撑比例
+        group: 回调参数
+        max: 1.0
+        min: 0.9
+        type: float
+      volume_ratio_threshold:
+        default: 2.2
+        description: 成交量比例阈值
+        display_name: 成交量比例
+        group: 成交量参数
+        max: 3.0
+        min: 1.0
+        type: float
+      volume_shrinkage_ratio:
+        default: 0.5
+        description: 成交量缩量比例
+        display_name: 成交量缩量比例
+        group: 成交量参数
+        max: 0.8
+        min: 0.3
+        type: float
+    param_groups:
+    - description: 控制涨停识别的参数
+      name: 涨停参数
+    - description: 控制回调判断的参数
+      name: 回调参数
+    - description: 控制KDJ指标的参数
+      name: KDJ参数
+    - description: 控制MACD指标的参数
+      name: MACD参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    params:
+      kdj_gold_cross_threshold: 20
+      limit_up_lookback_days: 6
+      limit_up_threshold: 0.095
+      macd_gold_cross_days: 3
+      pullback_days_max: 9
+      pullback_days_min: 1
+      pullback_range_max: 0.15
+      pullback_range_min: 0.0
+      support_ratio: 0.95
+      volume_ratio_threshold: 2.2
+      volume_shrinkage_ratio: 0.5
+    support_method: key_close_5
+  LimitUpSidewaysStrategy:
+    color: '#8b5cf6'
+    description: 识别涨停后横盘整理的形态，通过涨停、横盘、缩量、KDJ/MACD金叉等条件的组合判断
+    display_name: 涨停横盘策略
+    icon: 📊
+    param_details:
+      kdj_gold_cross_threshold:
+        default: 20
+        description: KDJ金叉阈值（K值需低于此值）
+        display_name: KDJ金叉阈值
+        group: KDJ参数
+        max: 50
+        min: 10
+        type: int
+      kdj_m1:
+        default: 3
+        description: KDJ的M1参数
+        display_name: KDJ-M1
+        group: KDJ参数
+        max: 5
+        min: 1
+        type: int
+      kdj_m2:
+        default: 3
+        description: KDJ的M2参数
+        display_name: KDJ-M2
+        group: KDJ参数
+        max: 5
+        min: 1
+        type: int
+      kdj_n:
+        default: 9
+        description: KDJ的N参数
+        display_name: KDJ-N
+        group: KDJ参数
+        max: 20
+        min: 5
+        type: int
+      limit_up_lookback_days:
+        default: 10
+        description: 涨停回溯天数
+        display_name: 涨停回溯天数
+        group: 涨停参数
+        max: 20
+        min: 5
+        type: int
+      limit_up_threshold:
+        default: 0.095
+        description: 涨停阈值
+        display_name: 涨停阈值(%)
+        group: 涨停参数
+        max: 0.12
+        min: 0.08
+        type: float
+      macd_long:
+        default: 26
+        description: MACD长期EMA周期
+        display_name: MACD长期周期
+        group: MACD参数
+        max: 40
+        min: 10
+        type: int
+      macd_short:
+        default: 12
+        description: MACD短期EMA周期
+        display_name: MACD短期周期
+        group: MACD参数
+        max: 20
+        min: 5
+        type: int
+      macd_signal:
+        default: 9
+        description: MACD信号线EMA周期
+        display_name: MACD信号线周期
+        group: MACD参数
+        max: 20
+        min: 5
+        type: int
+      sideways_days_max:
+        default: 10
+        description: 横盘最大天数（放宽到10天）
+        display_name: 横盘最大天数
+        group: 横盘参数
+        max: 15
+        min: 3
+        type: int
+      sideways_days_min:
+        default: 1
+        description: 横盘最小天数
+        display_name: 横盘最小天数
+        group: 横盘参数
+        max: 5
+        min: 1
+        type: int
+      sideways_high_limit:
+        default: 0.08
+        description: 横盘上限幅度（放宽到8%）
+        display_name: 横盘上限幅度(%)
+        group: 横盘参数
+        max: 0.15
+        min: 0.02
+        type: float
+      sideways_low_limit:
+        default: -0.05
+        description: 横盘下限幅度（放宽到-5%）
+        display_name: 横盘下限幅度(%)
+        group: 横盘参数
+        max: 0.0
+        min: -0.15
+        type: float
+      strategy_weight:
+        default: 60
+        description: 技术面评分权重
+        display_name: 策略权重
+        group: 评分参数
+        type: int
+      volume_increase_ratio:
+        default: 1.3
+        description: 成交量放大比例（突破日成交量需≥前一日×此比例）
+        display_name: 成交量放大比例
+        group: 突破参数
+        max: 2.0
+        min: 1.1
+        type: float
+      volume_ratio_threshold:
+        default: 1.8
+        description: 成交量比例阈值（相对前5日均量）
+        display_name: 成交量比例
+        group: 涨停参数
+        max: 3.0
+        min: 1.0
+        type: float
+      volume_shrinkage_ratio:
+        default: 0.7
+        description: 成交量缩量比例（横盘期间至少有一日成交量≤涨停日×此比例）
+        display_name: 成交量缩量比例
+        group: 横盘参数
+        max: 0.8
+        min: 0.3
+        type: float
+    param_groups:
+    - description: 控制涨停识别的参数
+      name: 涨停参数
+    - description: 控制横盘判断的参数
+      name: 横盘参数
+    - description: 控制KDJ指标的参数
+      name: KDJ参数
+    - description: 控制MACD指标的参数
+      name: MACD参数
+    - description: 控制突破信号的参数
+      name: 突破参数
+    - description: 控制评分参数
+      name: 评分参数
+    params:
+      kdj_gold_cross_threshold: 20
+      kdj_m1: 3
+      kdj_m2: 3
+      kdj_n: 9
+      limit_up_lookback_days: 10
+      limit_up_threshold: 0.095
+      macd_long: 26
+      macd_short: 12
+      macd_signal: 9
+      sideways_days_max: 8
+      sideways_days_min: 1
+      sideways_high_limit: 0.05
+      sideways_low_limit: -0.02
+      strategy_weight: 60
+      volume_increase_ratio: 1.3
+      volume_ratio_threshold: 1.8
+      volume_shrinkage_ratio: 0.6
+    support_method: key_close_5
+  MA20MA60Strategy:
+    color: '#10b981'
+    description: 5日均线金叉20日均线，5日均量线≥60日均量线，20日均线方向向上，三者同日发生
+    display_name: 520560策略
+    icon: 📈
+    param_details:
+      ma_long_period:
+        default: 20
+        description: 长期均线周期
+        display_name: 长期均线周期
+        group: 均线参数
+        max: 60
+        min: 10
+        type: int
+      ma_short_period:
+        default: 5
+        description: 短期均线周期
+        display_name: 短期均线周期
+        group: 均线参数
+        max: 10
+        min: 3
+        type: int
+      trend_lookback_days:
+        default: 5
+        description: 判断均线趋势的回溯天数
+        display_name: 趋势回溯天数
+        group: 趋势参数
+        max: 10
+        min: 3
+        type: int
+      vol_long_period:
+        default: 60
+        description: 长期均量线周期
+        display_name: 长期均量线周期
+        group: 量能参数
+        max: 120
+        min: 30
+        type: int
+      vol_short_period:
+        default: 5
+        description: 短期均量线周期
+        display_name: 短期均量线周期
+        group: 量能参数
+        max: 10
+        min: 3
+        type: int
+    support_method: ma20
+  MorningStarStrategy:
+    color: '#f59e0b'
+    description: 识别三根K线启明星形态，通过长阴线、小实体、长阳线的组合判断底部反转
+    display_name: 启明星策略
+    icon: ⭐
+    param_details:
+      long_candle_ratio:
+        default: 0.5
+        description: 第三根K线实体与第一根K线实体的最小比例
+        display_name: 长阳线比例
+        group: 形态参数
+        max: 1.0
+        min: 0.3
+        type: float
+      lookback_days:
+        default: 3
+        description: 回溯天数，在此天数内寻找启明星形态
+        display_name: 回溯天数
+        group: 形态参数
+        max: 60
+        min: 3
+        type: int
+      small_body_ratio:
+        default: 0.3
+        description: 第二根K线实体与第一根K线实体的比例阈值
+        display_name: 小实体比例
+        group: 形态参数
+        max: 0.5
+        min: 0.1
+        type: float
+      volume_ratio:
+        default: 1.5
+        description: 第三根K线成交量与第二根K线的比例
+        display_name: 成交量比例
+        group: 成交量参数
+        max: 3.0
+        min: 1.0
+        type: float
+    param_groups:
+    - description: 控制启明星形态识别的参数
+      name: 形态参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    params:
+      long_candle_ratio: 0.5
+      lookback_days: 3
+      small_body_ratio: 0.3
+      volume_ratio: 1.5
+    support_method: ma20
+  MultiGoldenCrossStrategy:
+    color: '#f97316'
+    description: 识别均线金叉、KDJ金叉、MACD金叉三者同时发生或相隔不到2天的共振信号
+    display_name: 多金叉共振策略
+    icon: ✨
+    param_details:
+      kdj_m1:
+        default: 3
+        description: KDJ的M1参数
+        display_name: KDJ的M1参数
+        group: KDJ参数
+        max: 5
+        min: 1
+        type: int
+      kdj_m2:
+        default: 3
+        description: KDJ的M2参数
+        display_name: KDJ的M2参数
+        group: KDJ参数
+        max: 5
+        min: 1
+        type: int
+      kdj_n:
+        default: 9
+        description: KDJ的N参数
+        display_name: KDJ的N参数
+        group: KDJ参数
+        max: 20
+        min: 5
+        type: int
+      lookback_days:
+        default: 3
+        description: 回溯天数，在此天数内寻找金叉信号
+        display_name: 回溯天数
+        group: 共振参数
+        max: 20
+        min: 5
+        type: int
+      ma_long_period:
+        default: 20
+        description: 长期均线周期
+        display_name: 长期均线周期
+        group: 均线参数
+        max: 60
+        min: 10
+        type: int
+      ma_short_period:
+        default: 5
+        description: 短期均线周期
+        display_name: 短期均线周期
+        group: 均线参数
+        max: 10
+        min: 3
+        type: int
+      macd_long:
+        default: 26
+        description: MACD长期EMA周期
+        display_name: MACD长期周期
+        group: MACD参数
+        max: 40
+        min: 10
+        type: int
+      macd_short:
+        default: 12
+        description: MACD短期EMA周期
+        display_name: MACD短期周期
+        group: MACD参数
+        max: 20
+        min: 5
+        type: int
+      macd_signal:
+        default: 9
+        description: MACD信号线EMA周期
+        display_name: MACD信号线周期
+        group: MACD参数
+        max: 20
+        min: 5
+        type: int
+      resonance_days:
+        default: 1
+        description: 共振时间窗口（天），三个金叉信号的最大时间差
+        display_name: 共振时间窗口
+        group: 共振参数
+        max: 5
+        min: 1
+        type: int
+    param_groups:
+    - description: 控制均线计算的参数
+      name: 均线参数
+    - description: 控制KDJ指标计算的参数
+      name: KDJ参数
+    - description: 控制MACD指标计算的参数
+      name: MACD参数
+    - description: 控制共振判断的参数
+      name: 共振参数
+    params:
+      kdj_m1: 3
+      kdj_m2: 3
+      kdj_n: 9
+      lookback_days: 3
+      ma_long_period: 20
+      ma_short_period: 5
+      macd_long: 26
+      macd_short: 12
+      macd_signal: 9
+      resonance_days: 1
+    support_method: ma20
+  MultiPartyCannonStrategy:
+    color: '#ef4444'
+    description: 两阳夹一阴的K线组合形态，代表多方短暂回调后再次发力，预示上涨延续或反转
+    display_name: 多方炮策略
+    icon: 💥
+    param_details:
+      enable_kdj_filter:
+        default: false
+        description: 是否启用KDJ过滤
+        display_name: 启用KDJ过滤
+        group: 趋势过滤
+        type: bool
+      enable_ma_filter:
+        default: true
+        description: 是否启用均线过滤
+        display_name: 启用均线过滤
+        group: 趋势过滤
+        type: bool
+      enable_macd_filter:
+        default: false
+        description: 是否启用MACD过滤
+        display_name: 启用MACD过滤
+        group: 趋势过滤
+        type: bool
+      first_candle_rise:
+        default: 0.03
+        description: 第一根阳线涨幅阈值
+        display_name: 第一根阳线涨幅(%)
+        group: 形态参数
+        max: 0.1
+        min: 0.01
+        type: float
+      kdj_j_max:
+        default: 80
+        description: KDJ的J值上限
+        display_name: KDJ的J值上限
+        group: 趋势过滤
+        max: 100
+        min: 70
+        type: int
+      lookback_days:
+        default: 3
+        description: 回溯天数，在此范围内寻找多方炮形态
+        display_name: 回溯天数
+        group: 其他参数
+        max: 30
+        min: 3
+        type: int
+      ma_period:
+        default: 20
+        description: 均线周期
+        display_name: 均线周期
+        group: 趋势过滤
+        max: 60
+        min: 5
+        type: int
+      macd_above_zero:
+        default: true
+        description: MACD是否需要大于0
+        display_name: MACD大于0
+        group: 趋势过滤
+        type: bool
+      max_market_cap:
+        default: 1000
+        description: 最大总市值（亿元）
+        display_name: 最大市值(亿)
+        group: 其他参数
+        max: 5000
+        min: 100
+        type: int
+      min_market_cap:
+        default: 20
+        description: 最小总市值（亿元）
+        display_name: 最小市值(亿)
+        group: 其他参数
+        max: 100
+        min: 10
+        type: int
+      second_candle_body_ratio:
+        default: 0.5
+        description: 第二根阴线实体占第一根阳线实体的比例
+        display_name: 第二根阴线实体比例
+        group: 形态参数
+        max: 0.8
+        min: 0.3
+        type: float
+      second_candle_fallback_ratio:
+        default: 0.5
+        description: 第二根阴线回调占第一根阳线涨幅的比例
+        display_name: 第二根阴线回调比例
+        group: 形态参数
+        max: 0.8
+        min: 0.3
+        type: float
+      second_volume_shrink_ratio:
+        default: 0.8
+        description: 第二根阴线成交量占第一根阳线成交量的比例
+        display_name: 第二根阴线缩量比例
+        group: 成交量参数
+        max: 0.9
+        min: 0.5
+        type: float
+      third_candle_breakthrough:
+        default: true
+        description: 第三根阳线收盘价是否需要突破第一根阳线收盘价
+        display_name: 突破前高
+        group: 形态参数
+        type: bool
+      third_candle_rise:
+        default: 0.03
+        description: 第三根阳线涨幅阈值
+        display_name: 第三根阳线涨幅(%)
+        group: 形态参数
+        max: 0.1
+        min: 0.01
+        type: float
+      third_volume_expand_ratio:
+        default: 1.2
+        description: 第三根阳线成交量占第一根阳线成交量的比例
+        display_name: 第三根阳线放量比例
+        group: 成交量参数
+        max: 2.0
+        min: 1.0
+        type: float
+      third_volume_ma_ratio:
+        default: 1.5
+        description: 第三根阳线成交量占均量的比例
+        display_name: 第三根阳线放量倍数
+        group: 成交量参数
+        max: 3.0
+        min: 1.0
+        type: float
+      volume_ma_period:
+        default: 5
+        description: 成交量均线周期
+        display_name: 成交量周期
+        group: 成交量参数
+        max: 10
+        min: 3
+        type: int
+    param_groups:
+    - description: 控制K线形态识别的参数
+      name: 形态参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    - description: 控制趋势过滤的参数
+      name: 趋势过滤
+    - description: 其他控制参数
+      name: 其他参数
+    params:
+      enable_kdj_filter: false
+      enable_ma_filter: true
+      enable_macd_filter: false
+      first_candle_rise: 0.03
+      kdj_j_max: 80
+      lookback_days: 8
+      ma_period: 20
+      macd_above_zero: true
+      max_market_cap: 1000
+      min_market_cap: 20
+      second_candle_body_ratio: 0.5
+      second_candle_fallback_ratio: 0.5
+      second_volume_shrink_ratio: 0.8
+      third_candle_breakthrough: true
+      third_candle_rise: 0.03
+      third_volume_expand_ratio: 1.2
+      third_volume_ma_ratio: 1.5
+      volume_ma_period: 5
+    support_method: key_open
+  ResistanceBreakoutStrategy:
+    color: '#3b82f6'
+    description: 识别股价突破关键阻力位的信号，捕捉上涨突破机会
+    display_name: 阻力位突破策略
+    icon: 🚪
+    param_details:
+      breakout_ratio:
+        default: -0.02
+        description: 突破阈值，-0.02表示达到阻力位98%即视为突破
+        display_name: 突破阈值
+        group: 突破参数
+        max: 0.05
+        min: -0.05
+        type: float
+      lookback_days:
+        default: 60
+        description: 回溯天数，用于计算前N日最高价作为阻力位
+        display_name: 回溯天数
+        group: 阻力位参数
+        max: 120
+        min: 30
+        type: int
+      max_market_cap:
+        default: 1000
+        description: 最大市值（亿元）
+        display_name: 最大市值(亿)
+        group: 其他参数
+        max: 5000
+        min: 100
+        type: int
+      max_search_days:
+        default: 5
+        description: 最大搜索天数，在最近N天内搜索突破日
+        display_name: 搜索天数
+        group: 突破参数
+        max: 20
+        min: 5
+        type: int
+      min_change_pct:
+        default: 0.08
+        description: 突破日最小涨幅，0.08表示8%
+        display_name: 最小涨幅(%)
+        group: 突破参数
+        max: 0.15
+        min: 0.05
+        type: float
+      min_market_cap:
+        default: 20
+        description: 最小市值（亿元）
+        display_name: 最小市值(亿)
+        group: 其他参数
+        max: 100
+        min: 10
+        type: int
+      volume_ma_period:
+        default: 5
+        description: 成交量均值周期，用于计算成交量倍数
+        display_name: 成交量周期
+        group: 成交量参数
+        max: 20
+        min: 5
+        type: int
+      volume_ratio:
+        default: 2.0
+        description: 成交量倍数，突破日成交量需要是成交量均值的倍数
+        display_name: 成交量倍数
+        group: 成交量参数
+        max: 5.0
+        min: 1.5
+        type: float
+    param_groups:
+    - description: 控制阻力位计算的参数
+      name: 阻力位参数
+    - description: 控制突破判断的参数
+      name: 突破参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    - description: 其他控制参数
+      name: 其他参数
+    params:
+      breakout_ratio: -0.02
+      lookback_days: 60
+      max_market_cap: 1000
+      max_search_days: 5
+      min_change_pct: 0.08
+      min_market_cap: 20
+      volume_ma_period: 5
+      volume_ratio: 1.8
+    support_method: key_close_5
+  StrongWashWeakToStrongStrategy:
+    color: '#3b82f6'
+    description: 识别股票在短期内经历放量上涨、洗盘回调后再次走强的形态，通过放量大阳线、放量阴线洗盘、反包阳线和持续强势四个条件的组合判断
+    display_name: 强势洗盘弱转强策略
+    icon: 🎯
+    param_details:
+      big_candle_lookback_days:
+        default: 6
+        description: 大阳线回溯天数，用于寻找最近的大阳线
+        display_name: 大阳线回溯天数
+        group: 大阳线参数
+        max: 15
+        min: 3
+        type: int
+      big_candle_threshold:
+        default: 0.08
+        description: 大阳线涨幅阈值，涨幅达到此值视为大阳线
+        display_name: 大阳线涨幅阈值(%)
+        group: 大阳线参数
+        max: 0.15
+        min: 0.05
+        type: float
+      reversal_days:
+        default: 3
+        description: 反包时间窗口，洗盘后多少天内出现反包阳线
+        display_name: 反包时间窗口
+        group: 反包参数
+        max: 5
+        min: 2
+        type: int
+      reversal_price_threshold:
+        default: 0.01
+        description: 反包价格阈值，反包阳线收盘价与大阳线收盘价或洗盘日开盘价的比值
+        display_name: 反包价格阈值
+        group: 反包参数
+        max: 0.05
+        min: 0.0
+        type: float
+      volume_ratio_threshold:
+        default: 1.5
+        description: 大阳线成交量比，大阳线成交量与5日均量的比值
+        display_name: 大阳线成交量比
+        group: 大阳线参数
+        max: 3.0
+        min: 1.0
+        type: float
+      wash_volume_ratio:
+        default: 1.2
+        description: 洗盘成交量比，洗盘阴线成交量与大阳线成交量的比值
+        display_name: 洗盘成交量比
+        group: 洗盘参数
+        max: 2.0
+        min: 1.0
+        type: float
+    param_groups:
+    - description: 控制大阳线识别的参数
+      name: 大阳线参数
+    - description: 控制洗盘形态判断的参数
+      name: 洗盘参数
+    - description: 控制反包形态判断的参数
+      name: 反包参数
+    params:
+      big_candle_lookback_days: 6
+      big_candle_threshold: 0.08
+      reversal_days: 3
+      reversal_price_threshold: 0.01
+      volume_ratio_threshold: 1.5
+      wash_volume_ratio: 1.2
+    support_method: key_close
+  TrendAccelerationInflectionStrategy:
+    color: '#ec4899'
+    description: 识别股票在上升趋势中出现加速的拐点，通过上升趋势、放量长阳线、距离条件和回调支撑四个条件的组合判断
+    display_name: 趋势加速拐点
+    icon: 🚀
+    param_details:
+      distance_threshold:
+        default: 0.15
+        description: 距离阈值，长阳线起涨点距离最近最低点的涨幅不能超过此值
+        display_name: 距离阈值(%)
+        group: 距离条件
+        max: 0.3
+        min: 0.05
+        type: float
+      lowest_point_lookback_days:
+        default: 40
+        description: 最低点回溯天数，在此天数内寻找最近的最低点
+        display_name: 最低点回溯天数
+        group: 距离条件
+        max: 120
+        min: 20
+        type: int
+      min_data_length:
+        default: 50
+        description: 最小数据长度，用于验证数据有效性
+        display_name: 最小数据长度
+        group: 趋势条件
+        max: 100
+        min: 30
+        type: int
+      price_increase_threshold:
+        default: 0.08
+        description: 涨幅阈值，长阳线的涨幅需要超过此值
+        display_name: 涨幅阈值(%)
+        group: 放量条件
+        max: 0.3
+        min: 0.05
+        type: float
+      surge_lookback_days:
+        default: 5
+        description: 放量检查周期，在此天数内寻找放量长阳线
+        display_name: 放量检查天数
+        group: 放量条件
+        max: 30
+        min: 5
+        type: int
+      uptrend_lookback_days:
+        default: 20
+        description: 上升趋势回溯天数，用于识别波峰波谷判断是否处于上升趋势
+        display_name: 上升趋势天数
+        group: 趋势条件
+        max: 60
+        min: 10
+        type: int
+      uptrend_pvalue_threshold:
+        default: 0.01
+        description: p值阈值，小于此值表示趋势显著
+        display_name: p值阈值
+        group: 趋势条件
+        max: 0.1
+        min: 0.001
+        type: float
+      uptrend_rsquared_threshold:
+        default: 0.5
+        description: R²阈值，大于此值表示拟合度良好
+        display_name: R²阈值
+        group: 趋势条件
+        max: 0.9
+        min: 0.3
+        type: float
+      uptrend_slope_threshold:
+        default: 0.001
+        description: 斜率阈值，大于0表示上升趋势
+        display_name: 斜率阈值
+        group: 趋势条件
+        max: 0.1
+        min: 0.0
+        type: float
+      volume_ma_period:
+        default: 5
+        description: 成交量均值计算周期，用于计算成交量倍数
+        display_name: 成交量周期
+        group: 放量条件
+        max: 20
+        min: 3
+        type: int
+      volume_ratio_threshold:
+        default: 2.0
+        description: 成交量倍数阈值，当日成交量需要是成交量均值的此倍数以上
+        display_name: 成交量倍数
+        group: 放量条件
+        max: 5.0
+        min: 1.5
+        type: float
+    param_groups:
+    - description: 控制上升趋势判断的参数
+      name: 趋势条件
+    - description: 控制放量长阳线判断的参数
+      name: 放量条件
+    - description: 控制距离条件判断的参数
+      name: 距离条件
+    params:
+      distance_threshold: 0.15
+      lowest_point_lookback_days: 40
+      min_data_length: 50
+      price_increase_threshold: 0.08
+      surge_lookback_days: 5
+      uptrend_lookback_days: 20
+      uptrend_pvalue_threshold: 0.01
+      uptrend_rsquared_threshold: 0.5
+      uptrend_slope_threshold: 0.001
+      volume_ma_period: 5
+      volume_ratio_threshold: 2.0
+    support_method: key_close_5
+  TurtleStrategy:
+    color: '#06b6d4'
+    description: 海龟策略，基于唐奇安通道的趋势跟踪系统，通过突破N日高点入场，N日低点或ATR止损出场
+    display_name: 海龟策略
+    icon: 🐢
+    param_details:
+      add_atr:
+        default: 0.5
+        description: 加仓ATR间隔，价格每上涨此ATR倍数加仓一次
+        display_name: 加仓ATR间隔
+        group: 加仓参数
+        max: 2.0
+        min: 0.25
+        type: float
+      atr_period:
+        default: 10
+        description: ATR计算周期
+        display_name: ATR周期
+        group: ATR参数
+        max: 30
+        min: 5
+        type: int
+      base_position_amount:
+        default: 50000
+        description: 底仓金额（元）
+        display_name: 底仓金额(元)
+        group: 仓位参数
+        max: 100000
+        min: 10000
+        type: int
+      entry_atr:
+        default: 0.02
+        description: 入场ATR比例，用于计算仓位
+        display_name: 入场ATR比例
+        group: 仓位参数
+        max: 0.05
+        min: 0.01
+        type: float
+      exit_atr:
+        default: 2.0
+        description: 出场ATR止损倍数，跌破入场价-此倍数*ATR止损
+        display_name: ATR止损倍数
+        group: 止损参数
+        max: 4.0
+        min: 1.0
+        type: float
+      n1:
+        default: 6
+        description: 入场通道周期，突破此周期的最高价入场
+        display_name: 入场通道周期
+        group: 通道参数
+        max: 20
+        min: 5
+        type: int
+      n2:
+        default: 20
+        description: 出场通道周期，跌破此周期的最低价出场
+        display_name: 出场通道周期
+        group: 通道参数
+        max: 55
+        min: 10
+        type: int
+      preset:
+        default: classic
+        description: 预设配置模式，classic为经典海龟(20/10)，short为短线海龟(10/5)，ultra_short为超短海龟(6/3)
+        display_name: 预设模式
+        group: 预设参数
+        options:
+        - classic
+        - short
+        - ultra_short
+        type: string
+    param_groups:
+    - description: 选择预设配置模式或自定义参数
+      name: 预设参数
+    - description: 控制唐奇安通道计算的参数
+      name: 通道参数
+    - description: 控制ATR指标计算的参数
+      name: ATR参数
+    - description: 控制止损止盈的参数
+      name: 止损参数
+    - description: 控制加仓条件的参数
+      name: 加仓参数
+    - description: 控制仓位的参数
+      name: 仓位参数
+    params:
+      add_atr: 0.5
+      atr_period: 12
+      base_position_amount: 20000
+      entry_atr: 0.02
+      exit_atr: 2.0
+      n_entry: 12
+      n_exit: 6
+      preset: custom
+    presets:
+      classic:
+        description: 经典海龟，20日入场/10日离场，适合趋势明显的品种
+        display_name: 经典海龟(20/10)
+        icon: 🐢
+        params:
+          add_atr: 0.5
+          atr_period: 20
+          base_position_amount: 20000
+          entry_atr: 0.02
+          exit_atr: 2.0
+          n_entry: 20
+          n_exit: 10
+      short:
+        description: 短线海龟，10日入场/5日离场，反应更灵敏
+        display_name: 短线海龟(10/5)
+        icon: ⚡
+        params:
+          add_atr: 0.5
+          atr_period: 10
+          base_position_amount: 20000
+          entry_atr: 0.02
+          exit_atr: 2.0
+          n_entry: 10
+          n_exit: 5
+      ultra_short:
+        description: 超短海龟，6日入场/3日离场，适合强势股高频交易
+        display_name: 超短海龟(6/3)
+        icon: 🚀
+        params:
+          add_atr: 0.5
+          atr_period: 6
+          base_position_amount: 20000
+          entry_atr: 0.02
+          exit_atr: 2.0
+          n_entry: 6
+          n_exit: 3
+    support_method: ma20
+  WBottomStrategy:
+    color: '#14b8a6'
+    description: 识别W底双底反转形态，结合颈线突破、趋势反转和量价配合确认买入信号
+    display_name: W底策略
+    icon: 🔄
+    param_details:
+      bottom_diff_threshold:
+        default: 0.03
+        description: L1和L2价格差异的最大百分比
+        display_name: 底部差异(%)
+        group: 形态参数
+        max: 0.1
+        min: 0.01
+        type: float
+      long_ma_period:
+        default: 30
+        description: 长期均线周期
+        display_name: 长期均线
+        group: 趋势参数
+        max: 60
+        min: 10
+        type: int
+      low_window:
+        default: 5
+        description: 局部低点识别的回溯窗口
+        display_name: 低点窗口
+        group: 形态参数
+        max: 10
+        min: 3
+        type: int
+      max_break_days:
+        default: 10
+        description: 突破日距今最大天数，超过则不纳入
+        display_name: 突破回溯天数
+        group: 突破参数
+        max: 30
+        min: 3
+        type: int
+      min_gap:
+        default: 10
+        description: 相邻局部低点的最小间隔交易日数
+        display_name: 最小间隔
+        group: 形态参数
+        max: 20
+        min: 5
+        type: int
+      min_pattern_days:
+        default: 10
+        description: 从L1到突破日的最小间隔交易日数，用于过滤短期形态
+        display_name: 最小形态天数
+        group: 形态参数
+        max: 30
+        min: 5
+        type: int
+      neckline_break_ratio:
+        default: 1.01
+        description: 颈线突破确认比例，收盘价需达到颈线的此倍数
+        display_name: 突破比例
+        group: 突破参数
+        max: 1.05
+        min: 1.0
+        type: float
+      pattern_days:
+        default: 40
+        description: W底形态扫描的回溯天数
+        display_name: 形态扫描天数
+        group: 形态参数
+        max: 80
+        min: 20
+        type: int
+      short_ma_period:
+        default: 10
+        description: 短期均线周期
+        display_name: 短期均线
+        group: 趋势参数
+        max: 20
+        min: 5
+        type: int
+      support_days:
+        default: 3
+        description: 突破后支撑验证天数
+        display_name: 支撑天数
+        group: 过滤参数
+        max: 10
+        min: 1
+        type: int
+      support_ratio:
+        default: 0.02
+        description: 颈线支撑位容忍比例
+        display_name: 支撑容忍(%)
+        group: 过滤参数
+        max: 0.05
+        min: 0.01
+        type: float
+      volume_expand_ratio:
+        default: 2
+        description: 颈线突破时成交量需达到均量的倍数
+        display_name: 突破放量倍数
+        group: 成交量参数
+        max: 3.0
+        min: 1.0
+        type: float
+      volume_ma_period:
+        default: 5
+        description: 成交量均线计算周期
+        display_name: 成交量周期
+        group: 成交量参数
+        max: 10
+        min: 3
+        type: int
+      volume_shrink_ratio:
+        default: 0.8
+        description: 右侧底部缩量判定比例
+        display_name: 缩量比例
+        group: 成交量参数
+        max: 1.0
+        min: 0.5
+        type: float
+    param_groups:
+    - description: 控制W底形态识别的参数
+      name: 形态参数
+    - description: 控制颈线突破判断的参数
+      name: 突破参数
+    - description: 控制成交量条件的参数
+      name: 成交量参数
+    - description: 控制趋势反转判断的参数
+      name: 趋势参数
+    - description: 控制假W底过滤的参数
+      name: 过滤参数
+    params:
+      bottom_diff_threshold: 0.03
+      long_ma_period: 30
+      low_window: 5
+      max_break_days: 5
+      min_gap: 10
+      min_pattern_days: 10
+      neckline_break_ratio: 1.01
+      pattern_days: 40
+      short_ma_period: 10
+      support_days: 3
+      support_ratio: 0.02
+      volume_expand_ratio: 1.5
+      volume_ma_period: 5
+      volume_shrink_ratio: 0.8
+    support_method: ma20
+strategy_runner:
+  check_interval: 60
+  max_position_size: 0.1
+  max_positions: 10
+  min_position_size: 0.01
+  min_score: 70
+  preload:
+    days: 5
+    enabled: true
+    exclude_recent_days: 0
+  selection_limit: 20
+  stop_loss_threshold: -0.05
+  take_profit_threshold: 0.15
+  trading:
+    commission_rate: 0.00015
+    min_commission: 5
+    slippage:
+      buy_slippage: 0.01
+      enabled: true
+      sell_slippage: 0.005
+    stamp_tax_rate: 0.001
+    transfer_fee_rate: 1.0e-05
+  working_hour: 9
+  working_minute: 30

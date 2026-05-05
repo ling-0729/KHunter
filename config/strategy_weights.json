@@ -1,0 +1,78 @@
+{
+  "description": "策略权重配置文件 - 用于技术面评分计算",
+  "scoring_rule": "技术面得分 = Σ(策略权重 × 命中标志)",
+  "veto_rule": "M头策略 + 多死叉共振策略同时命中 → -100分",
+  "strategies": [
+    {
+      "name": "底部趋势拐点",
+      "weight": 50,
+      "description": "正向信号，高分"
+    },
+    {
+      "name": "趋势加速拐点",
+      "weight": 30,
+      "description": "正向信号"
+    },
+    {
+      "name": "阻力位突破策略",
+      "weight": 50,
+      "description": "正向信号"
+    },
+
+    {
+      "name": "W底策略",
+      "weight": 50,
+      "description": "正向信号"
+    },
+    {
+      "name": "多金叉共振策略",
+      "weight": 50,
+      "description": "正向信号"
+    },
+    {
+      "name": "启明星策略",
+      "weight": 30,
+      "description": "正向信号"
+    },
+    {
+      "name": "多方炮策略",
+      "weight": 30,
+      "description": "正向信号"
+    },
+    {
+      "name": "多死叉共振策略",
+      "weight": -50,
+      "description": "负向信号"
+    },
+    {
+      "name": "M头策略",
+      "weight": -80,
+      "description": "负向信号"
+    },
+    {
+      "name": "强势洗盘弱转强策略",
+      "weight": 50,
+      "description": "正向信号，弱转强"
+    },
+    {
+      "name": "涨停回马枪策略",
+      "weight": 50,
+      "description": "正向信号，涨停后回调"
+    },
+    {
+      "name": "涨停横盘策略",
+      "weight": 70,
+      "description": "正向信号，涨停后横盘"
+    },
+    {
+      "name": "仙人指路策略",
+      "weight": 70,
+      "description": "正向信号，仙人指路形态识别"
+    }
+  ],
+  "veto_config": {
+    "enabled": true,
+    "score": -100,
+    "strategies": ["M头策略", "多死叉共振策略"]
+  }
+}
