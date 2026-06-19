@@ -322,7 +322,7 @@ pandas - 数据处理库
 
 Flask - Web框架
 
-GitHub: https://github.com/ling-0729/khunter
+GitHub: https://github.com/ling-0729/KHunter
 
 ## 📫 联系与交流
 
