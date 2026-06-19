@@ -1,0 +1,61 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景圆形 -->
+  <circle cx="100" cy="100" r="95" fill="#1e3a8a" opacity="0.1"/>
+  
+  <!-- 外圆环 -->
+  <circle cx="100" cy="100" r="90" fill="none" stroke="#1e3a8a" stroke-width="2"/>
+  
+  <!-- 猎手的头部（三角形，代表猎手的帽子） -->
+  <polygon points="100,30 130,70 70,70" fill="#2563eb" opacity="0.9"/>
+  
+  <!-- 猎手的身体（代表K线图） -->
+  <g id="hunter-body">
+    <!-- 左肩 -->
+    <line x1="70" y1="70" x2="60" y2="100" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+    <!-- 右肩 -->
+    <line x1="130" y1="70" x2="140" y2="100" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+    <!-- 躯干 -->
+    <rect x="90" y="70" width="20" height="50" fill="#2563eb" opacity="0.8"/>
+  </g>
+  
+  <!-- K线图表示（代表股票分析） -->
+  <g id="chart" transform="translate(100, 120)">
+    <!-- K线1 -->
+    <line x1="-30" y1="-5" x2="-30" y2="15" stroke="#10b981" stroke-width="2"/>
+    <rect x="-35" y="-5" width="10" height="10" fill="#10b981"/>
+    
+    <!-- K线2 -->
+    <line x1="-10" y1="-15" x2="-10" y2="10" stroke="#ef4444" stroke-width="2"/>
+    <rect x="-15" y="-10" width="10" height="8" fill="#ef4444"/>
+    
+    <!-- K线3 -->
+    <line x1="10" y1="0" x2="10" y2="20" stroke="#10b981" stroke-width="2"/>
+    <rect x="5" y="5" width="10" height="10" fill="#10b981"/>
+    
+    <!-- K线4 -->
+    <line x1="30" y1="-10" x2="30" y2="15" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="25" y="-5" width="10" height="12" fill="#f59e0b"/>
+  </g>
+  
+  <!-- 猎手的腿（代表向下的箭头，表示捕猎） -->
+  <g id="hunter-legs">
+    <!-- 左腿 -->
+    <line x1="85" y1="120" x2="75" y2="155" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+    <!-- 右腿 -->
+    <line x1="115" y1="120" x2="125" y2="155" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  
+  <!-- 猎手的武器（代表上升的箭头，表示收益） -->
+  <g id="weapon">
+    <!-- 箭杆 -->
+    <line x1="155" y1="100" x2="175" y2="60" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+    <!-- 箭头 -->
+    <polygon points="175,60 170,70 180,65" fill="#2563eb"/>
+  </g>
+  
+  <!-- 装饰元素：上升趋势线 -->
+  <path d="M 30 140 Q 60 120 90 100 T 150 60" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.6" stroke-dasharray="5,5"/>
+  
+  <!-- 文字：KHunter -->
+  <text x="100" y="175" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#1e3a8a">KHunter</text>
+</svg>
