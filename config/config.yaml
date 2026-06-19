@@ -1,0 +1,46 @@
+# ============================================
+# A股量化选股系统 - 主配置文件
+# ============================================
+# 说明：此文件由 config.yaml.template 生成
+# 不要提交此文件到Git仓库（已加入.gitignore）
+
+data_dir: data
+
+# 钉钉机器人配置
+# 1. 在钉钉群中添加自定义机器人
+# 2. 复制 webhook URL 和加签密钥
+# 3. 填入下方（去掉引号内的占位符）
+dingtalk:
+  webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN_HERE"
+  secret: "YOUR_SECRET_HERE"
+
+# 定时任务配置
+schedule:
+  time: "17:00"  # 每日执行时间
+
+# 数据更新配置
+update:
+  lookback_days: 10
+  skip_failed: true
+
+# 股票过滤配置
+filters:
+  # 最小市值（亿元）
+  min_market_cap: 10
+  # 最大市值（亿元）
+  max_market_cap: 10000
+  # 最小流通股本（亿股）
+  min_float_shares: 1
+  # 最大流通股本（亿股）
+  max_float_shares: 100
+  # 排除新股（上市天数）
+  exclude_new_stock_days: 60
+  # 排除ST股票
+  exclude_st: true
+  # 排除退市风险股票
+  exclude_delisting_risk: true
+
+# 交易配置
+trading:
+  # 初始资金（元）
+  initial_capital: 300000.0

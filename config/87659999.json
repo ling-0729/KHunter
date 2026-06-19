@@ -1,0 +1,67 @@
+{
+    "current_index": 0,
+    "early_renewal_days": 5,
+    "config_files": [
+        {
+            "filename": "Z0FBQUFBQnFFNS0wWVZ6TDlVSmdUWHNueTV0UHRWWjJoUlM5aUx2dkNiblUyOHd6TGlaTzMzUDJ1LUFoMURKSXZVX0huTXFqcjlfeWZKR09OSXNfOTMtdXhsS2JkQ01JRzFFcEhGbHRtOTIyaXhzT29hRlE1eFU9",
+            "start_date": "2026-05-25",
+            "expire_date": "2026-06-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wSnI1MzBFbXJsSEp2dExaQ2VYeVlaZVFMTmtZazI5XzAzeVdid05nakFDb29CRXc3b3NxX0ZrYUEtTVNNd1dPekVXS25IUFV1eXJXcm5YYk1rZUhTTURiXzFTN1p0OHV5Z1ZhTE52NnpOMGM9",
+            "start_date": "2026-06-25",
+            "expire_date": "2026-07-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wd1J6S2VEekRzQWNxMm5TLXVFTi12bmlsLTEwcklfelo4NHVJZGYtWkRSd2I3Y203X241dFJQcXQzUWNWeDVRMjZaQUdOeWRxaVpFOHoyQldFRkxFbzFKQ2tMWWIzZHAyZTh6eUdWU1gxVjA9",
+            "start_date": "2026-07-25",
+            "expire_date": "2026-08-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wYl96SHliZk9WVndnTHEwdDJsUjNjMjFhSGg3dV9BbmhMeTRsWGNjek5yYzJRd044TEk5b3FpM3EwbjFRUFZtNU9nUF9nUE90dW5oelRsT3ZKckVVWXVObHlzRlRLbXlCTEZUWnIzbEJHQU09",
+            "start_date": "2026-08-25",
+            "expire_date": "2026-09-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wcVRiak5rWjFhb25UZGtHU2J6eDNoSTBOVjkwQ0M1Y2dxNG10T0o1VnFJMV92VnJwaGJ4YjY0c2UyVnIySmUwZlcxdmdFczJGNEREQUIyMi0zS21ITkE4b19IYVdJbXhyUGNHRGIxQkVpMXc9",
+            "start_date": "2026-09-25",
+            "expire_date": "2026-10-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wWFkwZFdGWmZpVXpRYXBBUG5wakxiYTlBX3NnTF9LNE03SFhnSFpCeF8ycjJnWG1VNW9TSkNjSEFhbTRWZlV3SzRfNVk1bnloUEd3S0V6VUFoWW9YU0dHUkdvYUdxVGFLcFNXUkxuWW5tU009",
+            "start_date": "2026-10-25",
+            "expire_date": "2026-11-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wVEN1N0gxc0J2RmxMbXhmaURLY3kwV0RoSm9FRDRmbUdxaWRxcG5xbC14NGs3UU92TkRFek9LSWxQTENKWlpiZUQ3QS0tLTdiemZQaVZyREVmNk1Qb2xsa21lVjVHNXhkSnozNGtiTTdZZEU9",
+            "start_date": "2026-11-25",
+            "expire_date": "2026-12-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wT0lLQmlYbzQ1dHhSMWFiMXBXMGpmQTE5SW1xcW1WRTFOWnFJZXNISjdabGNEcDNDSXhiMGkxRjhrMVRSWEpjMndKTmhEM25nYXNXUDZ5TkVqbUNzdW9xSm5BNTZoVWQ2dTNoSGU4bS01cGM9",
+            "start_date": "2026-12-25",
+            "expire_date": "2027-01-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wSGFmVXV3TUFoM1VfUEpFSmRxVkYzcHZGc01rSVl6TnJwRVN4OXFxb254U3diR1FDaktjOUd6d1RJcnFUaUFsSW1PYUdNWG05QXVReVBPYUljMEpoYXJlanhUbnZ2YWd5b0JtWDdXdHJ0TWs9",
+            "start_date": "2027-01-25",
+            "expire_date": "2027-02-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wRkNxbGR2dlIyUjFNbWpRTWZHYXcxaW0yaE5zWWhoZ1JDSDg4aU03MWxtdnVsTGdKc1RPb0p0aXNBMUljeUhzZEw1dURBT29qbUEwSlJQOTg3Q2pmT3RhWjFLT2FJdV9sV2NRVzFNaFQ0djA9",
+            "start_date": "2027-02-25",
+            "expire_date": "2027-03-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wbzBLdU1OcmhyamVTT0ZKdUlVRzUwNFJobHZrUjgwTkRsbHVodThONmN6Qi1BMGYtc3JscjdxVmJycEtYdnpNd1R1M2REZW5NbS05SGFqRnNLTndFRXAxdW9aQ2RTSDBTWERLeldOSzdYek09",
+            "start_date": "2027-03-25",
+            "expire_date": "2027-04-25"
+        },
+        {
+            "filename": "Z0FBQUFBQnFFNS0wbUpWRVh0M2Z4TDZmcTlRZG5CZ2ZlME9XeW0tdmd5LXpUcEM4X1h4QjVIWmVweXJ2bkZVVkduVFZ0WFN6cDlaTXB5SVRrQnVSaTJFUDlzSFMwbk5pSmxVQWVBOEVnMTlOb0NWQ3lfZkc5OU09",
+            "start_date": "2027-04-25",
+            "expire_date": "2027-05-25"
+        }
+    ],
+    "encryption_key": "m32QcyKn8PJeY0mVZCn430dsDlAd-3R9_UYnWairQvM="
+}

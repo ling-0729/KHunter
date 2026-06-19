@@ -1,0 +1,86 @@
+# 连续市场温度风控配置
+
+# 模块开关
+enabled: true
+
+# 场景规则配置
+# 优先级规则：priority数字越小优先级越高
+# 优先级顺序：0%仓位 > 20%仓位 > 50%仓位
+scenarios:
+  - code: SCENARIO_7
+    name: 连续3天平均<30
+    consecutive_days: 3
+    avg_temp_threshold: 30.0
+    position_limit: 0.00
+    risk_level: 极端
+    priority: 1
+    enabled: true
+  
+  - code: SCENARIO_4
+    name: 连续5天平均<40
+    consecutive_days: 5
+    avg_temp_threshold: 40.0
+    position_limit: 0.00
+    risk_level: 冰封
+    priority: 2
+    enabled: true
+  
+  - code: SCENARIO_5
+    name: 连续2天平均<30
+    consecutive_days: 2
+    avg_temp_threshold: 30.0
+    position_limit: 0.20
+    risk_level: 严寒
+    priority: 3
+    enabled: true
+  
+  - code: SCENARIO_6
+    name: 连续3天平均<35
+    consecutive_days: 3
+    avg_temp_threshold: 35.0
+    position_limit: 0.20
+    risk_level: 严寒
+    priority: 4
+    enabled: true
+  
+  - code: SCENARIO_1
+    name: 单日<30
+    consecutive_days: 1
+    avg_temp_threshold: 30.0
+    position_limit: 0.50
+    risk_level: 寒冷
+    priority: 5
+    enabled: true
+  
+  - code: SCENARIO_2
+    name: 连续2天平均<35
+    consecutive_days: 2
+    avg_temp_threshold: 35.0
+    position_limit: 0.50
+    risk_level: 寒冷
+    priority: 6
+    enabled: true
+  
+  - code: SCENARIO_3
+    name: 连续3天平均<40
+    consecutive_days: 3
+    avg_temp_threshold: 40.0
+    position_limit: 0.50
+    risk_level: 偏冷
+    priority: 7
+    enabled: true
+
+# 恢复机制配置
+release:
+  # 恢复方式：immediate（即时恢复）
+  mode: immediate
+  # 是否需要连续N天高于阈值
+  require_consecutive_days: false
+  # 缓冲天数（当require_consecutive_days为true时生效）
+  buffer_days: 0
+
+# 日志配置
+logging:
+  level: INFO
+  # 是否记录详细计算过程
+  verbose: false

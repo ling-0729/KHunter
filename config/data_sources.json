@@ -1,0 +1,10 @@
+{
+  "enabled": ["tushare_pro", "tencent", "eastmoney"],
+  "priorities": {
+    "tushare_pro": 1,
+    "tencent": 2,
+    "eastmoney": 3
+  },
+  "timeout": 30,
+  "retry": 3
+}

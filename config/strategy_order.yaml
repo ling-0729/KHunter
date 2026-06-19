@@ -1,0 +1,94 @@
+# 策略执行顺序配置
+# 定义策略的执行优先级和显示顺序
+
+strategy_order:
+  - order: 1
+    name: BottomTrendInflectionStrategy
+    display_name: 底部趋势拐点
+    description: 识别股票在深度下跌后出现反转的拐点
+    
+  - order: 2
+    name: TrendAccelerationInflectionStrategy
+    display_name: 趋势加速拐点
+    description: 识别股票在上升趋势中出现加速的拐点
+    
+  - order: 3
+    name: ResistanceBreakoutStrategy
+    display_name: 阻力位突破
+    description: 识别股价突破关键阻力位的信号
+    
+
+  - order: 5
+    name: WBottomStrategy
+    display_name: W底策略
+    description: 识别W底双底反转形态
+    
+  - order: 6
+    name: MTopStrategy
+    display_name: M头策略
+    description: 识别M头双顶反转形态
+    
+  - order: 7
+    name: MultiGoldenCrossStrategy
+    display_name: 多金叉共振
+    description: 识别均线金叉、KDJ金叉、MACD金叉三者同时发生或相隔不到3天的共振信号
+    
+  - order: 8
+    name: MultiDeathCrossStrategy
+    display_name: 多死叉共振
+    description: 识别均线死叉、KDJ死叉、MACD死叉三者同时发生或相隔不到3天的共振信号
+    
+  - order: 9
+    name: MorningStarStrategy
+    display_name: 启明星策略
+    description: 三根K线底部反转形态识别
+    
+  - order: 10
+    name: MultiPartyCannonStrategy
+    display_name: 多方炮策略
+    description: 两阳夹一阴的K线组合形态
+    
+  - order: 11
+    name: LimitUpPullbackStrategy
+    display_name: 涨停回马枪策略
+    description: 基于涨停板后的回调机会的短线交易策略
+
+  - order: 12
+    name: ImmortalGuidanceStrategy
+    display_name: 仙人指路策略
+    description: 识别仙人指路形态，通过冲高回落+长上影+放量+趋势向上的组合判断
+
+  - order: 13
+    name: LimitUpSidewaysStrategy
+    display_name: 涨停横盘策略
+    description: 识别涨停后横盘整理的形态
+
+  - order: 14
+    name: Strategy2560Selection
+    display_name: 2560战法选股策略
+    description: 2560战法选股策略，股价向上突破25日均线且5日均量线上穿60日均量线
+
+  - order: 15
+    name: StrongWashWeakToStrongStrategy
+    display_name: 强势洗盘弱转强策略
+    description: 识别股票在短期内经历放量上涨、洗盘回调后再次走强的形态
+
+  - order: 16
+    name: TrendStartStrategy
+    display_name: 趋势起点策略
+    description: 今日MACD在0轴上方金叉+布林带上穿中轨+阳线+站上5日线+量能放大1.2倍，识别趋势启动信号
+
+  - order: 30
+    name: MA20MA60Strategy
+    display_name: 520560策略
+    description: 5日均线金叉20日均线+量能共振策略
+
+  - order: 31
+    name: GoldenTriangleStrategy
+    display_name: 金三角策略
+    description: 识别5日、10日、20日均线形成的金三角形态，捕捉趋势启动信号
+
+  - order: 32
+    name: GoldenCrossNotGreenStrategy
+    display_name: 金叉不绿策略
+    description: 识别MACD水上金叉且绿柱数量不超过3根的买入信号，捕捉强势股回调后的启动机会

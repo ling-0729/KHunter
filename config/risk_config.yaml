@@ -1,0 +1,46 @@
+cache:
+  cache_dir: data/risk_cache
+  cache_expire_hours: 24
+  enabled: true
+evt:
+  enabled: false
+  extrapolation_range: 5
+  gpd_fit_method: mle
+  threshold_percentile: 0.95
+risk:
+  calculation_method: hybrid
+  confidence_level: 0.99
+  index_code: 932000.CSI
+  lookback_days: 120
+  lambda_ewma: 0.85
+  risk_levels:
+    危险:
+      liquidate: false
+      position_limit: 0.4
+      score_extra: 15
+      stop_loss_multiplier: 1.0
+      strategy_enabled: true
+    崩溃:
+      liquidate: true
+      position_limit: 0.0
+      score_extra: 999
+      stop_loss_multiplier: 0.0
+      strategy_enabled: false
+    正常:
+      liquidate: false
+      position_limit: 1.0
+      score_extra: 0
+      stop_loss_multiplier: 2.0
+      strategy_enabled: true
+    注意:
+      liquidate: false
+      position_limit: 0.7
+      score_extra: 5
+      stop_loss_multiplier: 1.5
+      strategy_enabled: true
+  update_frequency: daily
+  var_thresholds:
+    caution: -0.05
+    crash: -0.08
+    danger: -0.08
+    normal: -0.03

@@ -1,0 +1,119 @@
+# 股票池移除策略配置
+# 说明：配置哪些选股策略需要执行股票池移除，以及移除条件的参数
+# 择时策略（TurtleStrategy、SupportStrategy等）不用于选股，不参与股票池移除
+
+# 资金流向移除规则全局配置
+# 当股票同时满足以下两个条件时，将被移除出股票池：
+# 1. 5日主力资金累计净流入 < -10000万元
+# 2. 大单净流出 且 小单净流入（出货信号）
+fund_flow_rules:
+  is_enabled: true                    # 是否启用资金流向检查
+  net_flow_threshold: -10000          # 5日主力净额阈值（万元）
+  min_hold_days: 1                   # 加入股票池多少天后开始检查
+
+removal_strategies:
+  # 仙人指路策略
+  ImmortalGuidanceStrategy:
+    display_name: "仙人指路策略"
+    min_hold_days: 5
+    is_enabled: true
+    remark: "加入股票池5天后验证上升趋势"
+
+  # 阻力突破策略
+  ResistanceBreakoutStrategy:
+    display_name: "阻力位突破策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 底部反转策略
+  BottomTrendInflectionStrategy:
+    display_name: "底部趋势拐点"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池30天后验证上升趋势"
+
+  # W底策略
+  WBottomStrategy:
+    display_name: "W底策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池30天后验证上升趋势"
+
+  # 多重金叉策略
+  MultiGoldenCrossStrategy:
+    display_name: "多金叉共振策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池30天后验证上升趋势"
+
+  # 多方炮策略
+  MultiPartyCannonStrategy:
+    display_name: "多方炮策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 强洗弱转强策略
+  StrongWashWeakToStrongStrategy:
+    display_name: "强势洗盘弱转强策略"
+    min_hold_days: 30
+    is_enabled: true
+    remark: "加入股票池30天后验证上升趋势"
+
+  # 趋势加速拐点策略
+  TrendAccelerationInflectionStrategy:
+    display_name: "趋势加速拐点"
+    min_hold_days: 5
+    is_enabled: true
+    remark: "加入股票池5天后验证上升趋势"
+
+  # 涨停横盘策略
+  LimitUpSidewaysStrategy:
+    display_name: "涨停横盘策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 晨星策略
+  MorningStarStrategy:
+    display_name: "启明星策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 涨停回马枪策略
+  LimitUpPullbackStrategy:
+    display_name: "涨停回马枪策略"
+    min_hold_days: 20
+    is_enabled: true
+    remark: "加入股票池20天后验证上升趋势"
+
+  # 2560战法选股策略
+  Strategy2560Selection:
+    display_name: "2560战法选股策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 趋势起点策略
+  TrendStartStrategy:
+    display_name: "趋势起点策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 金三角策略
+  GoldenTriangleStrategy:
+    display_name: "金三角策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
+  # 金叉不绿策略
+  GoldenCrossNotGreenStrategy:
+    display_name: "金叉不绿策略"
+    min_hold_days: 15
+    is_enabled: true
+    remark: "加入股票池15天后验证上升趋势"
+
