@@ -352,7 +352,7 @@ python main.py web
 
 ## 十三、联系方式
 
-- **GitHub**: https://github.com/ling-0729/khunter
+- **GitHub**: https://github.com/ling-0729/KHunter
 - **文档**: 详见 doc/ 目录
 - **问题反馈**: 在GitHub上提交Issue
 
