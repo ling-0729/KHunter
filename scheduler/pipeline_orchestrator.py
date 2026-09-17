@@ -461,28 +461,32 @@ class PipelineOrchestrator:
             sr_config = ps_config.get("strategy_run", {})
             run_config["score_threshold"] = sr_config.get("score_threshold", run_config.get("score_threshold", 60))
             run_config["max_daily_buys"] = sr_config.get("max_daily_buys", run_config.get("max_daily_buys", 3))
-            # 3. 检查海龟策略，从 StrategyConfigManager 加载参数
-            has_turtle = any(
-                'turtle' in str(t.get('timing_strategy', '')) for t in tasks
-            )
-            if has_turtle:
+            # 3. 海龟类策略（海龟/低位海龟/海龟plus）参数注入：按策略名写入 timing_params，
+            #    与 web_server 批量执行、回测、运行器同一口径（build_turtle_family_params 合并）。
+            #    2026-09-16 修复：原实现只认 'turtle' 且写顶层键 → 海龟plus 回退默认预设。
+            from trading.timing_strategies import TURTLE_FAMILY_STRATEGIES
+            _timing_names = {str(t.get('timing_strategy') or '') for t in tasks}
+            _turtle_tasks = [n for n in TURTLE_FAMILY_STRATEGIES if n in _timing_names]
+            if _turtle_tasks:
                 try:
                     from utils.strategy_config_manager import StrategyConfigManager
                     config_manager = StrategyConfigManager()
-                    turtle_config = config_manager.get_strategy_config('TurtleStrategy')
-                    turtle_params = turtle_config.get('params', {})
-                    logger.info("  从配置文件读取海龟策略参数: n_entry=%s, n_exit=%s, atr_period=%s",
-                                 turtle_params.get('n_entry'), turtle_params.get('n_exit'),
-                                 turtle_params.get('atr_period'))
-                    run_config['n_entry'] = turtle_params.get('n_entry')
-                    run_config['n_exit'] = turtle_params.get('n_exit')
-                    run_config['atr_period'] = turtle_params.get('atr_period')
-                    run_config['entry_atr'] = turtle_params.get('entry_atr')
-                    run_config['add_atr'] = turtle_params.get('add_atr')
-                    run_config['exit_atr'] = turtle_params.get('exit_atr')
-                    run_config['base_position_amount'] = turtle_params.get('base_position_amount')
+                    _blocks = {'turtle': 'TurtleStrategy', 'low_turtle': 'TurtleStrategy',
+                               'turtle_plus': 'TurtlePlusStrategy'}
+                    _timing_params = dict(run_config.get('timing_params') or {})
+                    for _name in _turtle_tasks:
+                        _params = config_manager.get_strategy_config(
+                            _blocks.get(_name, 'TurtleStrategy')).get('params', {}) or {}
+                        _timing_params[_name] = {**_params, **(_timing_params.get(_name) or {})}
+                        logger.info("  从配置文件读取%s策略参数: %s", _name, _params)
+                    run_config['timing_params'] = _timing_params
+                    # 单一海龟类策略时同时写顶层键（运行器/引擎优先读顶层配置）
+                    if len(_turtle_tasks) == 1:
+                        run_config.update({k: v for k, v in
+                                           _timing_params[_turtle_tasks[0]].items()
+                                           if v is not None})
                 except Exception as e:
-                    logger.warning("  读取海龟策略配置失败，使用默认值: %s", e)
+                    logger.warning("  读取海龟类策略配置失败，沿用调用方参数: %s", e)
 
             # 日志显示实际使用的任务策略（兼容 selection_strategy 和 strategy_names 两种 key）
             task_summary = ", ".join(

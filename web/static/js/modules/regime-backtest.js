@@ -12,6 +12,11 @@
 
 const REGIME_ORDER = ['明确', '萌芽', '震荡'];
 
+// 选股策略「空值」= 空仓：选中后该档位当日仍执行选股与评分流程，但选股结果固定为 0 只；
+// 其余流程（卖出/止损/择时/买入方式/持仓管理/股票池维护）完全不变。
+// 后端识别口径见 trading/regime_router.py → NO_SELECTION_VALUES（空仓/none/无）
+const RS_NO_SELECTION = '空仓';
+
 // 买入执行方式（对应后端 config['buy_execution'].mode）
 // 默认规则：明确/萌芽 → open（T日开盘价）、震荡 → ma_limit（均线委托价）
 const BUY_EXECUTION_OPTIONS = [
@@ -70,6 +75,9 @@ async function _rsLoadOptions() {
             console.warn('[自适应回测] 备用选股策略接口失败', e);
         }
     }
+    // 追加选股「空值」（空仓）：无论接口是否返回都要可选项，且只保留一个
+    _regimeState.selectors = [RS_NO_SELECTION].concat(
+        _regimeState.selectors.filter(x => x !== RS_NO_SELECTION));
     // 择时策略（key + 中文名）
     try {
         const p = await _rsFetchJSON('/api/timing-strategies');
@@ -227,7 +235,9 @@ function _rsRenderTrades(trades) {
     const buys = list.filter(t => kindOf(t) === 'buy');
     const adds = list.filter(t => kindOf(t) === 'add');
     const sells = list.filter(t => kindOf(t) === 'sell');
-    const opened = list.filter(t => kindOf(t) !== 'sell' && (t.position_status || '持仓中') === '持仓中');
+    // 只有后端明确标注 position_status='持仓中' 的订单才算“期末持仓中”；
+    // 缺字段时不得默认“持仓中”（自适应回测响应曾漏配对，324 笔买/加仓被全部误计）
+    const opened = list.filter(t => t.position_status === '持仓中');
     setTxt('regime-trades-count', list.length);
     setTxt('regime-trades-buy', buys.length);
     setTxt('regime-trades-add', adds.length);
@@ -245,6 +255,8 @@ function _rsRenderTrades(trades) {
         const k = kindOf(t);
         const isSell = (k === 'sell');
         const closed = isSell || t.position_status === '已平仓';
+        // 缺 position_status 的买/加仓行：状态未知（不是“持仓中”）
+        const isOpen = !closed && t.position_status === '持仓中';
         // 已平仓的 buy/add 行：用配对卖出信息；卖出行：用自身字段
         const sd = isSell ? t.sell_date : (t.matched_sell_date || '');
         const sp = isSell ? t.sell_price : t.matched_sell_price;
@@ -257,7 +269,7 @@ function _rsRenderTrades(trades) {
             <td style="${cell}">${fmt(t.stock_name)}</td>
             <td style="${cell}">${fmt(t.buy_date)}</td>
             <td style="${cell}">${num(t.buy_price)}</td>
-            <td style="${cell}">${closed ? fmt(sd) : '持仓中'}</td>
+            <td style="${cell}">${closed ? fmt(sd) : (isOpen ? '持仓中' : '-')}</td>
             <td style="${cell}">${closed ? num(sp) : '-'}</td>
             <td style="${cell}">${fmt(t.quantity)}</td>
             <td style="${cell}color:${closed ? color : '#888'};">${closed ? rr.toFixed(2) + '%' : '-'}</td>

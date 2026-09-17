@@ -584,6 +584,7 @@ function displayBacktestResult(result) {
     // 择时策略中文名称映射
     const timingStrategyNames = {
         'turtle': '海龟策略',
+        'turtle_plus': '海龟plus',
         'rsi': 'RSI策略',
         'bollinger': '布林带策略',
         'support': '支撑位策略',
@@ -803,6 +804,7 @@ function displayBacktestHistory(results) {
     // 择时策略中文名称映射
     const timingStrategyNames = {
         'turtle': '海龟策略',
+        'turtle_plus': '海龟plus',
         'rsi': 'RSI策略',
         'bollinger': '布林带策略',
         'support': '支撑位策略',

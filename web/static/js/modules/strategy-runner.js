@@ -283,6 +283,7 @@ const StrategyRunnerModule = {
             const timingStrategyMap = {
                 'turtle': '海龟策略',
                 'low_turtle': '低位海龟策略',
+                'turtle_plus': '海龟plus',
                 'rsi': 'RSI策略',
                 'bollinger': '布林带策略',
                 'support': '支撑位策略',

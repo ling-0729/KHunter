@@ -474,10 +474,19 @@ class PTradeFeedbackHandler:
                 f"股票市值={stock_market_value}，ETF市值={etf_mv}，"
                 f"回退使用 Fund 可用资金列")
             cash = round(fund.get("available_cash", 0), 2)
+        # Fund「可用资金」列仅作诊断对照：清算前该列已扣除未成交委托冻结资金，会低于真实
+        # 可用余额（2026-09-15 实盘：该列 27425.82，真实可用 141472.44），直接用于展示/
+        # 下单会与策略口径（cash）不一致。
+        fund_available_cash = round(fund.get("available_cash", 0), 2)
+        if abs(fund_available_cash - cash) >= 0.01:
+            logger.info(
+                f"PTrade 反馈: Fund「可用资金」列={fund_available_cash} 与反算可用资金="
+                f"{cash}（总资产-股票市值-ETF市值）不一致，以反算值为准")
         portfolio = {
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "cash": cash,                                 # 反算值：策略下单口径（含未成交委托冻结资金）
-            "available_cash": round(fund.get("available_cash", 0), 2),  # Fund 列：前端展示口径
+            "available_cash": cash,                       # 展示口径与策略口径统一（2026-09-15 修正）
+            "fund_available_cash": fund_available_cash,   # Fund 列原始值：仅供诊断对照
             "total_asset": total_asset,                   # Fund 文件原始总资产，含 ETF
             "market_value": stock_market_value,           # 仅股票市值（与 positions 一致）
             "etf_market_value": etf_mv,                   # ETF 市值（独立追踪，不计入 market_value）

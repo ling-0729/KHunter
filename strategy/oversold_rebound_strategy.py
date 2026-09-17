@@ -20,7 +20,11 @@
 """
 
 from strategy.base_strategy import BaseStrategy
-from strategy.low_td9_strategy import LowTD9Strategy
+# 低位九转策略已移入 strategy/disabled/（代码保留、不参与注册）；
+# 本策略仅复用其底部形态判定。注意：这里导入的是**模块**而非类名 ——
+# 若写成 `from ... import LowTD9Strategy`，该类会成为本模块属性，
+# 注册器扫描模块时会把它重新注册进来（等于没停用）。
+from strategy.disabled import low_td9_strategy
 import pandas as pd
 
 
@@ -57,7 +61,7 @@ class OversoldReboundStrategy(BaseStrategy):
             merged.update(params)
         super().__init__("超跌反弹", merged)  # 合并后传给基类
         # 低位九转复用实例（仅调用其状态机，不含低位过滤）
-        self._td9 = LowTD9Strategy()
+        self._td9 = low_td9_strategy.LowTD9Strategy()
 
     # ------------------------------------------------------------------ #
     # 指标计算

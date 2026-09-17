@@ -2,11 +2,15 @@
 """
 龙头策略 (LeaderStrategy)
 
-选股条件（全部数据来自 tushare limit_list_d，按选股日实时获取，单接口覆盖）：
+选股条件（涨停/换手/市值取自 tushare limit_list_d；量能取自本地K线 volume）：
   1. 当日涨停        -> limit_type='U'（已排除 ST/退市/炸板未封）
-  2. 封板时间 < 11:00 -> 最后封板时间 last_time（默认判定字段，参数可配为 first_time）
-  3. 当日换手率 15%-25% -> turnover_ratio（无限售流通股口径，单位 %，=通达信显示值）
-  4. 流通市值 < 200 亿  -> float_mv（单位 元；200 亿 = 20000000000）
+  2. 严格第 2 板     -> limit_times == 2（昨日也涨停，且排除 3 板及以上）
+  3. 封板时间 < 11:00 -> 最后封板时间 last_time（默认判定字段，参数可配为 first_time）
+  4. 当日换手率 5%-25% -> turnover_ratio（无限售流通股口径，单位 %，=通达信显示值）
+  5. 流通市值 < 300 亿  -> float_mv（单位 元；300 亿 = 30000000000）
+  6. 量能温和放大    -> 昨日成交量 < 今日成交量 <= 昨日成交量 × 2.0（K线 volume）
+  7. 去除开盘即涨停  -> 选股日 open == 涨停价（一字板与 T 字板都排除，均买不到）
+  8. 近期无其他涨停  -> 近 10 个交易日（不含选股日）除昨日外不得再有涨停（按涨停价精确比对）
 
 实现说明：
   - 策略运行框架为“逐只股票传入 K 线”（BaseStrategy.execute_selection），
@@ -16,6 +20,12 @@
     仅在内存中参与选股，本地不落库存储任何涨停数据。
   - 同一交易日只请求一次（实例内缓存复用），全市场逐只选股不会重复请求接口。
   - 封板口径默认为最后封板时间 < 11:00，不限制炸板（max_open_times 保持 None 即不限制）。
+  - 量能条件取本地K线（选股日与前一根K线的 volume 列）：要求选股日K线存在、昨日成交量 > 0；
+    任一缺失（含 volume 列不存在）都保守淘汰，避免用错日期的量做比较。
+  - 开盘即涨停与“近期涨停”同样取本地K线：前者看选股日 open 是否等于涨停价（同时覆盖
+    一字板与 T 字板，均为开盘即封、无法参与）；近期涨停按
+    close == round(前一日 close × (1+涨停幅度), 2) 精确比对（主板 10%、创业板 20%
+    （2020-08-24 起，之前 10%）、科创板 20%、北交所 30%），避免用涨幅阈值近似误判。
 """
 import os
 import pandas as pd
@@ -23,7 +33,8 @@ from strategy.base_strategy import BaseStrategy
 
 
 class LeaderStrategy(BaseStrategy):
-    """龙头策略：当日涨停 + 早封板 + 高换手 + 小流通盘。"""
+    """龙头策略：当日涨停 + 严格第2板 + 早封板 + 换手率 5%-25% + 小流通盘 + 量能温和放大(≤昨日2倍)
+    + 非一字板 + 近10日除昨日外无其他涨停。"""
 
     # 涨停数据获取相关状态（类级：跨实例复用，避免重复初始化）
     _collector = None             # 取数模块缓存（False 表示不可用）
@@ -34,11 +45,14 @@ class LeaderStrategy(BaseStrategy):
             'seal_time_field': 'last_time',    # 封板时间判定字段：last_time=最后封板（默认）；first_time=首次封板
             'seal_time_limit': 110000,         # 封板时间上限 HHMMSS（11:00）
             'max_open_times': None,            # 炸板次数上限；None=不限制（严格按字面条件）
-            'turnover_min': 15.0,              # 换手率下限(%)
+            'turnover_min': 5.0,               # 换手率下限(%)
             'turnover_max': 25.0,              # 换手率上限(%)
-            'float_mv_max': 20000000000,       # 流通市值上限(元) = 200 亿
-            'min_limit_times': 1,              # 连板下限；1=不过滤首板
-            'max_limit_times': None,           # 连板上限；None=不限制
+            'float_mv_max': 30000000000,       # 流通市值上限(元) = 300 亿
+            'min_limit_times': 2,              # 连板下限；2=昨日也涨停（严格第2板需上限也为 2）
+            'max_limit_times': 2,              # 连板上限；与下限相同即为“严格第 N 板”，None=不限制
+            'volume_ratio_max': 2.0,           # 量能上限倍率：昨日量 < 今日量 <= 昨日量×该值
+            'exclude_open_limit_up': True,     # 去除开盘即涨停（一字板/T字板：选股日 open == 涨停价）
+            'recent_limit_up_window': 10,      # 回看交易日数：窗口内除昨日外有其他涨停即剔除；null/<=1=不检查
             'limit_type': 'U',                 # 涨停（数据源仅取 U）
             'strategy_weight': 70,             # 技术面评分权重
         }
@@ -123,6 +137,24 @@ class LeaderStrategy(BaseStrategy):
         except (ValueError, TypeError):
             return None
 
+    @staticmethod
+    def _parse_ratio_max(value):
+        """解析量能倍率上限：None/''/null/none/≤0 → None（表示不限制上限）
+
+        用于 volume_ratio_max：写 null 即"只要求今日放量、不限制倍率"，
+        避免误配 get 到 None 后 float() 抛错而把所有股票静默淘汰。
+        """
+        if value is None:
+            return None
+        s = str(value).strip().lower()
+        if s in ('', 'none', 'null', '~', 'nan'):
+            return None
+        try:
+            v = float(s)
+        except (ValueError, TypeError):
+            return None
+        return v if v > 0 else None
+
     @classmethod
     def _get_collector(cls):
         """按路径加载取数模块 scripts/collect_limit_up_pool.py（仅加载一次）。"""
@@ -185,6 +217,114 @@ class LeaderStrategy(BaseStrategy):
         return pool
 
     # ---------- 选股核心 ----------
+    @staticmethod
+    def _limit_pct(code, date_str):
+        """该股在指定交易日适用的涨停幅度（主板 10% / 创业板·科创板 20% / 北交所 30%）"""
+        code = str(code or '').split('.')[0]
+        d = str(date_str or '')[:10].replace('-', '')
+        if code.startswith('688'):
+            return 0.20      # 科创板
+        if code.startswith('30'):
+            # 创业板：2020-08-24 起 20%，此前 10%
+            return 0.20 if d >= '20200824' else 0.10
+        if code.startswith(('8', '4')):
+            return 0.30      # 北交所
+        return 0.10          # 沪深主板
+
+    @staticmethod
+    def _is_limit_up_bar(code, prev_close, close, date_str):
+        """按涨停价精确判定某根K线是否涨停（涨停价 = 前收 ×(1+幅度)，四舍五入到分）"""
+        try:
+            prev_close = float(prev_close)
+            if prev_close <= 0:
+                return False
+            limit_price = round(prev_close * (1 + LeaderStrategy._limit_pct(code, date_str)), 2)
+            return abs(float(close) - limit_price) < 0.005
+        except (ValueError, TypeError):
+            return False
+
+    def _check_board_style(self, df, code, sel_date):
+        """条件7/8：去除一字板；近 N 个交易日（不含选股日）除昨日外不得再有涨停
+
+        开盘即涨停：选股日K线 open == 涨停价（= 前收 ×(1+幅度) 四舍五入到分）。
+                    涵盖一字板（全天封死）与 T 字板（开盘涨停→开板→回封），两者均买不到。
+        窗口：取选股日之前（不含选股日）的最近 N 根K线，其中“昨日”（选股日前一根）允许涨停，
+              其余任一根涨停即淘汰。窗口参数 recent_limit_up_window，null/<=1 表示不检查。
+
+        Returns:
+            (是否通过, 窗口内除昨日外的涨停日期列表)
+        """
+        try:
+            sel = str(sel_date)[:10]
+            past = (df[df['date'].astype(str).str.slice(0, 10) <= sel]
+                    .sort_values('date').reset_index(drop=True))
+            n = len(past)
+            if n < 2 or str(past.at[n - 1, 'date']).split()[0][:10] != sel:
+                return False, []
+
+            # 条件7：去除“开盘即涨停”（一字板与 T 字板：开盘价 == 涨停价）
+            if self.params.get('exclude_open_limit_up', True):
+                prev_close = float(past.at[n - 2, 'close'])
+                open_price = float(past.at[n - 1, 'open'])
+                bar_date = str(past.at[n - 1, 'date']).split()[0][:10]
+                limit_price = round(
+                    prev_close * (1 + LeaderStrategy._limit_pct(code, bar_date)), 2)
+                if abs(open_price - limit_price) < 0.005:
+                    return False, []
+
+            # 条件8：窗口内除昨日外不得再有涨停
+            window = self._parse_nullable_int(self.params.get('recent_limit_up_window', 10))
+            if not window or window <= 1:
+                return True, []
+            start = max(0, n - 1 - window)
+            closes = past['close'].astype(float).tolist()
+            dates = past['date'].astype(str).str.slice(0, 10).tolist()
+            extra = []
+            for i in range(start, n - 1):
+                if i == 0:
+                    continue
+                if not LeaderStrategy._is_limit_up_bar(code, closes[i - 1], closes[i], dates[i]):
+                    continue
+                if i != n - 2:      # 昨日（选股日前一根）允许涨停
+                    extra.append(dates[i])
+            if extra:
+                return False, extra
+            return True, []
+        except Exception:
+            return False, []
+
+    def _check_volume(self, df, sel_date):
+        """量能条件：昨日成交量 < 今日成交量 <= 昨日成交量 × volume_ratio_max
+
+        数据源为本地K线（df 的 volume 列）：
+          - 取“选股日及之前”的K线并按日期升序；
+          - 要求最后一根K线日期 == 选股日（否则为停牌/数据未更新 → 保守淘汰，避免用错日期数据）；
+          - 昨日成交量必须 > 0，volume 列缺失或为 NaN → 保守淘汰。
+
+        Returns:
+            (是否通过, 今日成交量, 昨日成交量)
+        """
+        try:
+            sel = str(sel_date)[:10]
+            past = df[df['date'].astype(str).str.slice(0, 10) <= sel].sort_values('date')
+            if len(past) < 2 or 'volume' not in past.columns:
+                return False, None, None
+            if str(past.iloc[-1]['date']).split()[0][:10] != sel:
+                return False, None, None
+            today_vol = float(past.iloc[-1]['volume'])
+            prev_vol = float(past.iloc[-2]['volume'])
+            if pd.isna(today_vol) or pd.isna(prev_vol) or prev_vol <= 0:
+                return False, None, None
+            ratio_max = self._parse_ratio_max(self.params.get('volume_ratio_max', 2.0))
+            if ratio_max is None:
+                # 不限制上限：仍要求今日放量
+                return (today_vol > prev_vol), today_vol, prev_vol
+            if not (prev_vol < today_vol <= prev_vol * ratio_max):
+                return False, today_vol, prev_vol
+            return True, today_vol, prev_vol
+        except Exception:
+            return False, None, None
+
     def select_stocks(self, df, stock_name='', selection_date=None):
         if df is None or len(df) == 0:
             return []
@@ -234,24 +374,36 @@ class LeaderStrategy(BaseStrategy):
             if (row.get('open_times') or 0) > max_open:
                 return []
 
-        # 附加过滤：连板下限
-        min_lt = self._parse_nullable_int(self.params.get('min_limit_times', 1))
+        # 连板条件：下限（昨日也涨停）+ 上限（排除高位连板）
+        # 下限 2 且上限 2 → 严格第 2 板；上限 None/'null' → 不限制
+        min_lt = self._parse_nullable_int(self.params.get('min_limit_times', 2))
         if min_lt and min_lt > 1:
             if (row.get('limit_times') or 0) < min_lt:
                 return []
-        # 附加过滤：连板上限（避免高位连板接盘；None=不限制）
         max_lt = self._parse_nullable_int(self.params.get('max_limit_times', None))
         if max_lt:
             if (row.get('limit_times') or 0) > max_lt:
                 return []
 
+        # 条件6：量能温和放大（昨日量 < 今日量 <= 昨日量 × 倍率上限）
+        vol_ok, vol_today, vol_prev = self._check_volume(df, sel_date)
+        if not vol_ok:
+            return []
+
+        # 条件7/8：形态过滤（非一字板 + 近 N 个交易日除昨日外无其他涨停）
+        style_ok, prev_limit_dates = self._check_board_style(df, code, sel_date)
+        if not style_ok:
+            return []
+
         # ---------- 命中：构造信号 ----------
         limit_times = row.get('limit_times') or 0
+        vol_ratio = (vol_today / vol_prev) if (vol_today and vol_prev) else 0.0
         reasons = [
             f"当日涨停（limit_type={self.params.get('limit_type')}）",
             f"最后封板时间 {seal_val} < {self.params['seal_time_limit']}",
             f"换手率 {tr:.2f}% ∈ [{self.params['turnover_min']},{self.params['turnover_max']}]%",
             f"流通市值 {mv/1e8:.2f}亿 < {self.params['float_mv_max']/1e8:.0f}亿",
+            f"量能 {vol_ratio:.2f} 倍（昨日量 < 今日量 ≤ {self.params.get('volume_ratio_max', 2.0)} 倍）",
         ]
         if limit_times and limit_times > 1:
             reasons.append(f"连板 {limit_times} 板")
@@ -284,6 +436,9 @@ class LeaderStrategy(BaseStrategy):
                 'last_time': row.get('last_time'),
                 'open_times': row.get('open_times'),
                 'limit_times': limit_times,
+                'volume_today': vol_today,
+                'volume_prev': vol_prev,
+                'volume_ratio': round(vol_ratio, 3),
                 'industry': row.get('industry'),
                 'fd_amount': row.get('fd_amount'),
             },
@@ -305,8 +460,33 @@ class LeaderStrategy(BaseStrategy):
             f"3. 换手率 {p['turnover_min']}%-{p['turnover_max']}%（turnover_ratio，无限售流通股口径）",
             f"4. 流通市值 < {p['float_mv_max']/1e8:.0f} 亿（float_mv，单位元）",
             f"5. 炸板次数上限 {'不限' if p.get('max_open_times') is None else p['max_open_times']}；"
-            f"连板区间 {p.get('min_limit_times', 1)}~{'不限' if p.get('max_limit_times') is None else p['max_limit_times']}",
+            f"连板条件 {self._describe_limit_times(p)}",
+            f"6. 量能条件：昨日成交量 < 今日成交量 ≤ 昨日成交量 × {p.get('volume_ratio_max', 2.0)}（K线 volume）",
+            f"7. 去除开盘即涨停：{'开启' if p.get('exclude_open_limit_up', True) else '关闭'}"
+            f"（一字板与T字板都排除：选股日 open == 涨停价）",
+            f"8. 近期涨停过滤：近 {p.get('recent_limit_up_window', 10)} 个交易日（不含选股日）除昨日外不得再有涨停"
+            + ('' if p.get('recent_limit_up_window', 10) else '（当前关闭）'),
         ]
+
+    @staticmethod
+    def _describe_limit_times(p):
+        """连板条件文案：上下限相同 → 严格第 N 板；否则为区间"""
+
+        def _to_int(v):
+            if v is None:
+                return None
+            s = str(v).strip().lower()
+            if s in ('', 'none', 'null', '~', 'nan'):
+                return None
+            try:
+                return int(float(s))
+            except (ValueError, TypeError):
+                return None
+
+        lo, hi = _to_int(p.get('min_limit_times')), _to_int(p.get('max_limit_times'))
+        if lo and hi and lo == hi:
+            return f"严格第 {lo} 板（昨日也涨停）"
+        return f"连板区间 {lo if lo else 1}~{'不限' if hi is None else hi}"
 
 
 if __name__ == '__main__':

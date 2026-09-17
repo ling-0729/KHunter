@@ -22,7 +22,8 @@ from utils.akshare_fetcher import AKShareFetcher
 from strategy.strategy_registry import StrategyRegistry
 from trading.stock_score_api import calculate_stock_score
 
-from trading.timing_strategies import TimingStrategyFactory
+from trading.timing_strategies import (
+    TimingStrategyFactory, TURTLE_FAMILY_STRATEGIES, build_turtle_family_params)
 from utils.strategy_name_mapper import get_english_name
 from utils.trade_date_utils import is_trading_day, get_previous_trading_day
 from utils.trading_time_validator import is_market_closed
@@ -1660,6 +1661,62 @@ class StrategyRunner:
         
         return False
 
+    def _register_sell_cool_down(self, stock_code: str, profit_rate: float,
+                                 trade_date: str) -> str:
+        """卖出后登记冷却状态（与回测 BacktestEngine 同口径，2026-09-16 新规则）
+
+        规则：
+          1. 连续亏损达标（默认 2 次）→ 先登记超长冷却（默认 250 交易日 = 1 年）
+          2. **任意清仓卖出** → 登记 cool_down_days（默认 21 交易日 = 1 个月）：
+             盈利卖出同样冷却（cool_down_on_any_sell，默认 True；False 时回退"仅亏损"旧规则）。
+             判定与回测**共用** should_register_sell_cool_down，避免两侧口径漂移。
+          3. 已在冷却期不覆盖（避免 21 天覆盖连续亏损的 250 天）
+
+        Args:
+            stock_code: 股票代码
+            profit_rate: 收益率（**小数**，如 0.05 = +5%；回测侧为百分数，此处内部换算）
+            trade_date: 交易日 YYYY-MM-DD
+
+        Returns:
+            登记的冷却结束日期；未登记返回 ''
+        """
+        enable_loss_cool_down = self.config.get('enable_loss_cool_down', True)
+        enable_consecutive_loss_limit = self.config.get(
+            'enable_consecutive_loss_limit', True)
+        cool_down_threshold = self.config.get('cool_down_threshold')      # None = 无门槛
+        cool_down_days = self.config.get('cool_down_days', 21)            # 1 个月
+        max_consecutive_losses = self.config.get('max_consecutive_losses', 2)
+        consecutive_loss_cool_down = self.config.get('consecutive_loss_cool_down', 250)  # 1 年
+        cool_down_on_any_sell = self.config.get('cool_down_on_any_sell', True)
+
+        registered = ''
+        # 1) 连续亏损计数与超长冷却
+        if enable_consecutive_loss_limit:
+            if profit_rate > 0:
+                self.consecutive_loss_count[stock_code] = 0
+            else:
+                current_count = self.consecutive_loss_count.get(stock_code, 0) + 1
+                self.consecutive_loss_count[stock_code] = current_count
+                if current_count >= max_consecutive_losses:
+                    cool_down_end = self._get_future_trading_day(
+                        trade_date, consecutive_loss_cool_down)
+                    self._update_stock_cool_down_status(stock_code, True, cool_down_end)
+                    registered = cool_down_end
+                    logger.warning(f"  股票 {stock_code} 连续亏损 {current_count} 次，"
+                                   f"加入冷却池至 {cool_down_end}")
+        # 2) 任意清仓卖出 → 冷却 1 个月（实盘生成的卖出信号一律为清仓）
+        from trading.backtest_engine import should_register_sell_cool_down
+        if enable_loss_cool_down and should_register_sell_cool_down(
+                'sell', profit_rate * 100, cool_down_threshold, cool_down_on_any_sell):
+            if not self._check_cool_down(stock_code, trade_date):
+                cool_down_end = self._get_future_trading_day(trade_date, cool_down_days)
+                self._update_stock_cool_down_status(stock_code, True, cool_down_end)
+                registered = cool_down_end
+                logger.warning(f"  股票 {stock_code} 清仓卖出"
+                               f"（收益 {profit_rate * 100:.2f}%），"
+                               f"加入冷却池 {cool_down_days} 个交易日至 {cool_down_end}")
+        return registered
+
     def _update_stock_cool_down_status(self, stock_code: str, is_cooling: bool, cool_down_end: str = None):
         """更新股票池中的冷却状态
         
@@ -1924,8 +1981,10 @@ class StrategyRunner:
                 self._save_position_tracking(position_tracking)
                 self.portfolio = self._normalize_portfolio_keys(new_positions)
                 self.current_total_capital = ptrade_portfolio.get('cash', getattr(self, 'current_total_capital', 300000))
-                # 记录 Fund 文件的「可用资金」列（前端展示口径，与反算 cash 区分）：
-                # 展示层复用本快照时，数值与直读反馈文件完全一致
+                # 记录同步时刻的可用资金快照（= portfolio['cash']，与策略口径统一）：
+                # 展示层复用本快照时，数值与「总资产 − 股票市值 − ETF市值」完全一致。
+                # 注意：不要改用 Fund「可用资金」列——该列清算前会扣除未成交委托冻结
+                # 资金、低于真实可用余额（2026-09-15 实盘：27425.82 vs 141472.44）
                 self.current_ptrade_available_cash = ptrade_portfolio.get(
                     'available_cash', getattr(self, 'current_ptrade_available_cash', None))
                 # 记录 PTrade 反馈的真实总资产（含 ETF 市值），供飞书通知等场景直接读取权威值，
@@ -4212,53 +4271,15 @@ class StrategyRunner:
             # 注意：不立即删除持仓，只生成卖出信号
             # 持仓将在实际执行卖出信号时（T+1日）才被删除
             
-            # ========== 更新冷却池和连续亏损计数（基于生成的卖出信号）==========
+            # ========== 更新冷却池和连续亏损计数 ==========
+            # 2026-09-16 新规则：**任意清仓卖出**即冷却 1 个月（21 个交易日，盈利同样冷却）；
+            # 连续亏损 2 次冷却 1 年（250 个交易日）。判定与回测共用同一函数，逻辑见
+            # _register_sell_cool_down。
             for sell_signal in sell_signals:
-                stock_code = sell_signal['stock_code']
-                profit_rate = sell_signal['profit_rate'] if 'profit_rate' in sell_signal else 0
-                
-                # 获取配置
-                #   2026-09-12 新规则：任意亏损即冷却 1 个月（21 个交易日）；
-                #   连续亏损 2 次冷却 1 年（250 个交易日）。
-                #   默认**取消亏损门槛**（cool_down_threshold 不配置 = 无门槛）；
-                #   如需恢复阈值，显式配置 cool_down_threshold（如 -8）即可。
-                enable_loss_cool_down = self.config.get('enable_loss_cool_down', True)
-                enable_consecutive_loss_limit = self.config.get('enable_consecutive_loss_limit', True)
-                cool_down_threshold = self.config.get('cool_down_threshold')   # None = 无门槛
-                cool_down_days = self.config.get('cool_down_days', 21)         # 1 个月
-                max_consecutive_losses = self.config.get('max_consecutive_losses', 2)
-                consecutive_loss_cool_down = self.config.get('consecutive_loss_cool_down', 250)  # 1 年
-                
-                # 更新连续亏损计数
-                if enable_consecutive_loss_limit:
-                    if profit_rate > 0:
-                        # 盈利，重置计数
-                        self.consecutive_loss_count[stock_code] = 0
-                    else:
-                        # 亏损，增加计数
-                        current_count = self.consecutive_loss_count.get(stock_code, 0) + 1
-                        self.consecutive_loss_count[stock_code] = current_count
-                        
-                        # 检查是否达到连续亏损限制
-                        if current_count >= max_consecutive_losses:
-                            cool_down_end = self._get_future_trading_day(trade_date, consecutive_loss_cool_down)
-                            # 更新股票池中的冷却状态
-                            self._update_stock_cool_down_status(stock_code, True, cool_down_end)
-                            logger.warning(f"  股票 {stock_code} 连续亏损 {current_count} 次，加入冷却池至 {cool_down_end}")
-                
-                # 检查是否触发亏损冷却期（单笔亏损：默认**任意亏损**即触发）
-                # 两个条件独立判断：单笔亏损（默认无门槛） 或 连续两次亏损。
-                # 已处于冷却期时不再覆盖，避免用较短的 21 天覆盖连续亏损的 250 天。
-                loss_over_threshold = (cool_down_threshold is None
-                                       or profit_rate * 100 <= cool_down_threshold)
-                if enable_loss_cool_down and profit_rate < 0 and loss_over_threshold:
-                    # 检查是否已经在冷却期，避免重复记录
-                    if not self._check_cool_down(stock_code, trade_date):
-                        cool_down_end = self._get_future_trading_day(trade_date, cool_down_days)
-                        # 更新股票池中的冷却状态
-                        self._update_stock_cool_down_status(stock_code, True, cool_down_end)
-                        logger.warning(f"  股票 {stock_code} 单笔亏损 {profit_rate*100:.2f}%，"
-                                       f"加入冷却池 {cool_down_days} 个交易日至 {cool_down_end}")
+                self._register_sell_cool_down(
+                    sell_signal['stock_code'],
+                    sell_signal.get('profit_rate', 0) or 0,
+                    trade_date)
             # ========== 冷却池和连续亏损计数更新结束 ==========
             
             logger.info(f"【卖出汇总】{trade_date} 执行卖出操作，生成 {len(sell_signals)} 个卖出信号，共检查 {len(self.portfolio) + len(stocks_to_remove)} 只持仓")
@@ -4675,49 +4696,40 @@ class StrategyRunner:
             return 0.0
     
     # 需要合并顶层 config 专用参数的海龟类策略
-    TURTLE_STRATEGY_NAMES = ('turtle', 'low_turtle')
+    #   名单唯一来源：trading.timing_strategies.TURTLE_FAMILY_STRATEGIES
+    #   （2026-09-16：新增海龟plus 时回测/自适应/运行器曾各写一份名单，三处都漏改）
+    TURTLE_STRATEGY_NAMES = TURTLE_FAMILY_STRATEGIES
 
     @staticmethod
     def _build_turtle_params(config: Dict, timing_params: Dict, timing_strategy: str) -> Dict:
-        """构建择时策略参数，统一海龟类策略的配置合并逻辑。
+        """构建海龟类择时策略参数（委托共享实现，保证与回测同一口径）
 
-        背景：回测引擎对 turtle/low_turtle 均合并顶层 config 的海龟参数，
-        而运行器原先仅判断 'turtle'，导致 low_turtle 在实盘回退默认预设，
-        回测与实盘参数不一致（回测结果无法指导实盘）。此处统一两处逻辑。
+        背景：回测引擎与运行器曾各写一份"海龟类策略名单"，新增海龟plus 时两处都漏改，
+        导致回测与实盘都回退到代码内默认预设（short = 10/5/10），与
+        config/strategy_params.yaml（12/6/12 + 前溯/加仓参数）不一致 —— 回测结果无法
+        指导实盘。现统一委托 trading.timing_strategies.build_turtle_family_params，
+        名单与合并键只有一份（新增海龟类策略只改那一处）。
 
         优先级（由高到低）：顶层 config 海龟参数 > timing_params[策略名] > 策略默认预设。
 
         Args:
-            config: 运行配置（顶层，可能直接包含 n_entry 等海龟参数）
+            config: 运行配置（顶层，可能直接包含 n_entry / lookback_days 等海龟参数）
             timing_params: config 中的 timing_params 字典
-            timing_strategy: 择时策略名，如 'turtle' / 'low_turtle' / 'support'
+            timing_strategy: 择时策略名，如 'turtle' / 'low_turtle' / 'turtle_plus' / 'support'
 
         Returns:
             合并后的策略参数字典
         """
-        # 以 timing_params 中该策略的配置为基础（可能为空）
-        params = dict((timing_params or {}).get(timing_strategy, {}) or {})
-        # 非海龟类策略直接返回，不做顶层参数合并
-        if timing_strategy not in StrategyRunner.TURTLE_STRATEGY_NAMES:
-            return params
-        # 顶层 config 中的海龟专用参数（仅合并非 None，避免覆盖已有配置）
-        specific = {
-            'n_entry': (config or {}).get('n_entry'),
-            'n_exit': (config or {}).get('n_exit'),
-            'atr_period': (config or {}).get('atr_period'),
-            'entry_atr': (config or {}).get('entry_atr'),
-            'add_atr': (config or {}).get('add_atr'),
-            'exit_atr': (config or {}).get('exit_atr'),
-            'preset': (config or {}).get('turtle_preset'),
-            'base_position_amount': (config or {}).get('base_position_amount'),
-        }
-        params.update({k: v for k, v in specific.items() if v is not None})
-        # 打印生效参数，便于排查回测/实盘参数不一致问题
-        logger.info(
-            f"【海龟参数】{timing_strategy} 合并顶层配置后生效: "
-            f"n_entry={params.get('n_entry')}, n_exit={params.get('n_exit')}, "
-            f"atr_period={params.get('atr_period')}, "
-            f"base_position_amount={params.get('base_position_amount')}")
+        params = build_turtle_family_params(config, timing_params, timing_strategy)
+        if timing_strategy in TURTLE_FAMILY_STRATEGIES:
+            # 打印生效参数，便于排查回测/实盘参数不一致问题
+            logger.info(
+                f"【海龟参数】{timing_strategy} 合并顶层配置后生效: "
+                f"n_entry={params.get('n_entry')}, n_exit={params.get('n_exit')}, "
+                f"atr_period={params.get('atr_period')}, "
+                f"base_position_amount={params.get('base_position_amount')}, "
+                f"lookback_days={params.get('lookback_days')}, "
+                f"max_additions={params.get('max_additions')}")
         return params
 
     def run_strategies_batch(self, tasks: List[Dict], config: Dict) -> Dict:

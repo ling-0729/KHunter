@@ -21,7 +21,8 @@ from strategy.strategy_registry import StrategyRegistry
 from trading.stock_score_api import calculate_stock_score
 from trading.backtest_scorer import BacktestScoreCalculator
 
-from trading.timing_strategies import TimingStrategyFactory
+from trading.timing_strategies import (
+    TimingStrategyFactory, TURTLE_FAMILY_STRATEGIES, build_turtle_family_params)
 from trading.buy_filter import BuyPreFilter
 from utils.strategy_name_mapper import get_english_name
 from trading.strategy_kelly_loader import KellyCalculator
@@ -81,8 +82,43 @@ def calculate_backtest_cost(stock_code: str, price: float, quantity: int, is_buy
     }
 
 
+def should_register_sell_cool_down(trade_type: str, return_rate: float,
+                                   cool_down_threshold=None,
+                                   cool_down_on_any_sell: bool = True) -> bool:
+    """本次卖出是否需要登记冷却池（2026-09-16 新规则，回测/实盘**共用**同一判定）
+
+    规则：
+      - **任意清仓卖出**（trade_type='sell'）→ True：**盈利卖出同样冷却**；
+        `cool_down_on_any_sell=False` 时回退旧规则（仅亏损卖出且过亏损门槛）。
+      - 减仓（trade_type='reduce'）→ 仍按旧规则（亏损且过门槛）：减仓后仍持仓，
+        登记冷却会阻塞随后加仓（如海龟/海龟plus 的第二买点加仓）。
+
+    Args:
+        trade_type: 'sell'=清仓 / 'reduce'=减仓
+        return_rate: 本笔收益率（**百分数**，如 -3.5 表示 -3.5%）
+        cool_down_threshold: 亏损门槛（None = 无门槛）
+        cool_down_on_any_sell: 任意清仓卖出即冷却（默认 True）
+
+    Returns:
+        是否需要登记冷却池
+    """
+    is_full_sell = (trade_type or 'sell') == 'sell'
+    if is_full_sell and cool_down_on_any_sell:
+        return True
+    loss_over_threshold = (cool_down_threshold is None
+                           or return_rate <= cool_down_threshold)
+    return return_rate < 0 and loss_over_threshold
+
+
 class BacktestEngine:
     """回测引擎核心类"""
+
+    # 【2026-09-15 暂时屏蔽】三日（滚动）未创新高止盈（sell_type=no_new_high）
+    #   True  = 原逻辑生效：普通回测需 config['enable_no_new_high_exit']=True；
+    #           自适应回测在 run_backtest 中默认开启（跟随本开关）
+    #   False = 全局屏蔽：无论 config 如何传值，该条件都不参与卖出判定
+    #   恢复方法：把本行改回 True（判定方法 _check_no_new_high_exit 与卖出块均完整保留）
+    ENABLE_NO_NEW_HIGH_EXIT = False
     
     def __init__(self, *args, **kwargs):
         """初始化回测引擎
@@ -180,24 +216,11 @@ class BacktestEngine:
             timing_strategy_name = config.get('timing_strategy', 'support')
             timing_params = config.get('timing_params', {})
             
-            # 修复参数传递：如果timing_params中没有对应策略的配置，尝试直接从config中获取
-            strategy_params = timing_params.get(timing_strategy_name, {})
-            
-            # 特殊处理：如果是海龟/低位海龟策略且config中直接包含海龟参数，合并到策略参数中
-            if timing_strategy_name in ('turtle', 'low_turtle'):
-                turtle_specific_params = {
-                    'n_entry': config.get('n_entry'),
-                    'n_exit': config.get('n_exit'),
-                    'atr_period': config.get('atr_period'),
-                    'entry_atr': config.get('entry_atr'),
-                    'add_atr': config.get('add_atr'),
-                    'exit_atr': config.get('exit_atr'),
-                    'preset': config.get('turtle_preset'),
-                    'base_position_amount': config.get('base_position_amount')
-                }
-                # 只合并非None的参数
-                turtle_specific_params = {k: v for k, v in turtle_specific_params.items() if v is not None}
-                strategy_params.update(turtle_specific_params)
+            # 海龟类策略（海龟/低位海龟/海龟plus）参数合并：统一走共享实现
+            # （名单与合并键只有一份，见 trading.timing_strategies），
+            # 避免新增海龟类策略时各处漏改 → 回退到代码内默认预设（short = 10/5/10）
+            strategy_params = build_turtle_family_params(
+                config, timing_params, timing_strategy_name)
 
             self.timing_strategy = TimingStrategyFactory.create_strategy(
                 timing_strategy_name, strategy_params
@@ -208,15 +231,17 @@ class BacktestEngine:
             self.timing_strategy_name = timing_strategy_name
             self.timing_strategy_params = strategy_params
 
-            # 记录海龟/低位海龟策略主要参数
-            if timing_strategy_name in ('turtle', 'low_turtle'):
+            # 记录海龟类策略主要参数（含海龟plus 的前溯窗口/加仓上限）
+            if timing_strategy_name in TURTLE_FAMILY_STRATEGIES:
                 logger.info(f"{timing_strategy_name}参数: n_entry={strategy_params.get('n_entry')}, "
                            f"n_exit={strategy_params.get('n_exit')}, "
                            f"atr_period={strategy_params.get('atr_period')}, "
                            f"entry_atr={strategy_params.get('entry_atr')}, "
                            f"add_atr={strategy_params.get('add_atr')}, "
                            f"exit_atr={strategy_params.get('exit_atr')}, "
-                           f"preset={strategy_params.get('preset')}")
+                           f"preset={strategy_params.get('preset')}, "
+                           f"lookback_days={strategy_params.get('lookback_days')}, "
+                           f"max_additions={strategy_params.get('max_additions')}")
             
 
             
@@ -1654,12 +1679,16 @@ class BacktestEngine:
     def _check_pool_removal(self, current_date, config, held_codes=None):
         """检查股票池中需要移除的股票
         
+        前置规则（优先于下列条件）：
+        0. 持仓股不移除（2026-09-11）：处于持仓中的候选一律保留，不参与移除判断
+           （避免"移除后又加回"的抖动，并保证加仓链路可用；回测与实盘同口径）
+
         移除条件（满足任一即移除）：
         1. 破支撑位：前一日收盘价 < 支撑位 × 0.98（始终生效）
         2. 不满足上升趋势条件（加入股票池 min_hold_days 天后生效）
         3. 资金流向条件（同时满足以下两个条件时移除）：
-            - 5日主力资金累计净流入 < -10000万元
-            - 大单净流出 且 小单净流入（出货信号）
+           - 5日主力资金累计净流入 < -10000万元
+           - 大单净流出 且 小单净流入（出货信号）
         
         趋势验证条件：
         - 收盘价 >= MA10
@@ -1669,8 +1698,10 @@ class BacktestEngine:
         股票池模式（pool_mode，由 config 控制）：
         - persistent（默认）：维持现状，仅按上述条件移除，池跨交易日累积
         - rotation（轮动）：在条件移除之前，先把池中“非持仓”候选全部轮出，
-          仅保留当前已持仓候选；持仓候选仍走上述条件移除。即每日可买池 =
-          已持仓 + 当日新选，历史老候选每日被轮出。
+          仅保留当前已持仓候选。即每日可买池 = 已持仓 + 当日新选，
+          历史老候选每日被轮出。
+        ⚠️ 由前置规则 0（持仓保留）与轮动规则（非持仓轮出）共同决定：
+           rotation 模式下条件 1~3 实际不会命中任何候选（条件移除只对 persistent 生效）。
         
         Args:
             current_date: 当前交易日期
@@ -2905,9 +2936,10 @@ class BacktestEngine:
                 
                 # 4. 【可选】三日（滚动）未创新高 且 收盘跌破 N 日线 → 卖出
                 #    "未创新高" = max(最近 N 日最高价) < max(买入以来最高价)
-                #    默认关闭（普通回测不受影响）；自适应回测在 config 中默认开启
-                #    （enable_no_new_high_exit=True）
+                #    【2026-09-15 暂时屏蔽】总开关 ENABLE_NO_NEW_HIGH_EXIT=False 时不参与判定；
+                #    改回 True 即恢复（普通回测仍需 config 开启；自适应默认值跟随总开关）
                 if (not sell_type and not reduce_quantity
+                        and self.ENABLE_NO_NEW_HIGH_EXIT
                         and config.get('enable_no_new_high_exit', False)):
                     _w = int(config.get('no_new_high_window', 3))
                     _mp = int(config.get('no_new_high_ma', 5))
@@ -2985,19 +3017,24 @@ class BacktestEngine:
                             self.loss_cool_down_pool[stock_code] = cool_down_end
                             logger.warning(f"  股票 {stock_code} 连续亏损 {current_count} 次，加入冷却池至 {cool_down_end}")
             
-            # 检查是否触发亏损冷却期（单笔亏损：默认**任意亏损**即触发）
+            # 检查是否触发冷却期（2026-09-16 新规则：**任意清仓卖出**即冷却 1 个月，盈利同样冷却）
             # 与实盘一致：使用【独立 if】。原为 elif，因上方 enable_consecutive_loss_limit
             # 默认为 True，该分支永远不会执行，导致回测单笔亏损冷却完全失效。
-            # 2026-09-12 新规则：默认取消 -8% 门槛；且**不覆盖更长的冷却**——
-            # 否则会用 21 天覆盖上面刚设置的 250 天连续亏损冷却（与实盘 _check_cool_down 守卫一致）。
-            loss_over_threshold = (cool_down_threshold is None
-                                   or return_rate <= cool_down_threshold)
-            if enable_loss_cool_down and return_rate < 0 and loss_over_threshold:
+            # 判定统一走 should_register_sell_cool_down（回测/实盘共用，防口径漂移）；
+            # 且**不覆盖更长的冷却**——否则会用 21 天覆盖上面刚设置的 250 天连续亏损冷却
+            # （与实盘 _check_cool_down 守卫一致）。
+            _sell_trade_type = sell_record.get('trade_type', 'sell')
+            if enable_loss_cool_down and should_register_sell_cool_down(
+                    _sell_trade_type, return_rate, cool_down_threshold,
+                    config.get('cool_down_on_any_sell', True)):
                 if not self._check_cool_down(stock_code, current_date):
                     cool_down_end = self._get_future_trading_day(current_date, cool_down_days)
                     self.loss_cool_down_pool[stock_code] = cool_down_end
-                    logger.warning(f"  股票 {stock_code} 单笔亏损 {return_rate:.2f}%，"
-                                   f"加入冷却池 {cool_down_days} 个交易日至 {cool_down_end}")
+                    logger.warning(
+                        f"  股票 {stock_code} "
+                        f"{'清仓' if _sell_trade_type == 'sell' else '减仓'}卖出"
+                        f"（收益 {return_rate:.2f}%），"
+                        f"加入冷却池 {cool_down_days} 个交易日至 {cool_down_end}")
         
         return remaining_positions, sell_records
     

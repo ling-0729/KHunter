@@ -187,20 +187,10 @@ class RegimeBacktestEngine(BacktestEngine):
     # 内部：择时策略切换（含海龟参数合并，与父类初始化口径一致）
     # ------------------------------------------------------------------
     def _switch_timing(self, timing_name: str, config: Dict) -> None:
-        timing_params = config.get('timing_params') or {}
-        params = dict(timing_params.get(timing_name, {}) or {})
-        if timing_name in ('turtle', 'low_turtle'):
-            turtle_params = {
-                'n_entry': config.get('n_entry'),
-                'n_exit': config.get('n_exit'),
-                'atr_period': config.get('atr_period'),
-                'entry_atr': config.get('entry_atr'),
-                'add_atr': config.get('add_atr'),
-                'exit_atr': config.get('exit_atr'),
-                'preset': config.get('turtle_preset'),
-                'base_position_amount': config.get('base_position_amount'),
-            }
-            params.update({k: v for k, v in turtle_params.items() if v is not None})
+        # 海龟类策略参数合并：与父类初始化/普通回测/实盘共用同一实现（名单与键表只有一份）
+        # 2026-09-16：此前本处另写一份名单，海龟plus 切档会回退默认预设（short = 10/5/10）
+        params = _be.build_turtle_family_params(
+            config, config.get('timing_params') or {}, timing_name)
 
         self.timing_strategy = _be.TimingStrategyFactory.create_strategy(timing_name, params)
         self.timing_strategy_name = timing_name
@@ -294,30 +284,20 @@ class RegimeBacktestEngine(BacktestEngine):
             # 初始化择时策略（入口值；实际每日由 regime 决定）
             timing_strategy_name = config.get('timing_strategy', 'support')
             timing_params = config.get('timing_params', {})
-            strategy_params = timing_params.get(timing_strategy_name, {})
-            if timing_strategy_name in ('turtle', 'low_turtle'):
-                turtle_specific_params = {
-                    'n_entry': config.get('n_entry'),
-                    'n_exit': config.get('n_exit'),
-                    'atr_period': config.get('atr_period'),
-                    'entry_atr': config.get('entry_atr'),
-                    'add_atr': config.get('add_atr'),
-                    'exit_atr': config.get('exit_atr'),
-                    'preset': config.get('turtle_preset'),
-                    'base_position_amount': config.get('base_position_amount')
-                }
-                turtle_specific_params = {k: v for k, v in turtle_specific_params.items()
-                                          if v is not None}
-                strategy_params.update(turtle_specific_params)
+            # 海龟类策略参数合并：与普通回测/实盘共用同一实现（名单与键表只有一份），
+            # 避免新增海龟类策略（海龟plus）时本处漏改 → 回退默认预设（short = 10/5/10）
+            strategy_params = _be.build_turtle_family_params(
+                config, timing_params, timing_strategy_name)
 
             self.timing_strategy = _be.TimingStrategyFactory.create_strategy(
                 timing_strategy_name, strategy_params)
             self.timing_strategy_name = timing_strategy_name
             self.timing_strategy_params = strategy_params
 
-            # 【自适应专属卖出条件】默认启用：
-            #   三日（滚动）未创新高 且 收盘跌破 5 日线 → 卖出
-            config.setdefault('enable_no_new_high_exit', True)
+            # 【自适应专属卖出条件｜2026-09-15 起暂时屏蔽】三日（滚动）未创新高 且 收盘跌破 5 日线 → 卖出
+            #   默认值跟随总开关 BacktestEngine.ENABLE_NO_NEW_HIGH_EXIT（当前 False=屏蔽）；
+            #   把总开关改回 True，即恢复自适应回测默认开启的原行为（窗口/均线默认值不变）
+            config.setdefault('enable_no_new_high_exit', self.ENABLE_NO_NEW_HIGH_EXIT)
             config.setdefault('no_new_high_window', 3)
             config.setdefault('no_new_high_ma', 5)
 
@@ -381,6 +361,8 @@ class RegimeBacktestEngine(BacktestEngine):
 
                 # ============ 改造①：按 ADX regime 决定当日策略/择时/仓位 ============
                 _dec = self._decide(current_date)
+                # 选股「空值」（空仓）不改变 day_strategy 的解析口径：选股与评分**照常执行**，
+                # 仅把结果置 0（见下方“选股”段），保证流程/日志/统计与普通档位一致
                 day_strategy = _dec.selector_strategy or strategy_name
                 self._regime_ratio = float(_dec.position_ratio) if _dec.is_active() else 1.0
 
@@ -395,7 +377,10 @@ class RegimeBacktestEngine(BacktestEngine):
                     config['buy_execution'] = _origin_buy_execution
                 _buy_mode = (config.get('buy_execution') or {}).get('mode') or 'yaml默认'
 
-                if not day_strategy:
+                if _dec.no_selection:
+                    logger.info(f"【自适应】{current_date} 空仓（选股=空值）："
+                                f"选股与评分照常执行，结果固定为 0 只（regime={_dec.regime}）")
+                elif not day_strategy:
                     logger.warning(f"【自适应】{current_date} 无可用选股策略"
                                    f"（regime={_dec.regime}, source={_dec.source}），跳过当日选股")
                 if day_strategy and self._current_strategy is None:
@@ -405,7 +390,7 @@ class RegimeBacktestEngine(BacktestEngine):
                 elif day_strategy and not self._same_selector(
                         day_strategy, self._current_strategy):
                     # 切换选股策略：只清掉**由其它选股策略选出**的候选
-                    # ⚠️ 三条保留规则（2026-09-13 补充第 2 条）：
+                    # ⚠️ 三条保留规则（2026-09-13 补充第 2 条；2026-09-16 确认保留）：
                     #   1. 持仓股一律保留（2026-09-11）：持仓与 regime 无关，
                     #      不论切到哪一档都留在池中，保证加仓链路不中断。
                     #   2. **同一选股策略选出的候选也保留**：风格档位切换 ≠ 选股策略切换
@@ -468,7 +453,7 @@ class RegimeBacktestEngine(BacktestEngine):
                     f"【自适应】{current_date} | 信号日={_rec.get('signal_date', '—')} "
                     f"| regime={_dec.regime or ('未生效(' + _dec.source + ')')}"
                     f"{_smooth_txt} "
-                    f"| 选股={day_strategy or '—'} "
+                    f"| 选股={'空仓(结果置0)' if _dec.no_selection else (day_strategy or '—')} "
                     f"| 择时={self.timing_strategy_name or '—'} "
                     f"| 仓位={self._regime_ratio:.0%} "
                     f"| 买入={_buy_mode} "
@@ -540,12 +525,19 @@ class RegimeBacktestEngine(BacktestEngine):
                         logger.info(f"股票池移除 {len(removed)} 只股票")
 
                 # 选股（改造②：使用当日 regime 策略）
+                #   选股「空值」（空仓）→ 选股与评分**照常执行**，只是结果固定为 0 只
+                #   （流程与普通档位一致：评分、缓存、日志口径都不变，仅不进候选池）
                 selection_date = self._get_previous_trading_day(current_date)
                 logger.info(f"执行选股日期: {selection_date}")
                 candidate_stocks = []
                 if day_strategy:
                     candidate_stocks = self._select_and_score_stocks(
                         day_strategy, selection_date, config)
+                    if _dec.no_selection:
+                        logger.info(
+                            f"【自适应】{current_date} 空仓（选股=空值）：选股/评分已执行，"
+                            f"结果置 0（原 {len(candidate_stocks)} 只，不进候选池）")
+                        candidate_stocks = []
 
                 # 新选出的股票加入可买池
                 new_added = 0
@@ -751,16 +743,15 @@ class RegimeBacktestEngine(BacktestEngine):
                                     f"（委托价={exec_result['order_price']:.2f}）")
                         remaining_candidates.append(candidate)
                         continue
-                    logger.info(f"股票 {current_date} {stock_code} {stock['stock_name']} "
-                                f"买入成交价: {buy_price:.2f}（委托价="
-                                f"{exec_result['order_price']:.2f}, 方式={exec_result['mode']}）")
-
                     trade_type = result.trade_type if result else 'new'
 
                     # ===== 改造⑥（2026-09-11 语义调整）：仓位系数 = 总仓位上限 =====
-                    # 当前持仓比例 >= 系数  → 停止开仓（含加仓）
+                    # 当前持仓比例 >= 系数  → 停止【开仓】（新建仓）
                     # 当前持仓比例 <  系数  → 按"剩余可开仓额度"开仓
                     #     额度 = 总资产 × 系数 − 当前持仓市值
+                    # ⚠️ 加仓不受仓位系数限制（2026-09-14）：与实盘一致 —— 实盘的仓位风控
+                    #    只做提示、不阻止信号生成（见 strategy_runner 连续温度风控注释），
+                    #    加仓属对已建仓头寸的追加，额度按「可用资金」计算。
                     _prev_td = self._get_previous_trading_day(current_date)
                     _total_assets_now = current_capital
                     for _pos in positions:
@@ -771,14 +762,23 @@ class RegimeBacktestEngine(BacktestEngine):
                     _held_value = _total_assets_now - current_capital
                     _cur_ratio = (_held_value / _total_assets_now
                                   if _total_assets_now > 0 else 0.0)
-                    if _cur_ratio >= self._regime_ratio:
-                        logger.info(f"【自适应仓位】{current_date} {stock_code} "
-                                    f"当前持仓比例 {_cur_ratio:.1%} ≥ 仓位系数 "
-                                    f"{self._regime_ratio:.0%}，停止开仓")
-                        remaining_candidates.append(candidate)
-                        continue
-                    remaining_quota = max(0.0, _total_assets_now * self._regime_ratio
-                                          - _held_value)
+                    if trade_type == 'add':
+                        # 加仓：不受仓位系数上限压制，额度=可用资金
+                        if _cur_ratio >= self._regime_ratio:
+                            logger.info(f"【自适应仓位】{current_date} {stock_code} "
+                                        f"当前持仓比例 {_cur_ratio:.1%} ≥ 仓位系数 "
+                                        f"{self._regime_ratio:.0%}，但【加仓不受仓位限制】，"
+                                        f"按可用资金 {current_capital:.0f} 元继续")
+                        remaining_quota = current_capital
+                    else:
+                        if _cur_ratio >= self._regime_ratio:
+                            logger.info(f"【自适应仓位】{current_date} {stock_code} "
+                                        f"当前持仓比例 {_cur_ratio:.1%} ≥ 仓位系数 "
+                                        f"{self._regime_ratio:.0%}，停止开仓")
+                            remaining_candidates.append(candidate)
+                            continue
+                        remaining_quota = max(0.0, _total_assets_now * self._regime_ratio
+                                              - _held_value)
 
                     kelly_result = {}
                     if trade_type == 'add':
@@ -901,6 +901,13 @@ class RegimeBacktestEngine(BacktestEngine):
                         remaining_candidates.append(candidate)
                         continue
                     buy_amount = quantity * buy_price
+
+                    # 成交价日志移到"确认执行"处：原位置在仓位/数量闸门之前，
+                    # 候选被闸门拦下时也会打印，容易被误读为已成交
+                    logger.info(f"股票 {current_date} {stock_code} {stock['stock_name']} "
+                                f"买入成交价: {buy_price:.2f}（委托价="
+                                f"{exec_result['order_price']:.2f}, 方式={exec_result['mode']}，"
+                                f"数量={quantity}）")
 
                     trade_type = result.trade_type if result else 'new'
                     buy_record = self._execute_buy(stock_code, stock['stock_name'], added_date,

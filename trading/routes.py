@@ -27,7 +27,7 @@ akshare_fetcher = AKShareFetcher("data")
 
 
 def _load_turtle_params(timing_strategy: str) -> dict:
-    """加载海龟 / 低位海龟策略参数（各入口统一口径，避免回测参数漂移）
+    """加载海龟类策略参数（海龟 / 低位海龟 / 海龟plus；各入口统一口径，避免参数漂移）
 
     取值来源：`config/strategy_params.yaml` 中对应策略的 `params`。
 
@@ -35,12 +35,14 @@ def _load_turtle_params(timing_strategy: str) -> dict:
     该参数注入回测 config，唯独 `/backtest/regime/run` 未注入，导致自适应回测的择时
     策略回退到代码内默认预设 `short`（10/5）—— 唐奇安下线周期与配置（12/6）、普通
     回测、实盘都不一致。
+    （2026-09-16）补齐「海龟plus」分支：此前该函数只认 turtle/low_turtle，海龟plus 在
+    各回测入口都回退默认预设（10/5/10），与配置（12/6/12）不一致。
 
     Args:
-        timing_strategy: 择时策略名（'turtle' / 'low_turtle' / 其它）
+        timing_strategy: 择时策略名（'turtle' / 'low_turtle' / 'turtle_plus' / 其它）
 
     Returns:
-        dict: 海龟参数键值（非海龟类策略返回空字典）
+        dict: 海龟类参数键值（非海龟类策略返回空字典）
     """
     if timing_strategy == 'turtle':
         try:
@@ -63,6 +65,28 @@ def _load_turtle_params(timing_strategy: str) -> dict:
             'n_entry': 1, 'n_exit': 6, 'atr_period': 12,
             'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0, 'base_position_amount': 20000
         }
+    if timing_strategy == 'turtle_plus':
+        # 海龟plus（2026-09-16 新增）：配置在 strategy_params.yaml 的 TurtlePlusStrategy.params
+        # （含前溯窗口 lookback_days、加仓上限 max_additions、加仓盈利门槛 add_profit_min 等）
+        try:
+            config_manager = StrategyConfigManager()
+            plus_config = config_manager.get_strategy_config('TurtlePlusStrategy')
+            plus_params = plus_config.get('params', {})
+            logger.info(
+                f"从配置文件读取海龟plus策略参数: n_entry={plus_params.get('n_entry')}, "
+                f"n_exit={plus_params.get('n_exit')}, atr_period={plus_params.get('atr_period')}, "
+                f"lookback_days={plus_params.get('lookback_days')}, "
+                f"max_additions={plus_params.get('max_additions')}")
+            return plus_params
+        except Exception as e:
+            logger.warning(f"读取海龟plus策略配置失败，使用默认值: {str(e)}")
+            return {
+                'n_entry': 12, 'n_exit': 6, 'atr_period': 12,
+                'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0,
+                'base_position_amount': 20000, 'lookback_days': 5,
+                'max_additions': 4, 'add_profit_min': 0.02,
+                'require_add_atr': True, 'require_no_sell_between': True,
+            }
     return {}
 
 
@@ -3133,6 +3157,11 @@ def run_regime_backtest():
                 logger.warning(f'自适应回测收益曲线入库失败（不影响返回）: {_e}')
         except Exception as e:
             logger.warning(f'自适应回测结果入库失败（不影响返回）: {e}')
+
+        # 补充每笔订单的“持仓结局”：前端成交明细据 position_status 区分“已平仓/期末持仓中”。
+        # 放在入库 try 之外，保证入库失败时响应仍带配对结果（原实现直接返回引擎原始 trades，
+        # 缺字段被前端默认成“持仓中”，导致 324 笔买/加仓被误计为“期末持仓中”）
+        _attach_position_status(result.get('trades') or [])
 
         return jsonify({
             'success': True,

@@ -12,13 +12,13 @@ regime_router:
   rules:
     明确:
       selector: 金三角策略
-      timing: turtle
+      timing: turtle_plus
       position: 1
       buy_execution: open
     萌芽:
-      selector: 主升低吸策略
-      timing: turtle
-      position: 0.5
+      selector: 多金叉共振
+      timing: uptrend_pullback
+      position: 0.3
       buy_execution: open
     震荡:
       selector: 主升低吸策略

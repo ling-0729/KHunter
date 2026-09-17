@@ -91,7 +91,7 @@ strategy_order:
   - order: 32
     name: LeaderStrategy
     display_name: 龙头策略
-    description: 筛选当日涨停、早封板(<11:00)、高换手(15%-25%)、小流通盘(<200亿)的强势龙头股
+    description: 筛选严格第2板(昨日也涨停)、早封板(<11:00)、换手率5%-25%、小流通盘(<300亿)、量能放大≤2倍(今日量>昨日量)、去除开盘即涨停(含T字板)、近10日除昨日外无其他涨停的强势龙头股
 
   - order: 33
     name: MainUptrendDipBuyStrategy

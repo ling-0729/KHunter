@@ -51,6 +51,27 @@ def default_buy_execution(regime: str) -> str:
     return BUY_EXECUTION_BY_REGIME.get(str(regime or ''), 'open')
 
 
+# 选股策略「空值」= 当日空仓（2026-09-16）：
+#   配置写法（config/regime_router.yaml）：selector: 空仓
+#   语义：该档位当日**仍照常执行选股与评分流程**，只是把选股结果固定为 0 只（等价空仓）；
+#         其余流程（卖出/止损/择时/买入方式/持仓管理/股票池维护）完全不变；
+#         **不代表强制清仓**（是否持仓由 position 等既有规则决定）。
+#   兼容别名：空仓 / none / 无（大小写、首尾空白不敏感）
+NO_SELECTION_LABEL = '空仓'
+NO_SELECTION_VALUES = ('空仓', 'none', '无')
+
+
+def is_no_selection(value) -> bool:
+    """是否为选股「空值」（显式空仓信号）
+
+    仅识别显式空仓写法（空仓 / none / 无）；None 与空串视为「未配置」，
+    交由调用方走原有回退逻辑（不改变历史行为）。
+    """
+    if value is None:
+        return False
+    return str(value).strip().lower() in NO_SELECTION_VALUES
+
+
 # 内置默认路由表（配置文件缺失时使用；依据见设计文档第 3、4 节）
 # 仅采用样本量 >= 1000 的策略（Q3 决策），剔除启明星(852)等小样本结论
 #
@@ -84,6 +105,7 @@ class RouteDecision:
     """路由决策结果"""
     regime: str = ''                 # 生效档位（'震荡' | '萌芽' | '明确'）
     selector_strategy: str = ''      # 选股策略（中文名，可直接传给选股流程）
+    no_selection: bool = False       # 选股「空值」=空仓：选股/评分照常执行，结果置 0 只
     timing_strategy: str = ''        # 择时策略（工厂 key，如 'macd_bollinger'）
     position_ratio: float = 1.0      # 仓位系数 0.0 ~ 1.0
     buy_execution: str = ''          # 买入执行方式：'open' | 'ma_limit'
@@ -361,7 +383,8 @@ class RegimeRouter:
             result = self._build(active, decision, count, source='auto')
             if switched:
                 logger.info(f'[RegimeRouter] 生效决策: {result.regime} | '
-                            f'选股={result.selector_strategy} 择时={result.timing_strategy} '
+                            f'选股={result.selector_strategy or (NO_SELECTION_LABEL + "(结果置0)")} '
+                            f'择时={result.timing_strategy} '
                             f'仓位={result.position_ratio:.0%}')
             return result
 
@@ -380,6 +403,11 @@ class RegimeRouter:
 
         decision.regime = regime
         decision.selector_strategy = rule.get('selector') or ''
+        # 选股「空值」= 空仓：归一化为空串（避免被当策略名去选股），并打标记；
+        # 调用方（回测引擎）据 no_selection 把当日选股结果置 0
+        decision.no_selection = is_no_selection(decision.selector_strategy)
+        if decision.no_selection:
+            decision.selector_strategy = ''
         decision.timing_strategy = rule.get('timing') or ''
         decision.position_ratio = float(rule.get('position', 1.0))
         # 买入执行方式：缺省按方向推导（多头 open / 空头 ma_limit）
@@ -392,12 +420,17 @@ class RegimeRouter:
         if self.manual.get('enabled'):
             if self.manual.get('selector'):
                 decision.selector_strategy = self.manual['selector']
+                # 人工覆盖同样支持「空值」（空仓）
+                decision.no_selection = is_no_selection(decision.selector_strategy)
+                if decision.no_selection:
+                    decision.selector_strategy = ''
             if self.manual.get('timing'):
                 decision.timing_strategy = self.manual['timing']
             if self.manual.get('position') is not None:
                 decision.position_ratio = float(self.manual['position'])
             decision.source = 'manual'
-            logger.info(f'[RegimeRouter] 人工覆盖生效: 选股={decision.selector_strategy} '
+            logger.info(f'[RegimeRouter] 人工覆盖生效: '
+                        f'选股={decision.selector_strategy or (NO_SELECTION_LABEL + "(结果置0)")} '
                         f'择时={decision.timing_strategy} 仓位={decision.position_ratio:.0%}')
 
         return decision

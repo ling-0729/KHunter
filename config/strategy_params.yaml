@@ -722,13 +722,13 @@ strategies:
     support_method: key_open
   LeaderStrategy:
     color: '#ef4444'
-    description: 龙头策略，筛选当日涨停、早封板(封板时间<11:00)、高换手(10%-20%)、小流通盘(<200亿)的强势龙头股
+    description: 龙头策略，筛选严格第2板（昨日也涨停）、早封板(封板时间<11:00)、换手率5%-25%、小流通盘(<300亿)、量能温和放大(≤昨日2倍)、去除开盘即涨停(含T字板)、近10个交易日内除昨日外无其他涨停的强势龙头股
     display_name: 龙头策略
     icon: 👑
     param_details:
       float_mv_max:
-        default: 20000000000
-        description: 流通市值上限(元)，200亿=20000000000；基于float_mv
+        default: 30000000000
+        description: 流通市值上限(元)，300亿=30000000000；基于float_mv
         display_name: 流通市值上限(亿)
         group: 市值条件
         max: 1000000000000
@@ -749,16 +749,16 @@ strategies:
         min: 0
         type: int
       min_limit_times:
-        default: 1
-        description: 连板下限；1表示不过滤首板，2表示至少2连板
+        default: 2
+        description: 连板下限；2=昨日也涨停（与上限同为2即严格第2板）；1=不过滤首板
         display_name: 连板下限
         group: 市值条件
         max: 10
         min: 1
         type: int
       max_limit_times:
-        default: 3
-        description: 连板上限；超过则排除（避免高位连板接盘风险）；null表示不限制
+        default: 2
+        description: 连板上限；与下限相同即为严格第N板（当前 2/2 = 严格第2板）；null表示不限制
         display_name: 连板上限
         group: 市值条件
         max: 10
@@ -795,13 +795,35 @@ strategies:
         min: 0
         type: float
       turnover_min:
-        default: 15.0
+        default: 5.0
         description: 换手率下限(%)，基于turnover_ratio(无限售流通股口径，=通达信显示值)
         display_name: 换手率下限(%)
         group: 换手条件
         max: 50
         min: 0
         type: float
+      volume_ratio_max:
+        default: 2.0
+        description: 量能上限倍率：今日成交量/昨日成交量 不得超过该值（且必须大于1，即今日放量）；数据取本地K线 volume
+        display_name: 量能放大上限(倍)
+        group: 量能条件
+        max: 5.0
+        min: 1.0
+        type: float
+      exclude_open_limit_up:
+        default: true
+        description: 是否去除开盘即涨停（选股日开盘价==涨停价，含一字板与T字板，均买不到）；true=去除
+        display_name: 去除开盘即涨停
+        group: 形态条件
+        type: bool
+      recent_limit_up_window:
+        default: 10
+        description: 回看交易日数（不含选股日）：窗口内除昨日外若还有其他涨停则剔除；null/0/1 表示不检查
+        display_name: 近期涨停回看(交易日)
+        group: 形态条件
+        max: 60
+        min: 0
+        type: int
     param_groups:
     - description: 控制当日涨停判定的参数
       name: 涨停条件
@@ -811,19 +833,26 @@ strategies:
       name: 换手条件
     - description: 控制流通市值的参数
       name: 市值条件
+    - description: 控制量能放大倍率(今日量/昨日量)的参数
+      name: 量能条件
+    - description: 控制K线形态过滤(一字板/近期涨停)的参数
+      name: 形态条件
     - description: 控制策略综合评分的参数
       name: 评分参数
     params:
-      float_mv_max: 20000000000
+      exclude_open_limit_up: true
+      float_mv_max: 30000000000
       limit_type: U
-      max_limit_times: 4
+      max_limit_times: 2
       max_open_times: null
-      min_limit_times: 1
+      min_limit_times: 2
+      recent_limit_up_window: 10
       seal_time_field: last_time
       seal_time_limit: 110000
       strategy_weight: 80
       turnover_max: 25.0
-      turnover_min: 10.0
+      turnover_min: 5.0
+      volume_ratio_max: 2.0
     support_method: key_open
   LimitUpPullbackStrategy:
     color: '#ef4444'
@@ -2727,6 +2756,170 @@ strategies:
           atr_period: 6
           base_position_amount: 20000
           entry_atr: 0.02
+          exit_atr: 2.0
+          n_entry: 6
+          n_exit: 3
+    support_method: ma20
+  TurtlePlusStrategy:
+    color: '#0ea5e9'
+    description: 海龟plus策略，以海龟策略为基础只做第二买点——前溯N个交易日内出现过第一买点（突破前高）且其间无卖点，今日满足加仓条件（较第一买点T+1开盘价盈利达标、阳线上涨、上影线过滤、ATR加仓间隔、MA20）时发出买入信号
+    display_name: 海龟plus
+    icon: ➕
+    param_details:
+      add_atr:
+        default: 0.5
+        description: 加仓ATR间隔，价格每上涨此ATR倍数方可加仓
+        display_name: 加仓ATR间隔
+        group: 加仓参数
+        max: 2.0
+        min: 0.25
+        type: float
+      add_profit_min:
+        default: 0.02
+        description: 加仓盈利门槛，信号日收盘价较第一买点T+1开盘价需盈利此比例以上
+        display_name: 加仓盈利门槛
+        group: 加仓参数
+        max: 0.1
+        min: 0.0
+        type: float
+      atr_period:
+        default: 12
+        description: ATR计算周期
+        display_name: ATR周期
+        group: ATR参数
+        max: 30
+        min: 5
+        type: int
+      base_position_amount:
+        default: 20000
+        description: 底仓金额（元）
+        display_name: 底仓金额(元)
+        group: 仓位参数
+        max: 100000
+        min: 10000
+        type: int
+      exit_atr:
+        default: 2.0
+        description: 出场ATR止损倍数，跌破入场价-此倍数*ATR止损
+        display_name: ATR止损倍数
+        group: 止损参数
+        max: 4.0
+        min: 1.0
+        type: float
+      lookback_days:
+        default: 5
+        description: 前溯窗口（交易日），信号日之前多少个交易日内需存在第一买点
+        display_name: 前溯交易日数
+        group: 前溯参数
+        max: 20
+        min: 1
+        type: int
+      max_additions:
+        default: 4
+        description: 加仓次数上限，与海龟一致（4次）；0=不限制
+        display_name: 加仓次数上限
+        group: 加仓参数
+        max: 8
+        min: 0
+        type: int
+      n_entry:
+        default: 12
+        description: 入场通道周期，第一买点为突破此周期最高价
+        display_name: 入场通道周期
+        group: 通道参数
+        max: 20
+        min: 1
+        type: int
+      n_exit:
+        default: 6
+        description: 出场通道周期，跌破此周期最低价出场
+        display_name: 出场通道周期
+        group: 通道参数
+        max: 55
+        min: 3
+        type: int
+      preset:
+        default: custom
+        description: 预设配置模式，classic为经典海龟(20/10)，short为短线海龟(10/5)，ultra_short为超短海龟(6/3)
+        display_name: 预设模式
+        group: 预设参数
+        options:
+        - custom
+        - classic
+        - short
+        - ultra_short
+        type: string
+      require_add_atr:
+        default: true
+        description: 是否保留海龟原生加仓的ATR间隔门槛
+        display_name: 保留ATR加仓间隔
+        group: 加仓参数
+        type: bool
+      require_no_sell_between:
+        default: true
+        description: 第一买点之后出现卖点（跌破下线/ATR止损）时直接跳过该信号
+        display_name: 窗口内无卖点
+        group: 前溯参数
+        type: bool
+    param_groups:
+    - description: 选择预设配置模式或自定义参数
+      name: 预设参数
+    - description: 前溯窗口与卖点过滤（第二买点的前置条件）
+      name: 前溯参数
+    - description: 控制唐奇安通道计算的参数
+      name: 通道参数
+    - description: 控制ATR指标计算的参数
+      name: ATR参数
+    - description: 控制止损止盈的参数
+      name: 止损参数
+    - description: 控制加仓条件的参数
+      name: 加仓参数
+    - description: 控制仓位的参数
+      name: 仓位参数
+    params:
+      add_atr: 0.5
+      add_profit_min: 0.02
+      atr_period: 12
+      base_position_amount: 20000
+      exit_atr: 2.0
+      lookback_days: 5
+      max_additions: 4
+      n_entry: 12
+      n_exit: 6
+      preset: custom
+      require_add_atr: true
+      require_no_sell_between: true
+    presets:
+      classic:
+        description: 经典海龟，20日入场/10日离场，适合趋势明显的品种
+        display_name: 经典海龟(20/10)
+        icon: 🐢
+        params:
+          add_atr: 0.5
+          atr_period: 20
+          base_position_amount: 20000
+          exit_atr: 2.0
+          n_entry: 20
+          n_exit: 10
+      short:
+        description: 短线海龟，10日入场/5日离场，反应更灵敏
+        display_name: 短线海龟(10/5)
+        icon: ⚡
+        params:
+          add_atr: 0.5
+          atr_period: 10
+          base_position_amount: 20000
+          exit_atr: 2.0
+          n_entry: 10
+          n_exit: 5
+      ultra_short:
+        description: 超短海龟，6日入场/3日离场，适合强势股高频交易
+        display_name: 超短海龟(6/3)
+        icon: 🚀
+        params:
+          add_atr: 0.5
+          atr_period: 6
+          base_position_amount: 20000
           exit_atr: 2.0
           n_entry: 6
           n_exit: 3

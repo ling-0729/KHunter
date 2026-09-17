@@ -1,7 +1,11 @@
 """
 策略模块
 
-自动注册所有策略类
+说明：
+  - 选股策略由 strategy_registry.auto_register_from_directory("strategy") 自动注册，
+    仅扫描**本目录下的 .py**（跳过 _ 开头文件）。
+  - 暂不启用的策略已移至 strategy/disabled/ 子目录：代码保留、不参与注册，
+    因而不会出现在选股与参数设置中；需要恢复时移回本目录即可。
 """
 import sys
 from pathlib import Path
@@ -10,17 +14,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # 导入策略
-from strategy.w_bottom_strategy import WBottomStrategy
 from strategy.limit_up_pullback_strategy import LimitUpPullbackStrategy
 
 # 策略类映射
 STRATEGIES = {
-    'WBottomStrategy': WBottomStrategy,
     'LimitUpPullbackStrategy': LimitUpPullbackStrategy,
 }
 
 __all__ = [
-    'WBottomStrategy',
     'LimitUpPullbackStrategy',
     'STRATEGIES'
 ]

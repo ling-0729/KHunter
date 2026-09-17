@@ -152,6 +152,10 @@ class TimingStrategyFactory:
             logger.info("创建低位海龟策略实例（去除MA20过滤）")
             from trading.low_turtle_strategy import LowTurtleStrategy
             return LowTurtleStrategy(config)
+        elif strategy_name == "turtle_plus":
+            logger.info("创建海龟plus策略实例（只做第二买点）")
+            from trading.turtle_plus_strategy import TurtlePlusStrategy
+            return TurtlePlusStrategy(config)
         elif strategy_name == "rsi":
             logger.info("创建RSI策略实例")
             from trading.rsi_strategy import RSIStrategy
@@ -175,3 +179,48 @@ class TimingStrategyFactory:
         else:
             logger.error(f"未知的择时策略: {strategy_name}")
             raise ValueError(f"Unknown timing strategy: {strategy_name}")
+
+
+# ==================== 海龟类策略参数合并（回测/自适应/实盘统一口径）====================
+# 背景（2026-09-16）：海龟类策略参数来自① timing_params[策略名]（参数面板/策略配置）
+# 与② 顶层 config 的海龟参数（routes._load_turtle_params 等注入）。
+# 原先 backtest_engine / regime_backtest_engine / strategy_runner 各写一份"海龟类策略名单"，
+# 新增「海龟plus」时三处全部漏改 → 回测与实盘都回退到代码内默认预设（short = 10/5/10），
+# 与 config/strategy_params.yaml（12/6/12 + 前溯/加仓参数）不一致，回测结果无法代表配置口径。
+# 现收敛为唯一实现：名单与合并键只有一份，新增海龟类策略只改这里。
+TURTLE_FAMILY_STRATEGIES = ('turtle', 'low_turtle', 'turtle_plus')
+
+# 顶层 config → 策略参数的合并键（仅合并非 None，避免覆盖已有配置）
+TURTLE_FAMILY_PARAM_KEYS = (
+    'n_entry', 'n_exit', 'atr_period', 'entry_atr', 'add_atr', 'exit_atr',
+    'base_position_amount',
+    # 海龟plus 专属（turtle/low_turtle 会忽略未知键）
+    'lookback_days', 'max_additions', 'add_profit_min',
+    'require_add_atr', 'require_no_sell_between', 'require_higher_high',
+)
+
+
+def build_turtle_family_params(config: Dict, timing_params: Dict,
+                               timing_strategy: str) -> Dict:
+    """构建海龟类择时策略参数（回测/自适应回测/实盘共用同一实现）
+
+    优先级（由高到低）：顶层 config 海龟参数 > timing_params[策略名] > 策略内默认预设。
+
+    Args:
+        config: 顶层配置（可能直接包含 n_entry / lookback_days 等海龟参数）
+        timing_params: config 中的 timing_params 字典
+        timing_strategy: 择时策略名（如 'turtle' / 'low_turtle' / 'turtle_plus' / 'support'）
+
+    Returns:
+        合并后的策略参数字典（非海龟类策略原样返回 timing_params[策略名]）
+    """
+    params = dict((timing_params or {}).get(timing_strategy, {}) or {})
+    if timing_strategy not in TURTLE_FAMILY_STRATEGIES:
+        return params
+    cfg = config or {}
+    specific = {k: cfg.get(k) for k in TURTLE_FAMILY_PARAM_KEYS}
+    # 预设特例：顶层沿用 turtle_preset 传参（timing_params 内仍叫 preset）
+    if cfg.get('turtle_preset') is not None:
+        specific['preset'] = cfg.get('turtle_preset')
+    params.update({k: v for k, v in specific.items() if v is not None})
+    return params

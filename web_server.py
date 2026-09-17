@@ -1677,6 +1677,7 @@ def get_timing_strategies():
         timing_strategies = [
             {'name': 'turtle', 'display_name': '海龟策略'},
             {'name': 'low_turtle', 'display_name': '低位海龟策略'},
+            {'name': 'turtle_plus', 'display_name': '海龟plus'},
             {'name': 'support', 'display_name': '支撑位策略'},
             {'name': 'rsi', 'display_name': 'RSI策略'},
             {'name': 'bollinger', 'display_name': '布林带策略'},
@@ -3531,33 +3532,33 @@ def run_strategy_batch():
             if backtest_config:
                 config = backtest_config
         
-        # 检查是否有任务使用海龟策略，从配置文件读取海龟策略参数（与 run_strategy 保持一致）
-        has_turtle = any(task.get('timing_strategy') == 'turtle' for task in tasks)
-        if has_turtle:
+        # 海龟类策略（海龟/低位海龟/海龟plus）参数注入：按策略名写入 config['timing_params']，
+        #   与 /backtest/run、自适应回测、实盘运行器同一口径（统一由
+        #   trading.timing_strategies.build_turtle_family_params 合并）。
+        #   2026-09-16 修复：原实现只认 'turtle' 且写顶层键 → 海龟plus 回退默认预设(10/5/10)，
+        #   与 config/strategy_params.yaml（12/6/12）不一致，回测结果无法代表配置口径。
+        from trading.timing_strategies import TURTLE_FAMILY_STRATEGIES
+        _timing_names = {str(t.get('timing_strategy') or '') for t in tasks}
+        _turtle_tasks = [n for n in TURTLE_FAMILY_STRATEGIES if n in _timing_names]
+        if _turtle_tasks:
+            _blocks = {'turtle': 'TurtleStrategy', 'low_turtle': 'TurtleStrategy',
+                       'turtle_plus': 'TurtlePlusStrategy'}
             try:
                 config_manager = StrategyConfigManager()
-                turtle_config = config_manager.get_strategy_config('TurtleStrategy')
-                turtle_params = turtle_config.get('params', {})
-                logger.info(f"从配置文件读取海龟策略参数: n_entry={turtle_params.get('n_entry')}, "
-                           f"n_exit={turtle_params.get('n_exit')}, atr_period={turtle_params.get('atr_period')}")
-                # 将海龟策略参数添加到config中
-                config['n_entry'] = turtle_params.get('n_entry')
-                config['n_exit'] = turtle_params.get('n_exit')
-                config['atr_period'] = turtle_params.get('atr_period')
-                config['entry_atr'] = turtle_params.get('entry_atr')
-                config['add_atr'] = turtle_params.get('add_atr')
-                config['exit_atr'] = turtle_params.get('exit_atr')
-                config['base_position_amount'] = turtle_params.get('base_position_amount')
+                _timing_params = dict(config.get('timing_params') or {})
+                for _name in _turtle_tasks:
+                    _params = config_manager.get_strategy_config(
+                        _blocks.get(_name, 'TurtleStrategy')).get('params', {}) or {}
+                    # 调用方显式传入的同名键优先（不覆盖）
+                    _timing_params[_name] = {**_params, **(_timing_params.get(_name) or {})}
+                    logger.info(f"从配置文件读取{_name}策略参数: {_params}")
+                config['timing_params'] = _timing_params
+                # 单一海龟类策略时同时写顶层键（运行器/引擎优先读顶层配置）
+                if len(_turtle_tasks) == 1:
+                    config.update({k: v for k, v in
+                                   _timing_params[_turtle_tasks[0]].items() if v is not None})
             except Exception as e:
-                logger.warning(f"读取海龟策略配置失败，使用默认值: {str(e)}")
-                # 使用默认值
-                config['n_entry'] = 20
-                config['n_exit'] = 10
-                config['atr_period'] = 20
-                config['entry_atr'] = 0.02
-                config['add_atr'] = 0.5
-                config['exit_atr'] = 2.0
-                config['base_position_amount'] = 20000
+                logger.warning(f"读取海龟类策略配置失败，忽略注入（沿用调用方参数）: {str(e)}")
         
         # 执行批量任务（内部已通过 _save_batch_task_config 保存 task_history）
         results = runner.run_strategies_batch(tasks, config)
@@ -3669,12 +3670,43 @@ def get_strategy_status():
         return jsonify({"success": False, "error": str(e)})
 
 
-def _get_ptrade_fund_data(runner, working_date: str):
-    """从 PTrade 反馈（Fund 文件）读取可用资金和总资产
+def _derive_available_cash(total_asset, market_value, fund_available_cash=0.0):
+    """按统一口径计算可用资金：总资产 − 证券市值（含 ETF）
 
-    PTrade 导出的「总资产」列已包含未成交委托冻结资金、ETF 市值等，
-    比「可用资金 + 重算持仓市值」口径更准确，可避免总资产偏小。
-    「可用资金」是实际可下单的资金，比反算（总资产 - 持仓市值）更可靠。
+    与策略口径统一（portfolio['cash']，见 ptrade_feedback.build_portfolio）：
+    可用资金 = 总资产 − 股票市值 − ETF市值。
+
+    为什么不用 Fund 文件的「可用资金」列：该列在清算前会扣除未成交委托冻结资金，
+    低于真实可用余额 —— 2026-09-15 实盘例：Fund 列=27,425.82，真实可用=141,472.44
+    （= 总资产 338,087.44 − 证券市值 196,615）；若用于展示，会与策略/日志口径不一致。
+    数据异常（总资产 < 证券市值 → 反算为负）时回退 Fund 列并告警。
+
+    Args:
+        total_asset: PTrade Fund「总资产」
+        market_value: PTrade Fund「证券市值」（含 ETF）
+        fund_available_cash: Fund「可用资金」列（仅异常回退时使用）
+
+    Returns:
+        float：可用资金（2 位小数）
+    """
+    try:
+        cash = round(float(total_asset or 0) - float(market_value or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+    if cash < 0:
+        logger.warning(
+            f"【资金口径】反算可用资金为负({cash})，总资产={total_asset}，"
+            f"证券市值={market_value}，回退 Fund 可用资金列")
+        return round(float(fund_available_cash or 0), 2)
+    return cash
+
+
+def _get_ptrade_fund_data(runner, working_date: str):
+    """从 PTrade 反馈（Fund 文件）读取总资产，并按统一口径反算可用资金
+
+    总资产取 Fund「总资产」列（权威值，含 ETF 市值）；
+    可用资金 = 总资产 − 证券市值（与策略口径 portfolio['cash'] 统一，
+    见 _derive_available_cash 的说明：Fund「可用资金」列清算前会扣除冻结资金、偏低）。
     读取失败（如反馈文件缺失或解析异常）时返回 None，由调用方回退自算。
 
     Args:
@@ -3694,12 +3726,17 @@ def _get_ptrade_fund_data(runner, working_date: str):
         # 工作日期 YYYY-MM-DD → 反馈日期 YYYYMMDD
         feedback_date = working_date.replace('-', '')
         fund = handler.read_fund(feedback_date)
-        available_cash = fund.get('available_cash')
         total_asset = fund.get('total_asset')
         if total_asset:
-            logger.info(f"资金采用 PTrade 反馈值: 可用资金={available_cash}, 总资产={total_asset} (日期 {feedback_date})")
+            available_cash = _derive_available_cash(
+                total_asset, fund.get('market_value'), fund.get('available_cash'))
+            logger.info(
+                f"资金采用 PTrade 反馈值: 可用资金={available_cash}"
+                f"(=总资产{total_asset}-证券市值{fund.get('market_value')}), "
+                f"总资产={total_asset}, Fund列可用资金={fund.get('available_cash')} "
+                f"(日期 {feedback_date})")
             return {
-                'available_cash': float(available_cash) if available_cash else 0.0,
+                'available_cash': float(available_cash),
                 'total_asset': float(total_asset)
             }
     except Exception as e:
@@ -3732,7 +3769,9 @@ def _get_ptrade_snapshot_from_runner(runner, feedback_date: str):
         feedback_date: 反馈日期 YYYYMMDD
 
     Returns:
-        (holdings, available_cash, total_assets) 或 None（表示应直读文件）
+        (holdings, available_cash, total_assets) 或 None（表示应直读文件）；
+        其中 available_cash 与策略口径一致（总资产 − 股票市值 − ETF市值），
+        不使用 Fund「可用资金」列（该列清算前会扣除未成交委托冻结资金、偏低）
     """
     if (getattr(runner, '_ptrade_synced_feedback_date', '') or '') != feedback_date:
         return None
@@ -3768,7 +3807,8 @@ def _get_ptrade_snapshot_from_runner(runner, feedback_date: str):
             'profit_loss': pos.get('profit_loss', 0) or 0,
         })
 
-    # 展示口径与原直读 Fund 文件一致：优先 Fund「可用资金」列，缺失时退化为反算现金
+    # 可用资金口径与策略统一（= 总资产 − 股票市值 − ETF市值，即同步时刻的 portfolio['cash']）：
+    # 取同步时冻结的快照值，缺失时退化为 runner 当前资金
     available_cash = getattr(runner, 'current_ptrade_available_cash', None)
     if available_cash is None:
         available_cash = getattr(runner, 'current_total_capital', 0) or 0
@@ -3811,10 +3851,13 @@ def _get_portfolio_auto(runner, working_date: str):
         holdings, available_cash, total_assets = snapshot
     else:
         handler = PTradeFeedbackHandler(project_root=str(project_root), config=main_config)
-        # 1.1 资金（Fund 文件）：可用资金、总资产均为 PTrade 权威值
+        # 1.1 资金（Fund 文件）：总资产取 PTrade 权威值；可用资金按统一口径反算
+        #     （= 总资产 − 证券市值(含 ETF)，与策略口径 portfolio['cash'] 一致；
+        #      不使用 Fund「可用资金」列：该列清算前会扣除未成交委托冻结资金、偏低）
         fund = handler.read_fund(feedback_date)
-        available_cash = round(fund.get('available_cash', 0.0), 2)
         total_assets = round(fund.get('total_asset', 0.0), 2)
+        available_cash = _derive_available_cash(
+            total_assets, fund.get('market_value'), fund.get('available_cash'))
         # 1.2 持仓（Hold 文件，已过滤 ETF）：数量/成本/市值/盈亏均取 PTrade 值
         holdings = handler.read_holdings(feedback_date)
 
@@ -4050,8 +4093,8 @@ def get_portfolio():
         # 运行模式决定总资产来源：自动模式才读 PTrade 反馈；手动模式维持原有自算逻辑
         run_mode = getattr(runner, 'run_mode', 'manual')
         if run_mode == 'auto':
-            # 自动模式直接从 PTrade Fund 文件读取可用资金和总资产（权威值，含冻结、ETF 市值）
-            # 避免 portfolio 文件不是最新时，available_cash 和 total_assets 不一致
+            # 自动模式从 PTrade Fund 文件读取总资产，并按统一口径反算可用资金
+            # （总资产 − 证券市值(含 ETF)），避免 portfolio 文件不是最新时两者不一致
             ptrade_fund = _get_ptrade_fund_data(runner, working_date)
             if ptrade_fund is not None:
                 available_cash = ptrade_fund['available_cash']

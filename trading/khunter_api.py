@@ -408,7 +408,7 @@ class KHunterAPI:
     # ==================== 私有方法 - 参数验证 ====================
     
     # 合法的择时策略列表
-    VALID_TIMING_STRATEGIES = ['support', 'turtle', 'low_turtle', 'rsi', 'bollinger', 'macd_bollinger']
+    VALID_TIMING_STRATEGIES = ['support', 'turtle', 'low_turtle', 'turtle_plus', 'rsi', 'bollinger', 'macd_bollinger']
     
     def _validate_timing_strategy(self, timing_strategy: str) -> None:
         """
