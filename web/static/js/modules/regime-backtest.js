@@ -180,7 +180,36 @@ function _rsCollectRules() {
 }
 
 /**
+ * 格式化秒数为时长文案（自适应显示 HH:MM:SS 或 MM:SS）
+ * @param {number} seconds - 秒数
+ * @returns {string} 格式化后的时长，例如 "02:15" 或 "01:02:03"
+ */
+function _rsFormatDuration(seconds) {
+    // 输入校验：非数字或负数返回 "00:00"
+    if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
+    const s = Math.round(seconds);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    // 不足1小时显示 MM:SS，超过1小时显示 HH:MM:SS
+    const pad = n => String(n).padStart(2, '0');
+    return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
+/**
+ * 格式化 Date 为时刻文案 HH:MM
+ * @param {Date} date - 日期对象
+ * @returns {string} 形如 "14:50"
+ */
+function _rsFormatClock(date) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
  * 更新进度条（p 为空则隐藏）
+ * 预估算法：已耗时/已处理交易日 = 单日耗时；剩余交易日 × 单日耗时 = 剩余时间
+ * 前3个交易日数据不稳定，仅显示已耗时，不展示预估（避免早期抖动）
  */
 function _rsSetProgress(p) {
     const box = document.getElementById('regime-progress');
@@ -191,6 +220,8 @@ function _rsSetProgress(p) {
     const bar = document.getElementById('regime-progress-bar');
     const txt = document.getElementById('regime-progress-text');
     const num = document.getElementById('regime-progress-percent');
+    // eta：预估时间展示元素
+    const eta = document.getElementById('regime-progress-eta');
     if (bar) bar.style.width = pct + '%';
     if (num) num.textContent = pct.toFixed(1) + '%';
     if (txt) {
@@ -198,6 +229,41 @@ function _rsSetProgress(p) {
             ? `回测执行中：${p.current_date || '准备中'}（${p.done_days || 0}/${p.total_days || 0} 个交易日）`
             : (p.message || '完成');
     }
+    // 预估时间展示：仅在回测运行中且有开始时间时计算
+    if (eta) {
+        eta.textContent = p.running ? _rsCalcEtaText(p) : '';
+    }
+}
+
+/**
+ * 根据进度快照计算预估时间文案
+ * @param {Object} p - 进度快照（含 started_at/done_days/total_days）
+ * @returns {string} 预估文案，例如 "已耗时 02:15 · 预计剩余 05:30 · 预计 14:50 完成"
+ */
+function _rsCalcEtaText(p) {
+    // 缺少开始时间或交易日数据，不展示预估
+    if (!p.started_at || !p.total_days) return '';
+    // 兼容 "YYYY-MM-DD HH:MM:SS" 格式，替换为 ISO 标准的 T 分隔
+    const startedAt = new Date(String(p.started_at).replace(' ', 'T'));
+    if (isNaN(startedAt.getTime())) return '';
+    const doneDays = Number(p.done_days) || 0;
+    const totalDays = Number(p.total_days) || 0;
+    // 已耗时秒数（now - started_at）
+    const elapsedSec = (Date.now() - startedAt.getTime()) / 1000;
+    if (elapsedSec < 0) return '';
+    // 前3个交易日数据不稳定，仅显示已耗时，不展示预估
+    if (doneDays < 3) {
+        return `已耗时 ${_rsFormatDuration(elapsedSec)} · 预估中...（前3个交易日数据稳定后展示）`;
+    }
+    // 单日耗时 = 已耗时 / 已处理交易日数
+    const perDaySec = elapsedSec / doneDays;
+    // 剩余交易日数（至少0）
+    const remainDays = Math.max(0, totalDays - doneDays);
+    // 剩余秒数 = 剩余交易日 × 单日耗时
+    const remainSec = remainDays * perDaySec;
+    // 预计完成时刻 = 当前时间 + 剩余秒数
+    const finishAt = new Date(Date.now() + remainSec * 1000);
+    return `已耗时 ${_rsFormatDuration(elapsedSec)} · 预计剩余 ${_rsFormatDuration(remainSec)} · 预计 ${_rsFormatClock(finishAt)} 完成`;
 }
 
 /** 轮询后端进度（失败静默，不打断回测等待） */
@@ -421,6 +487,14 @@ async function _rsRunBacktest() {
             confirm_days: parseInt(document.getElementById('regime-confirm-days').value || '5', 10),
             rules: rules,
         };
+        // 【2026-09-20】自动持久化本次设置（已取消"保存配置"按钮）：
+        //   ① 时间区间 → localStorage（下次进入页面默认加载）
+        //   ② rules + confirm_days → 后端 config/regime_router.yaml（静默，不覆盖运行状态）
+        try {
+            localStorage.setItem('regime_last_range',
+                JSON.stringify({ start: startDate, end: endDate }));
+        } catch (e) { /* 隐私模式等场景忽略 */ }
+        _rsSaveConfig(true);
         const res = await _rsFetchJSON('/api/trading/backtest/regime/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -444,7 +518,11 @@ async function _rsRunBacktest() {
     }
 }
 
-async function _rsSaveConfig() {
+/**
+ * 保存路由配置（rules + confirm_days）到后端 config/regime_router.yaml
+ * @param {boolean} silent - true 时静默执行，不覆盖当前状态提示（用于运行前自动保存）
+ */
+async function _rsSaveConfig(silent) {
     const rules = _rsCollectRules();
     const confirmDays = parseInt(document.getElementById('regime-confirm-days').value || '5', 10);
     try {
@@ -453,27 +531,40 @@ async function _rsSaveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ rules: rules, confirm_days: confirmDays }),
         });
-        _rsSetStatus(res.success ? '配置已保存为默认（原文件已备份 .bak）' : ('保存失败：' + res.message), !res.success);
+        if (!silent) {
+            _rsSetStatus(res.success ? '配置已保存为默认（原文件已备份 .bak）' : ('保存失败：' + res.message), !res.success);
+        }
         if (res.success) {
             // 保存成功后同步本地状态，保证后续渲染/运行与后端一致
             _regimeState.rules = rules;
         }
+        return !!res.success;
     } catch (e) {
-        _rsSetStatus('保存失败：' + e.message, true);
+        if (!silent) _rsSetStatus('保存失败：' + e.message, true);
+        return false;
     }
 }
 
 export async function initRegimeBacktestPage() {
-    // 默认区间：近一年
+    // 【2026-09-20】时间区间：默认加载"上次运行区间"（localStorage），首次使用回退近一年
     const today = new Date();
     const startInput = document.getElementById('regime-start-date');
     const endInput = document.getElementById('regime-end-date');
+    let _lastRange = null;
+    try {
+        _lastRange = JSON.parse(localStorage.getItem('regime_last_range') || 'null');
+    } catch (e) { _lastRange = null; }
     if (startInput && !startInput.value) {
-        const s = new Date(today.getTime() - 365 * 24 * 3600 * 1000);
-        startInput.value = s.toISOString().slice(0, 10);
+        if (_lastRange && _lastRange.start) {
+            startInput.value = _lastRange.start;
+        } else {
+            const s = new Date(today.getTime() - 365 * 24 * 3600 * 1000);
+            startInput.value = s.toISOString().slice(0, 10);
+        }
     }
     if (endInput && !endInput.value) {
-        endInput.value = today.toISOString().slice(0, 10);
+        endInput.value = (_lastRange && _lastRange.end)
+            ? _lastRange.end : today.toISOString().slice(0, 10);
     }
 
     if (!_regimeState.selectors.length || !_regimeState.timings.length) {
@@ -507,11 +598,8 @@ export async function initRegimeBacktestPage() {
         runBtn.addEventListener('click', _rsRunBacktest);
         runBtn.dataset.bound = '1';
     }
-    const saveBtn = document.getElementById('regime-save-config-btn');
-    if (saveBtn && !saveBtn.dataset.bound) {
-        saveBtn.addEventListener('click', _rsSaveConfig);
-        saveBtn.dataset.bound = '1';
-    }
+    // 【2026-09-20】"保存为默认配置"按钮已移除：配置在每次运行前自动持久化
+    //   （rules/confirm_days → 后端 yaml；时间区间 → localStorage）
 }
 
 // 兼容：app.js 若以命名空间方式装配

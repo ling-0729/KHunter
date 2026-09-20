@@ -35,6 +35,91 @@ logger = logging.getLogger(__name__)
 # 回测全局锁，确保同一时刻只有一个回测任务执行，避免日志交错和资源竞争
 _backtest_lock = threading.Lock()
 
+# ======================================================================
+# 单次回测进度（内存态；供 Web 端轮询展示预估完成时间，不落库、不影响回测结果）
+# 字段说明：
+#   running      : 是否正在执行
+#   percent      : 进度百分比（done_days/total_days*100，保留1位小数）
+#   done_days    : 已处理交易日数
+#   total_days   : 回测区间交易日总数
+#   current_date : 当前正在处理的交易日
+#   started_at   : 回测开始时间（用于计算已耗时和预估剩余）
+#   finished_at  : 回测结束时间
+#   message      : 状态说明文案
+#   result_id    : 回测结果ID（完成后填充）
+# ======================================================================
+BACKTEST_PROGRESS: Dict = {
+    'running': False,
+    'percent': 0.0,
+    'done_days': 0,
+    'total_days': 0,
+    'current_date': '',
+    'started_at': '',
+    'finished_at': '',
+    'message': '',
+    'result_id': None,
+}
+
+
+def get_backtest_progress() -> Dict:
+    """获取单次回测进度快照（供 GET /api/trading/backtest/progress 使用）
+
+    Returns:
+        Dict: 进度字典副本，避免外部直接修改内部状态
+    """
+    # 返回副本，防止外部修改污染内部状态
+    return dict(BACKTEST_PROGRESS)
+
+
+def _begin_backtest_progress(total_days: int) -> None:
+    """回测开始：重置进度并记录开始时间
+
+    Args:
+        total_days: 回测区间交易日总数
+    """
+    # 重置所有字段，记录开始时间供预估算法使用
+    BACKTEST_PROGRESS.update({
+        'running': True, 'percent': 0.0, 'done_days': 0,
+        'total_days': int(total_days or 0), 'current_date': '',
+        'message': '执行中', 'result_id': None, 'finished_at': '',
+        'started_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    })
+
+
+def _update_backtest_progress(done_days: int, total_days: int, current_date) -> None:
+    """每处理一个交易日更新一次进度
+
+    Args:
+        done_days: 已完成交易日数
+        total_days: 交易日总数
+        current_date: 当前正在处理的交易日
+    """
+    # 计算百分比，避免除零
+    total = int(total_days or 0)
+    BACKTEST_PROGRESS.update({
+        'done_days': int(done_days),
+        'total_days': total,
+        'percent': round(done_days / total * 100, 1) if total else 0.0,
+        'current_date': str(current_date),
+    })
+
+
+def _end_backtest_progress(message: str, ok: bool = True, result_id: int = None) -> None:
+    """回测结束（成功或失败）
+
+    Args:
+        message: 结束说明文案
+        ok: 是否成功（成功=True，失败=False）
+        result_id: 回测结果ID（成功时填充）
+    """
+    # 标记结束状态，记录完成时间
+    BACKTEST_PROGRESS.update({
+        'running': False,
+        'message': message,
+        'finished_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'result_id': result_id if ok else None,
+    })
+
 
 def calculate_backtest_cost(stock_code: str, price: float, quantity: int, is_buy: bool) -> dict:
     """计算回测交易成本（不含滑点，按T+1开盘价处理）
@@ -289,11 +374,19 @@ class BacktestEngine:
             logger.info(f"股票池模式 pool_mode={self.pool_mode}（来源：{'config' if config.get('pool_mode') else 'config_file'}）")
             # 股票累计买入次数计数器 {stock_code: buy_count}
             stock_buy_count = {}
-            
+
+            # 初始化单次回测进度（供 Web 端轮询展示预估完成时间）
+            # 传入交易日总数，用于计算百分比和预估剩余时间
+            _begin_backtest_progress(len(date_range))
+
             for i, current_date in enumerate(date_range):
                 logger.info(f"\n============================================================")
                 logger.info(f"处理日期: {current_date}")
                 logger.info(f"============================================================")
+
+                # 每个交易日处理前更新进度（i+1 表示已开始处理第 i+1 天）
+                # 放在循环开头，前端能立即看到"开始处理当天"的反馈
+                _update_backtest_progress(i + 1, len(date_range), current_date)
                 
                 # 初始化当日买入计数
                 daily_buys = 0
@@ -887,11 +980,16 @@ class BacktestEngine:
             }
             
             logger.info(f"回测完成，初始资金: {initial_capital}, 最终资金: {final_capital}, 总收益率: {performance['total_return']:.2f}%")
-            
+
+            # 回测成功结束：标记进度完成（result_id 由 routes.py 保存后回填，这里不传）
+            _end_backtest_progress('完成', ok=True)
+
             return backtest_result
-            
+
         except Exception as e:
             logger.error(f"回测失败: {str(e)}")
+            # 回测异常结束：标记进度失败，前端据此停止轮询并显示错误
+            _end_backtest_progress(f'失败: {e}', ok=False)
             raise
         finally:
             # 停止防止系统睡眠
@@ -1962,6 +2060,8 @@ class BacktestEngine:
         # 根据策略参数计算需要的历史数据天数
         buffer_days = 60  # 基础缓冲
         required_days = buffer_days
+        # 【2026-09-19】需全历史的策略：只对"需要的股票"取全历史（None = 全市场）
+        full_history_codes = None
         
         if strategy_name:
             # 获取策略参数 - 需中英文名称映射（与 _execute_selection 保持一致）
@@ -1977,6 +2077,7 @@ class BacktestEngine:
                 # 常见回溯参数名 - 包含所有策略的历史数据需求参数
                 lookback_keys = [
                     'lookback_days',                # 多金叉共振、多方炮、阻力位突破、启明星、底部趋势拐点
+                    'high_drawdown_days',           # 超跌反弹：收盘价 vs 近 N 日最高价的回撤窗口
                     'pattern_days',                 # W底策略
                     'search_days',                  # 预留
                     'resonance_days',               # 预留
@@ -2009,11 +2110,29 @@ class BacktestEngine:
                 
                 required_days = max_value + buffer_days
                 logger.info(f"策略 {strategy_name} 需要 {max_value} 天历史数据 + {buffer_days} 天缓冲")
+
+                # 【2026-09-19】策略级特殊处理：需要"上市以来全历史"的策略（如次新腰斩）
+                #   不能按参数天数截断窗口，否则「上市以来最高价」等全局指标失真。
+                #   钩子：策略类属性 requires_full_history = True
+                if getattr(strategy, 'requires_full_history', False):
+                    required_days = 36500       # 100 年 ⇒ 等价于不截断（取全历史）
+                    # 只对"需要的股票"取全历史：按策略钩子以**回测起始日**为界，
+                    # 求出"该日之前 K 线根数少的次新 + 该日之后才上市的新股"（无未来函数）。
+                    # 根数只增不减 → 该日已超阈值的股票后续不可能成为次新，可安全排除。
+                    if hasattr(strategy, 'full_history_universe'):
+                        full_history_codes = strategy.full_history_universe(
+                            self.db_manager, start_date, params)
+                    logger.info(f"策略 {strategy_name} 声明 requires_full_history=True，"
+                                f"预加载改为全历史（仅限 %s 只需要的股票）",
+                                len(full_history_codes) if full_history_codes else '全部')
         
         # SQL 查询起始日期：仅加载回测所需数据（start_date - required_days）
         # required_days 由策略参数 + buffer_days 计算得出，精确反映策略需要的历史数据量
         sql_start_dt = start_dt - timedelta(days=required_days)
         sql_start = sql_start_dt.strftime('%Y-%m-%d')
+        if required_days >= 36500:
+            # 需全历史的策略（requires_full_history）→ 从库内最早数据起取
+            sql_start = '1990-01-01'
 
         logger.info(f"预加载股票数据: {sql_start} ~ {end_date} (需要历史: {required_days}天)")
 
@@ -2021,7 +2140,8 @@ class BacktestEngine:
 
         # 第1步：一次SQL批量加载全市场K线（全部股票，不过滤ST/退市/数据量）
         step1_start = datetime.now()
-        all_kline_df = self.db_manager.read_all_stocks_kline(sql_start, end_date)
+        all_kline_df = self.db_manager.read_all_stocks_kline(
+            sql_start, end_date, codes=full_history_codes)
         step1_time = (datetime.now() - step1_start).total_seconds()
 
         if all_kline_df.empty:

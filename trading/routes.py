@@ -3080,6 +3080,33 @@ def run_regime_backtest():
         # 入库（复用现有 DAO，便于在"回测历史"与普通回测对比）
         result_id = None
         try:
+            # 【2026-09-20】把"本次回测选择的条件（各档位策略情况）"整理成**一段文本**持久化，
+            #   供回测历史详情展示。内容：区间 / 确认天数 / 每个档位的选股+择时+仓位+买入方式 /
+            #   人工覆盖（若有）。无未来数据、纯展示用途。
+            _rg_lines = [f"回测区间: {start_date} ~ {end_date}",
+                         f"档位确认天数: {router_cfg.get('confirm_days', 1)}"]
+            _rules = router_cfg.get('rules') or {}
+            for _rg in ('明确', '萌芽', '震荡'):
+                _r = _rules.get(_rg) or {}
+                _rg_lines.append(
+                    f"[{_rg}] 选股={_r.get('selector') or '（未配置）'}"
+                    f" | 择时={_r.get('timing') or '（未配置）'}"
+                    f" | 仓位={_r.get('position') if _r.get('position') is not None else '（未配置）'}"
+                    f" | 买入={_r.get('buy_execution') or _r.get('buy') or 'open'}")
+            _manual = router_cfg.get('manual_override') or {}
+            if _manual.get('enabled'):
+                _rg_lines.append(
+                    f"人工覆盖(生效): 选股={_manual.get('selector')}"
+                    f" 择时={_manual.get('timing')} 仓位={_manual.get('position')}")
+            # 实际生效的档位（取首次切换记录，便于核对）
+            _switches = result.get('strategy_switches') or []
+            if _switches:
+                _first = _switches[0]
+                _rg_lines.append(f"首次策略切换: {_first.get('date')} "
+                                 f"{_first.get('from')} → {_first.get('to')}"
+                                 f"（regime={_first.get('regime')}）")
+            router_config_text = '\n'.join(_rg_lines)
+
             save_result = {
                 'strategy_name': f"自适应回测({result.get('strategy_name', '')})",
                 'support_level_method': 'regime',
@@ -3100,6 +3127,8 @@ def run_regime_backtest():
                 'sharpe_ratio': perf.get('sharpe_ratio', 0),
                 'initial_capital': initial_capital,
                 'final_capital': result.get('final_capital', initial_capital),
+                # 各档位策略配置摘要（文本）→ 回测历史详情展示
+                'router_config': router_config_text,
             }
             result_id = backtest_dao.save_result(save_result)
 
@@ -3203,4 +3232,29 @@ def get_regime_backtest_progress():
         return jsonify({'success': True, 'data': get_regime_progress()}), 200
     except Exception as e:
         logger.error(f'获取自适应回测进度失败: {str(e)}')
+        return jsonify({'success': False, 'message': str(e), 'data': None}), 500
+
+
+@trading_bp.route('/backtest/progress', methods=['GET'])
+def get_backtest_progress():
+    """单次回测进度（内存态，前端轮询）
+
+    返回：{running, percent, done_days, total_days, current_date,
+           started_at, finished_at, message, result_id}
+
+    说明：
+        - started_at 用于前端计算"已耗时"和"预计剩余时间"
+        - result_id 仅在回测成功完成并由 /backtest/run 保存后才有值；
+          本接口返回的 result_id 可能为 None（run_backtest 内部不感知数据库ID）
+        - 批量回测执行单个任务时也会更新此进度，批次3改造时由
+          /backtest/batch/status 合并展示
+    """
+    try:
+        # 局部导入，避免循环依赖
+        from trading.backtest_engine import get_backtest_progress
+
+        # 返回进度快照副本
+        return jsonify({'success': True, 'data': get_backtest_progress()}), 200
+    except Exception as e:
+        logger.error(f'获取单次回测进度失败: {str(e)}')
         return jsonify({'success': False, 'message': str(e), 'data': None}), 500
