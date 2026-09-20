@@ -114,17 +114,15 @@ class BacktestTaskManager {
   }
 
   /**
-   * 计算预计耗时（小时）
-   * 每个任务预计2-3小时，取平均2.5小时
-   * @returns {string} 预计耗时字符串，格式: "X-Y小时"
+   * 计算预计耗时
+   * 执行前无法准确预估，启动后由轮询逻辑按实际进度预估（批次3）
+   * @returns {string} 预计耗时字符串
    */
   estimateTime() {
     const count = this.getTaskCount();
-    if (count === 0) return '0小时';
-    
-    const minHours = count * 2;
-    const maxHours = count * 3;
-    return `${minHours}-${maxHours}小时`;
+    if (count === 0) return '0个任务';
+    // 执行前不再硬编码时长，启动后按实际进度预估
+    return `${count}个任务，启动后预估`;
   }
 
   /**
@@ -252,7 +250,12 @@ class BacktestUIManager {
    */
   showProgress(info) {
     this.elements.progressContainer.style.display = 'block';
-    this.elements.currentTaskInfo.textContent = `正在执行: ${info.strategyName} (${info.currentIndex}/${info.totalCount})`;
+    // 优先使用调用方传入的完整任务行（含交易日进度），否则回退到简单拼接
+    if (info.currentTaskLine) {
+      this.elements.currentTaskInfo.textContent = info.currentTaskLine;
+    } else {
+      this.elements.currentTaskInfo.textContent = `正在执行: ${info.strategyName} (${info.currentIndex}/${info.totalCount})`;
+    }
     this.updateProgressBar(info.progress);
     this.elements.remainingTime.textContent = info.remainingTime;
   }
@@ -924,6 +927,139 @@ class BacktestUIManager {
   }
 }
 
+// ==================== ETA 预估工具（批次3） ====================
+
+/**
+ * 将秒数格式化为人类可读的时长
+ * @param {number} seconds - 秒数
+ * @returns {string} 格式化后的时长，如 "2小时15分钟"、"5分钟"、"30秒"
+ */
+function formatDuration(seconds) {
+  // 异常值兜底
+  if (!seconds || seconds < 0 || !isFinite(seconds)) return '--';
+  // 不足1分钟按秒展示
+  if (seconds < 60) return `${Math.round(seconds)}秒`;
+  const minutes = Math.floor(seconds / 60);
+  // 不足1小时按分钟展示
+  if (minutes < 60) return `${minutes}分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainMinutes = minutes % 60;
+  // 不足1天按"小时+分钟"展示
+  if (hours < 24) return remainMinutes > 0 ? `${hours}小时${remainMinutes}分钟` : `${hours}小时`;
+  const days = Math.floor(hours / 24);
+  const remainHours = hours % 24;
+  return remainHours > 0 ? `${days}天${remainHours}小时` : `${days}天`;
+}
+
+/**
+ * 计算批量回测剩余耗时预估
+ * 算法（批次3）：
+ *   - 当前任务剩余 = (total_days - done_days) × (已耗时 / done_days)
+ *     前3个交易日无法稳定估算单日耗时，标记为"预估中"
+ *   - 平均任务耗时 = 已完成任务累计耗时 / 已完成任务数
+ *   - 未开始任务预估 = 未开始任务数 × 平均任务耗时
+ *   - 总剩余 = 当前任务剩余 + 未开始任务预估
+ * @param {Object} status - /backtest/batch/status 返回的 data 对象
+ * @returns {Object} { etaText, currentTaskText, progressPercent }
+ */
+function calcBatchEta(status) {
+  // 缺少 current_task 时回退到粗粒度进度
+  if (!status.current_task) {
+    const pct = status.total_tasks > 0
+      ? Math.round((status.completed_tasks / status.total_tasks) * 100)
+      : 0;
+    return { etaText: '--', currentTaskText: '', progressPercent: pct };
+  }
+
+  const ct = status.current_task;
+  const now = Date.now();
+  // 解析当前任务开始时间，用于计算已耗时
+  const startedAt = ct.started_at ? new Date(ct.started_at).getTime() : null;
+  const elapsedSec = startedAt ? (now - startedAt) / 1000 : 0;
+
+  const doneDays = ct.done_days || 0;
+  const totalDays = ct.total_days || 0;
+
+  // 1. 当前任务剩余预估
+  let currentTaskRemainSec = null; // null 表示"预估中"
+  // 前3个交易日单日耗时不稳定，不展示预估
+  if (doneDays >= 3 && totalDays > 0 && startedAt) {
+    const secPerDay = elapsedSec / doneDays;
+    const remainDays = totalDays - doneDays;
+    currentTaskRemainSec = remainDays * secPerDay;
+  }
+
+  // 2. 已完成任务平均耗时（用于预估未开始任务）
+  const results = status.task_results || [];
+  let totalTaskSec = 0;
+  let validTaskCount = 0;
+  results.forEach((r) => {
+    // 仅计算同时具备开始和完成时间的任务
+    if (r.started_at && r.completed_at) {
+      const s = new Date(r.started_at).getTime();
+      const e = new Date(r.completed_at).getTime();
+      if (e > s) {
+        totalTaskSec += (e - s) / 1000;
+        validTaskCount += 1;
+      }
+    }
+  });
+  const avgTaskSec = validTaskCount > 0 ? totalTaskSec / validTaskCount : null;
+
+  // 3. 未开始任务数（总任务 - 已完成 - 当前执行中1个）
+  const completedTasks = status.completed_tasks || 0;
+  const totalTasks = status.total_tasks || 0;
+  const pendingTaskCount = Math.max(0, totalTasks - completedTasks - 1);
+
+  // 4. 未开始任务预估总耗时
+  const pendingTaskRemainSec = avgTaskSec !== null ? avgTaskSec * pendingTaskCount : null;
+
+  // 5. 批次总剩余 = 当前任务剩余 + 未开始任务预估
+  let totalRemainSec = null;
+  if (currentTaskRemainSec !== null && pendingTaskRemainSec !== null) {
+    totalRemainSec = currentTaskRemainSec + pendingTaskRemainSec;
+  } else if (currentTaskRemainSec !== null) {
+    // 仅有当前任务剩余（无历史平均）
+    totalRemainSec = currentTaskRemainSec;
+  }
+
+  // 组装 ETA 文本
+  let etaText;
+  if (totalRemainSec !== null) {
+    const remainTxt = formatDuration(totalRemainSec);
+    // 同时展示当前任务剩余，便于用户判断
+    if (currentTaskRemainSec !== null) {
+      const curTxt = formatDuration(currentTaskRemainSec);
+      etaText = `当前剩余 ${curTxt}，批次总剩余 ${remainTxt}`;
+    } else {
+      etaText = `批次总剩余 ${remainTxt}`;
+    }
+  } else if (startedAt) {
+    // 前3个交易日：展示已耗时，标注预估中
+    etaText = `已耗时 ${formatDuration(elapsedSec)}，预估中`;
+  } else {
+    etaText = '预估中';
+  }
+
+  // 当前任务展示文本：交易日进度 + 当前交易日（策略名/序号由 showProgress 拼接）
+  const dayProgress = totalDays > 0 ? ` | 交易日 ${doneDays}/${totalDays}` : '';
+  const curDate = ct.current_date ? ` (${ct.current_date})` : '';
+  const currentTaskText = `交易日进度${dayProgress}${curDate}`;
+
+  // 整体进度百分比：按交易日加权
+  let progressPercent;
+  if (totalTasks > 0) {
+    // 当前任务内交易日进度（0~1）
+    const taskInnerRatio = totalDays > 0 ? doneDays / totalDays : 0;
+    // 整体 = (已完成任务 + 当前任务内进度) / 总任务数
+    progressPercent = Math.round(((completedTasks + taskInnerRatio) / totalTasks) * 100);
+  } else {
+    progressPercent = 0;
+  }
+
+  return { etaText, currentTaskText, progressPercent };
+}
+
 // ==================== 全局初始化 ====================
 
 // 创建全局实例
@@ -1247,14 +1383,21 @@ async function pollBatchStatus(batchId, totalTasks) {
         const status = data.data;
         console.log(`批量任务状态: ${status.status}, 进度: ${status.completed_tasks}/${status.total_tasks}`);
 
-        // 更新 UI 进度
+        // 更新 UI 进度（按实际交易日进度预估剩余耗时，批次3）
         if (status.current_task) {
+          // 调用预估工具，计算 ETA、当前任务文本、加权进度百分比
+          const eta = calcBatchEta(status);
+          // 拼接当前任务展示文本：策略名 + 序号 + 交易日进度
+          const taskLine = `正在执行: ${status.current_task.strategy_name || '执行中'} `
+            + `(${status.completed_tasks + 1}/${status.total_tasks})${eta.currentTaskText}`;
           backtestUIManager.showProgress({
             strategyName: status.current_task.strategy_name || '执行中',
             currentIndex: status.completed_tasks + 1,
             totalCount: status.total_tasks,
-            progress: Math.round((status.completed_tasks / status.total_tasks) * 100),
-            remainingTime: `${Math.round((status.total_tasks - status.completed_tasks - 1) * 2.5)}小时`
+            progress: eta.progressPercent,
+            remainingTime: eta.etaText,
+            // 透传当前任务行文本，供 UI 直接展示交易日进度
+            currentTaskLine: taskLine
           });
         }
 

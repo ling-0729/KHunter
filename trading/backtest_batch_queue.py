@@ -131,13 +131,18 @@ class BacktestBatchQueue:
             self._data = json.load(f)
 
     def _init_progress(self):
-        """初始化进度文件"""
+        """初始化进度文件
+
+        增加 batch_started_at 字段记录批次启动时间，
+        供前端预估整体剩余耗时使用（批次3）
+        """
         progress = {
             'batch_id': self.batch_id,
             'status': 'pending',
             'total_tasks': len(self._data.get('tasks', [])),
             'completed_tasks': 0,
             'failed_tasks': 0,
+            'batch_started_at': None,  # 批次启动时间，start() 时填入
             'current_task': None,
             'task_results': []
         }
@@ -145,7 +150,18 @@ class BacktestBatchQueue:
             json.dump(self._deep_serialize(progress), f, ensure_ascii=False, indent=2)
 
     def _update_progress(self):
-        """更新进度文件"""
+        """更新进度文件
+
+        扩展字段（批次3）：
+        - 顶层增加 batch_started_at，记录批次启动时间
+        - current_task 增加 started_at/done_days/total_days，
+          其中 done_days/total_days 实时从 backtest_engine.BACKTEST_PROGRESS 读取
+        - task_results 每条增加 started_at/completed_at/total_days，
+          供前端计算平均单任务耗时
+        """
+        # 延迟导入，避免循环依赖
+        from trading.backtest_engine import BACKTEST_PROGRESS
+
         tasks = self._data.get('tasks', [])
         completed = sum(1 for t in tasks if t.get('status') == 'completed')
         failed = sum(1 for t in tasks if t.get('status') == 'failed')
@@ -153,10 +169,22 @@ class BacktestBatchQueue:
         current_task = None
         if self._data.get('current_index', -1) >= 0 and self._data['current_index'] < len(tasks):
             task = tasks[self._data['current_index']]
+            # 读取当前任务在引擎内的实时交易日进度
+            bp = BACKTEST_PROGRESS
             current_task = {
                 'index': self._data['current_index'],
                 'strategy_name': task.get('strategy_name'),
-                'status': task.get('status')
+                'status': task.get('status'),
+                # 任务开始时间，_execute_loop 中记录
+                'started_at': task.get('started_at'),
+                # 当前任务已完成的交易日数
+                'done_days': bp.get('done_days', 0),
+                # 当前任务交易日总数
+                'total_days': bp.get('total_days', 0),
+                # 当前任务正在回测的交易日
+                'current_date': bp.get('current_date'),
+                # 引擎内任务启动时间（用于校验）
+                'engine_started_at': bp.get('started_at'),
             }
 
         progress = {
@@ -165,6 +193,8 @@ class BacktestBatchQueue:
             'total_tasks': len(tasks),
             'completed_tasks': completed,
             'failed_tasks': failed,
+            # 批次启动时间，start() 中写入 self._data['started_at']
+            'batch_started_at': self._data.get('started_at'),
             'current_task': current_task,
             'task_results': [
                 {
@@ -172,7 +202,13 @@ class BacktestBatchQueue:
                     'strategy_name': t.get('strategy_name'),
                     'status': t.get('status'),
                     'result': t.get('result'),
-                    'error': t.get('error')
+                    'error': t.get('error'),
+                    # 任务开始时间（_execute_loop 中写入）
+                    'started_at': t.get('started_at'),
+                    # 任务完成/失败时间（_execute_loop 中写入）
+                    'completed_at': t.get('completed_at'),
+                    # 该任务交易日总数（_execute_loop 任务结束时写入）
+                    'total_days': t.get('total_days'),
                 }
                 for i, t in enumerate(tasks)
                 if t.get('status') in ('completed', 'failed')
@@ -216,6 +252,8 @@ class BacktestBatchQueue:
 
                 self._data['current_index'] = i
                 task['status'] = 'running'
+                # 记录任务开始时间，供前端预估剩余耗时使用（批次3）
+                task['started_at'] = datetime.now().isoformat()
                 self._save_queue()
                 self._update_progress()
 
@@ -226,11 +264,24 @@ class BacktestBatchQueue:
                     task['status'] = 'completed'
                     task['result'] = result
                     task['completed_at'] = datetime.now().isoformat()
+                    # 任务结束后读取引擎内的交易日总数，供后续预估使用
+                    try:
+                        from trading.backtest_engine import BACKTEST_PROGRESS
+                        task['total_days'] = BACKTEST_PROGRESS.get('total_days', 0)
+                    except Exception as _e:
+                        logger.warning(f"读取任务 {i + 1} total_days 失败: {str(_e)}")
+                        task['total_days'] = task.get('total_days', 0)
                     logger.info(f"任务 {i + 1} 完成: {task.get('strategy_name')}")
                 except Exception as e:
                     task['status'] = 'failed'
                     task['error'] = str(e)
                     task['completed_at'] = datetime.now().isoformat()
+                    # 失败任务也尽量记录交易日总数
+                    try:
+                        from trading.backtest_engine import BACKTEST_PROGRESS
+                        task['total_days'] = BACKTEST_PROGRESS.get('total_days', 0)
+                    except Exception as _e:
+                        task['total_days'] = task.get('total_days', 0)
                     logger.error(f"任务 {i + 1} 失败: {task.get('strategy_name')}, error: {str(e)}")
 
                 self._save_queue()
