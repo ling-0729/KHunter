@@ -224,6 +224,31 @@ class FeishuNotifier:
             "",
         ]
 
+        # 【2026-09-20】市场环境：市场温度 + 市场 ADX（与市场速览、自适应回测同一数据源）
+        try:
+            _env = []
+            from trading.market_temperature_dao import MarketTemperatureDAO
+            _t = MarketTemperatureDAO().get_latest() or {}
+            if _t.get('temperature') is not None:
+                _env.append(
+                    f"**市场温度**: {float(_t['temperature']):.1f}°（{_t.get('status') or '-'}）"
+                    f" | 建议仓位 {float(_t.get('position_ratio') or 0):.0%}"
+                    f" | {_t.get('action') or '-'}")
+            from trading.market_index_adx_dao import MarketIndexADXDAO
+            _a = MarketIndexADXDAO().get_latest() or {}
+            if _a.get('adx') is not None:
+                _chg = _a.get('adx_change')
+                _chg_txt = '' if _chg is None else f"（环比 {float(_chg):+.2f}）"
+                _env.append(
+                    f"**市场ADX(14)**: {float(_a['adx']):.1f}{_chg_txt}"
+                    f"（{_a.get('trend_strength') or '-'} · {_a.get('trend_direction') or '-'}）")
+            if _env:
+                lines.append("### 市场环境 📊")
+                lines.extend(_env)
+                lines.append("")
+        except Exception as e:
+            logger.debug(f"飞书日报：市场温度/ADX 读取失败（忽略，不影响日报）: {e}")
+
         # 各步骤详情
         for step in result.steps:
             step_dur = self._format_duration(step.duration_seconds)
@@ -390,11 +415,93 @@ class FeishuNotifier:
                 )
             parts.append("\n".join(sell_lines))
         
+        # 【2026-09-24】股票池变动（新增/移除的**整体情况 + 明细**）✓
+        pool_block = self._format_pool_change_details(details)
+        if pool_block:
+            parts.append(pool_block)
+
         # 信号文件
         if details.get("signal_file"):
             parts.append(f"信号文件: {details['signal_file']}")
         
         return "\n".join(parts) if parts else "- 无详情"
+
+    # ==================== 【2026-09-24】股票池变动（新增/移除） ====================
+    POOL_DETAIL_LIMIT = 20          # 明细最多逐条展示条数（超出提示看本地日报 ✓）
+    # 说明：移除原因归类与"原因分布"统计**统一放在 `trading/pool_entry_rules.py`** ✓
+    #   （`classify_pool_removal_reason` / `summarize_pool_removal_reasons` ✓），
+    #   与本地 Markdown 日报**共用同一实现** ✓，避免两处各写一份而漂移 ✗
+
+    def _format_pool_change_details(self, details: dict) -> str:
+        """股票池变动 → **整体情况 + 明细**（飞书简报新增节 ✓）
+
+        整体：池内合计 / 新增（选股 + 持仓回池）/ 移除 / **移除原因分布**
+        明细：新增逐条（来源/策略/支撑位）、移除逐条（持有天数/收盘价/原因）
+
+        数据来源：`StrategyRunner.run_strategies_batch` 返回的
+                 `data['pool_added_items'] / data['pool_removed_items']`
+                 （由 `pipeline_orchestrator._step_strategy_run` 透传进 details ✓）
+        """
+        from utils.strategy_name_mapper import get_chinese_name
+
+        added = list(details.get("pool_added_items") or [])
+        removed = list(details.get("pool_removed_items") or [])
+        pool_count = details.get("pool_count", 0)
+
+        if not added and not removed:
+            # 无变动也给出池内合计 ✓（仅一行，不占版面 ✓）
+            return (f"**股票池变动**: 池内合计 {pool_count} 只 | 今日无新增、无移除"
+                    if pool_count else '')
+
+        # ---- 整体情况 ----
+        sel_n = details.get("pool_added_selection_count", 0)
+        hold_n = details.get("pool_added_holding_count", 0)
+        if not sel_n and not hold_n:
+            sel_n = sum(1 for x in added if x.get('source') != 'holding')
+            hold_n = len(added) - sel_n
+        lines = [f"**股票池变动**: 池内合计 {pool_count} 只 | "
+                 f"新增 {len(added)} 只（选股 {sel_n} + 持仓回池 {hold_n}）| "
+                 f"移除 {len(removed)} 只"]
+
+        # ---- 移除原因分布（整体统计 ✓；归类实现与本地日报**共用** ✓）----
+        if removed:
+            from trading.pool_entry_rules import summarize_pool_removal_reasons
+            counts = summarize_pool_removal_reasons(
+                [it.get('reason', '') for it in removed])
+            if counts:
+                dist = " | ".join(f"{k} {v} 只" for k, v in
+                                  sorted(counts.items(), key=lambda kv: -kv[1]))
+                lines.append(f"**移除原因分布**: {dist}")
+
+        # ---- 新增明细 ----
+        if added:
+            lines.append(f"**新增明细**（{len(added)} 只）:")
+            for i, it in enumerate(added[:self.POOL_DETAIL_LIMIT], 1):
+                src = '持仓回池' if it.get('source') == 'holding' else '选股'
+                raw_strategy = it.get('strategy', '') or ''
+                cn_strategy = get_chinese_name(raw_strategy) or raw_strategy
+                sup = it.get('support_level', 0) or 0
+                sup_txt = f" 支撑 ¥{sup:.2f}" if sup else ""
+                lines.append(f"  {i}. {it.get('name', '')}({it.get('code', '')}) "
+                             f"[{src}/{cn_strategy}]{sup_txt}")
+            if len(added) > self.POOL_DETAIL_LIMIT:
+                lines.append(f"  …其余 {len(added) - self.POOL_DETAIL_LIMIT} 只见本地日报")
+
+        # ---- 移除明细 ----
+        if removed:
+            lines.append(f"**移除明细**（{len(removed)} 只）:")
+            for i, it in enumerate(removed[:self.POOL_DETAIL_LIMIT], 1):
+                hold = it.get('hold_days')
+                hold_txt = f" 持{hold}日" if hold is not None else ""
+                price = it.get('price')
+                price_txt = f" 收盘 ¥{price:.2f}" if price else ""
+                reason = it.get('reason', '') or '—'
+                lines.append(f"  {i}. {it.get('name', '')}({it.get('code', '')})"
+                             f"{hold_txt}{price_txt} | 原因: {reason}")
+            if len(removed) > self.POOL_DETAIL_LIMIT:
+                lines.append(f"  …其余 {len(removed) - self.POOL_DETAIL_LIMIT} 只见本地日报")
+
+        return "\n".join(lines)
 
     def _format_notification_details(self, details: dict) -> str:
         """格式化通知步骤详情"""

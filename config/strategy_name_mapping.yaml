@@ -26,6 +26,7 @@ strategy_names:
   OversoldReboundStrategy: 超跌反弹策略
   LeaderStrategy: 龙头策略
   MainUptrendDipBuyStrategy: 主升低吸策略
+  NewStockDrawdownStrategy: 次新腰斩策略
 
 # 反向映射（中文名称到英文类名）
 # 自动生成，不需要手动维护
@@ -65,3 +66,7 @@ reverse_mapping:
   # 主升低吸策略
   主升低吸策略: MainUptrendDipBuyStrategy
   主升低吸: MainUptrendDipBuyStrategy
+  # 次新腰斩策略（上市半年内 + 自上市最高价跌幅≥50%）
+  次新腰斩策略: NewStockDrawdownStrategy
+  次新腰斩: NewStockDrawdownStrategy
+  new_stock_drawdown: NewStockDrawdownStrategy

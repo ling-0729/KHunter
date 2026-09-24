@@ -19,6 +19,7 @@
 
 import json as jmod
 import logging
+import os
 import re
 import threading
 import time as time_module
@@ -72,11 +73,54 @@ class FeishuCommander:
         self._token_expire = 0.0
         self._last_message_id = None
         self._running = False
+        # 【2026-09-18】已执行消息ID（落盘）：内存游标无法跨进程/跨重启去重，
+        #   双进程（旧服务未停 + 新服务）或执行抛错都会导致同一指令被执行两次。
+        #   采用"先记录再执行"（幂等），并持久化最近 N 条，供多进程互斥识别。
+        self._state_path = os.path.join('data', 'running', 'feishu_commander_state.json')
+        self._executed_ids = self._load_executed_ids()
         # 并发保护：避免同一耗时指令被重复触发并发执行（与轮询线程解耦）
         self._cmd_lock = threading.Lock()
         self._active_cmds = set()
         logger.info("FeishuCommander: enabled=%s, chat_id=%s, poll=%ds",
                      self.enabled, self.chat_id, self.poll_interval)
+
+    # ==================== 指令幂等（防重复执行）====================
+
+    def _load_executed_ids(self) -> list:
+        """加载已执行消息ID（失败不阻断，返回空列表）"""
+        try:
+            with open(self._state_path, 'r', encoding='utf-8') as f:
+                data = jmod.load(f)
+            ids = data.get('executed_ids') or []
+            logger.info("FeishuCommander: 载入已执行消息 %d 条（防重复执行）", len(ids))
+            return list(ids)
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            logger.warning("FeishuCommander: 载入已执行消息失败（忽略）: %s", e)
+            return []
+
+    def _save_executed_ids(self, keep: int = 200) -> None:
+        """持久化已执行消息ID（仅保留最近 keep 条）"""
+        try:
+            self._executed_ids = self._executed_ids[-keep:]
+            os.makedirs(os.path.dirname(self._state_path), exist_ok=True)
+            with open(self._state_path, 'w', encoding='utf-8') as f:
+                jmod.dump({'executed_ids': self._executed_ids,
+                           'updated_at': time_module.strftime('%Y-%m-%d %H:%M:%S')},
+                          f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("FeishuCommander: 保存已执行消息失败（忽略）: %s", e)
+
+    def _already_executed(self, msg_id: str) -> bool:
+        """该消息是否已执行过（跨进程/跨重启去重）"""
+        return bool(msg_id) and msg_id in self._executed_ids
+
+    def _mark_executed(self, msg_id: str) -> None:
+        """标记消息已执行（**执行前**调用：即使执行抛错也不会重复执行）"""
+        if msg_id and msg_id not in self._executed_ids:
+            self._executed_ids.append(msg_id)
+            self._save_executed_ids()
 
     def _get_tenant_access_token(self) -> Optional[str]:
         if self._token and time_module.time() < self._token_expire - 300:
@@ -157,6 +201,13 @@ class FeishuCommander:
             if not command:
                 continue
             chat_id = msg.get("chat_id", "")
+            # 【2026-09-18】幂等：同一消息只执行一次（跨进程/跨重启/执行异常都不重复）
+            if self._already_executed(msg_id):
+                logger.info("跳过重复指令（该消息已执行过）: msg %s cmd=%s", msg_id, command)
+                continue
+            # 先记录 + 推进游标，再执行：避免执行抛错导致下一轮重复执行同一条指令
+            self._mark_executed(msg_id)
+            self._last_message_id = msg_id
             logger.info("Command: %s (msg %s)", command, msg_id)
             self._execute_command(command, chat_id)
         if newest_id:

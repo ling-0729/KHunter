@@ -50,6 +50,51 @@ _signal_execution_lock = threading.Lock()
 # 股票池持久化文件路径
 POOL_PERSIST_FILE = "data/running/buy_candidate_pool.json"
 
+# 【2026-09-18】非股票品种（不得进入可买股票池；与 ETF 同口径）
+#   标准券/质押券：PTrade 反馈会带进持仓，若被"持仓回池"吸收会污染股票池
+NON_STOCK_KEYWORDS = ('标准券', '质押券')
+#   深市标准券代码段（如 131990）；沪市标准券（205xxx）以名称为准
+STANDARD_BOND_CODE_PREFIXES = ('131',)
+
+
+def is_non_stock_instrument(stock_code, stock_name=None) -> bool:
+    """是否为非股票品种（标准券/质押券等）
+
+    与 ETF 同口径：不纳入可买股票池。识别口径：
+      1. 名称含「标准券」或「质押券」；
+      2. 代码属于标准券代码段（深市 131/131xxx，沪市 205xxx 以名称兜底）。
+    """
+    name = str(stock_name or '')
+    if any(k in name for k in NON_STOCK_KEYWORDS):
+        return True
+    code = str(stock_code or '')
+    # 深市标准券 131xxx；沪市标准券 205xxx（PTrade 反馈常见形态）
+    return code.startswith(STANDARD_BOND_CODE_PREFIXES) or code.startswith('205')
+
+
+def filter_non_stock_pool(pool, where: str = '股票池') -> list:
+    """剔除股票池中的非股票品种（标准券/质押券），返回保留项列表
+
+    背景（2026-09-18）：PTrade 反馈若把标准券带进持仓 → "持仓回池"会污染股票池；
+    且**历史 buy_candidate_pool.json 中已残留的标准券**会在启动加载时被原样继承
+    （`_load_pool_from_file` 不做过滤），导致前端股票池一直能看到它。
+    因此加载与展示两处都需过滤，统一调用本函数。
+    """
+    kept, dropped = [], []
+    for item in (pool or []):
+        stock = item.get('stock', item) if isinstance(item, dict) else {}
+        stock = stock if isinstance(stock, dict) else {}
+        code = stock.get('stock_code')
+        name = stock.get('stock_name')
+        if is_non_stock_instrument(code, name):
+            dropped.append(f"{code} {name or ''}".strip())
+        else:
+            kept.append(item)
+    if dropped:
+        logger.info("【%s】剔除非股票品种 %d 只（标准券/质押券不参与股票池）: %s",
+                    where, len(dropped), ', '.join(dropped))
+    return kept
+
 
 def calculate_trading_cost(stock_code: str, price: float, quantity: int, is_buy: bool, config: dict) -> dict:
     """计算交易成本（佣金、印花税、过户费、滑点）
@@ -508,6 +553,10 @@ class StrategyRunner:
             last_date = data.get('last_date', '')
             
             logger.info(f"从文件加载股票池: {len(pool)} 只股票，上次运行日期: {last_date}")
+
+            # 【2026-09-18】历史文件可能残留标准券/质押券（ETF 同口径的非股票品种）→
+            #   启动加载时即剔除，避免前端股票池继续显示
+            pool = filter_non_stock_pool(pool, where='股票池加载')
             
             # 确保每个候选股票都有冷却状态标记（兼容旧版本文件）
             for item in pool:
@@ -628,6 +677,8 @@ class StrategyRunner:
         # 前端固定使用200天，此处 min_days 设为 200 以统一数据口径
         min_days = 200
         required_days = min_days
+        # 【2026-09-19】需全历史的策略：只对"需要的股票"取全历史（None = 全部活跃股）
+        full_history_codes = None
 
         if strategy_name:
             strategy = self.strategy_registry.get_strategy(strategy_name)
@@ -637,6 +688,7 @@ class StrategyRunner:
 
                 lookback_keys = [
                     'lookback_days', 'pattern_days', 'limit_up_lookback_days',
+                    'high_drawdown_days',  # 超跌反弹：收盘价 vs 近 N 日最高价的回撤窗口
                     'lowest_point_lookback_days', 'surge_lookback_days', 'uptrend_lookback_days'
                 ]
                 period_keys = ['ma_period', 'ma_short_period', 'ma_long_period', 'kdj_n',
@@ -651,8 +703,23 @@ class StrategyRunner:
                 # 取策略所需天数与前端统一天数(200)的较大值
                 required_days = max(min_days, max_value + 60)
 
+                # 【2026-09-19】策略级特殊处理：需要"上市以来全历史"的策略（如次新腰斩）
+                #   不受固定回溯天数截断（否则全局指标如"上市以来最高价"会失真）
+                if getattr(strategy, 'requires_full_history', False):
+                    required_days = 36500       # 100 年 ⇒ 等价于不截断（取全历史）
+                    # 只对"需要的股票"取全历史（以当前选股日为界，无未来函数）
+                    if hasattr(strategy, 'full_history_universe'):
+                        full_history_codes = strategy.full_history_universe(
+                            self.db_manager, current_date, params)
+                    logger.info(f"策略 {strategy_name} 声明 requires_full_history=True，"
+                                f"执行选股预加载改为全历史（仅限 %s 只需要的股票）",
+                                len(full_history_codes) if full_history_codes else '全部')
+
         # 扩展开始日期
         extended_start = (current_dt - timedelta(days=required_days)).strftime('%Y-%m-%d')
+        if required_days >= 36500:
+            # 需全历史的策略（requires_full_history）→ 从库内最早数据起取
+            extended_start = '1990-01-01'
         logger.info(f"预加载股票数据: {extended_start} ~ {current_date} (历史: {required_days}天)")
 
         # 第1步：一次SQL获取选股日有K线的活跃股票（退市/停牌自动排除）
@@ -676,8 +743,15 @@ class StrategyRunner:
 
         # 第2步：一次SQL批量加载活跃股票K线（仅限定日期范围）
         step2_start = datetime.now()
+        if full_history_codes is not None:
+            # 需全历史的策略：活跃股 ∩ 需要的股票（大幅收窄数据量）
+            _codes = sorted(set(active_codes) & set(full_history_codes))
+            logger.info(f"【预加载】全历史策略：活跃股 %d 只 ∩ 需要全历史 %d 只 = %d 只",
+                        len(active_codes), len(full_history_codes), len(_codes))
+        else:
+            _codes = active_codes
         all_kline_df = self.db_manager.read_all_stocks_kline(
-            extended_start, current_date, codes=active_codes
+            extended_start, current_date, codes=_codes
         )
         step2_time = (datetime.now() - step2_start).total_seconds()
 
@@ -975,6 +1049,11 @@ class StrategyRunner:
         Returns:
             int: 新增入池数量
         """
+        # 【2026-09-24】持仓回池**明细**载体 ✓（供飞书简报"股票池变动"一节使用）
+        #   每次调用都重置 ✓ —— 避免上游未启用（enabled=False）时残留上一次的明细 ✗
+        added_items = []
+        self.last_holdings_pool_added_items = added_items
+
         if not enabled:
             return 0
 
@@ -992,6 +1071,13 @@ class StrategyRunner:
                           for c in self.buy_candidate_pool}
             for pos in items:
                 code = pos.get('stock_code')
+                # 【2026-09-18】标准券/质押券等非股票品种不得回池（同 ETF 口径）：
+                #   否则会被当作可买候选，出现在股票池/选股结果里
+                _name = str(pos.get('stock_name') or '')
+                if is_non_stock_instrument(code, _name):
+                    logger.info(f"【持仓入池】跳过非股票品种 {code} {_name}"
+                                f"（标准券/质押券不参与可买股票池）")
+                    continue
                 if (not code or code in pool_codes
                         or code in (today_sold_stocks or set())):
                     continue
@@ -1020,6 +1106,14 @@ class StrategyRunner:
                 })
                 pool_codes.add(code)
                 added += 1
+                added_items.append({
+                    'code': code,
+                    'name': pos.get('stock_name', '') or '',
+                    'source': 'holding',          # 来源：持仓股回池（区别于选股入池 ✓）
+                    'strategy': strategy_name,
+                    'support_level': sup,
+                    'support_method': sup_method,
+                })
 
             if added:
                 logger.info(f"【持仓入池】新增 {added} 只持仓股到股票池（当日卖出不计），"
@@ -1278,10 +1372,19 @@ class StrategyRunner:
                     fund_flow_reason = f'持有{hold_days}天<{fund_flow_min_hold_days}天，跳过检查'
             
             if should_remove:
+                # 【2026-09-24】把移除**原因/日期/收盘价/持有天数**挂到候选上 ✓
+                #   原实现原因只写日志 ✗ → 简报与日报无法给出"移除整体情况 + 明细" ✗。
+                #   安全说明：该候选随后即被移出 `buy_candidate_pool` ✓（下方 `self.buy_candidate_pool = remaining`），
+                #   不会污染池数据、也不会被 `_save_pool_to_file` 持久化 ✓
+                _reason_txt = '; '.join(removal_reasons)
+                candidate['removed_reason'] = _reason_txt
+                candidate['removed_date'] = current_date
+                candidate['removed_price'] = round(float(price_for_check), 2)
+                candidate['removed_hold_days'] = hold_days
                 removed.append(candidate)
                 logger.info(f"【移除】{current_date} {stock_code} {stock_name}: "
                            f"收盘={price_for_check:.2f}, 策略={strategy_name}, 持{hold_days}日, "
-                           f"原因: {'; '.join(removal_reasons)}")
+                           f"原因: {_reason_txt}")
             else:
                 remaining.append(candidate)
                 # 记录保留原因（用于调试）
@@ -3703,6 +3806,51 @@ class StrategyRunner:
             else:
                 report_lines.append("暂无候选股票")
             report_lines.append("")
+
+            # 【2026-09-24】股票池变动明细（原因分布 + 新增/移除逐条 ✓）
+            #   数据源：record['pool_summary']（由 run_strategies_batch 写入 ✓，
+            #   与飞书简报**同一份数据、同一套归类** ✓）
+            pool_summary = record.get('pool_summary', {}) or {}
+            added_items = pool_summary.get('added_items', []) or []
+            removed_items = pool_summary.get('removed_items', []) or []
+            if added_items or removed_items:
+                from trading.pool_entry_rules import summarize_pool_removal_reasons
+                report_lines.append("### 🔄 股票池变动明细")
+                report_lines.append("")
+                if removed_items:
+                    counts = summarize_pool_removal_reasons(
+                        [it.get('reason', '') for it in removed_items])
+                    if counts:
+                        dist = "、".join(f"{k} {v} 只" for k, v in
+                                         sorted(counts.items(), key=lambda kv: -kv[1]))
+                        report_lines.append(f"- **移除原因分布**: {dist}")
+                        report_lines.append("")
+                if added_items:
+                    report_lines.append(f"**新增明细（{len(added_items)} 只）**")
+                    report_lines.append("")
+                    report_lines.append("| 股票代码 | 股票名称 | 来源 | 策略 | 支撑位 |")
+                    report_lines.append("|----------|----------|------|------|--------|")
+                    for it in added_items:
+                        src = '持仓回池' if it.get('source') == 'holding' else '选股'
+                        report_lines.append(
+                            f"| {it.get('code', '')} | {it.get('name', '')} | {src} | "
+                            f"{self._get_strategy_name(it.get('strategy', ''))} | "
+                            f"{it.get('support_level', 0)} |")
+                    report_lines.append("")
+                if removed_items:
+                    report_lines.append(f"**移除明细（{len(removed_items)} 只）**")
+                    report_lines.append("")
+                    report_lines.append("| 股票代码 | 股票名称 | 持有天数 | 收盘价 | 移除原因 |")
+                    report_lines.append("|----------|----------|----------|--------|----------|")
+                    for it in removed_items:
+                        hold = it.get('hold_days')
+                        price = it.get('price')
+                        report_lines.append(
+                            f"| {it.get('code', '')} | {it.get('name', '')} | "
+                            f"{hold if hold is not None else '-'} | "
+                            f"{f'¥{price:.2f}' if price else '-'} | "
+                            f"{it.get('reason', '') or '—'} |")
+                    report_lines.append("")
             
             # 交易信号
             buy_signals = record.get('buy_signals', [])
@@ -3789,7 +3937,23 @@ class StrategyRunner:
             logger.error(f"生成每日报告失败: {str(e)}")
     
     def _get_strategy_name(self, strategy_class_name: str) -> str:
-        """将策略类名转换为中文名称"""
+        """将策略类名转换为中文名称
+
+        【2026-09-24】优先走**统一映射表**（`utils.strategy_name_mapper.get_chinese_name` ✓）
+          —— 原实现是**本方法内的一份硬编码字典** ✗（且键几乎只有全类名 ✗），
+             传入短名（如 `GoldenTriangle` ✗）时原样返回英文 ✗，
+             与 `config/strategy_name_mapping.yaml` 形成**两份口径** ✗，
+             导致本地日报/简报里策略名显示英文 ✗。
+          现：统一映射优先 ✓（支持短名 / 全类名 / 蛇形名归一化 ✓），
+              下方本地字典仅作**兜底** ✓（保留历史条目，避免既有显示回退 ✓）。
+        """
+        try:
+            from utils.strategy_name_mapper import get_chinese_name
+            _cn = get_chinese_name(strategy_class_name)
+            if _cn and _cn != strategy_class_name:
+                return _cn
+        except Exception:
+            pass
         name_mapping = {
             'ImmortalGuidanceStrategy': '仙人指路策略',
             'LimitUpSidewaysStrategy': '涨停横盘策略',
@@ -3799,6 +3963,7 @@ class StrategyRunner:
             'BottomTrendReversalStrategy': '底部趋势拐点策略',
             'ResistanceBreakoutStrategy': '阻力位突破策略',
             'MainUptrendDipBuyStrategy': '主升低吸策略',
+            'NewStockDrawdownStrategy': '次新腰斩策略',
             'MultiPartyCannonStrategy': '多方炮策略',
             'MorningStarStrategy': '启明星策略',
             'TrendStartStrategy': '趋势起点策略',
@@ -4911,6 +5076,17 @@ class StrategyRunner:
             logger.info(f"开始检查股票池移除条件，当前股票池数量: {len(self.buy_candidate_pool)}")
             removed = self._check_pool_removal(working_date)
             removed_count = len(removed) if removed else 0
+            # 【2026-09-24】移除**明细**（代码/名称/策略/原因/日期/持有天数/收盘价）✓
+            #   供飞书简报与本地日报共用同一份数据 ✓（原实现仅计数 ✗、原因只在日志 ✗）
+            removed_items = [{
+                'code': c.get('stock', {}).get('stock_code', ''),
+                'name': c.get('stock', {}).get('stock_name', ''),
+                'strategy': c.get('strategy_name', ''),
+                'reason': c.get('removed_reason', ''),
+                'date': str(c.get('removed_date', working_date))[:10],
+                'hold_days': c.get('removed_hold_days'),
+                'price': c.get('removed_price'),
+            } for c in (removed or [])]
             if removed:
                 logger.info(f"股票池移除 {removed_count} 只股票，剩余: {len(self.buy_candidate_pool)} 只")
             else:
@@ -4937,6 +5113,7 @@ class StrategyRunner:
             
             # 初始化计数器（removed_count已在前面计算，这里只初始化added_count）
             added_count = 0
+            added_items = []             # 【2026-09-24】新增明细（选股入池 + 持仓回池 ✓）
             selection_strategy = ''      # 循环内被覆盖；循环外（持仓入池）兜底使用
             
             # 顺序执行每个策略任务
@@ -4983,6 +5160,7 @@ class StrategyRunner:
                     
                     # 将选出的股票加入股票池
                     new_added = 0
+                    new_added_items = []      # 【2026-09-24】本策略本次新增明细 ✓
                     for stock in candidate_stocks:
                         exists = any(item['stock']['stock_code'] == stock['stock_code'] for item in self.buy_candidate_pool)
                         if not exists:
@@ -5006,12 +5184,22 @@ class StrategyRunner:
                                 'support_method': support_method
                             })
                             new_added += 1
-                    
+                            new_added_items.append({
+                                'code': stock.get('stock_code', ''),
+                                'name': stock.get('stock_name', ''),
+                                'source': 'selection',    # 来源：选股入池 ✓
+                                'strategy': selection_strategy,
+                                'support_level': support_level,
+                                'support_method': support_method,
+                            })
+
+                    added_items.extend(new_added_items)
                     task_results.append({
                         'selection_strategy': selection_strategy,
                         'timing_strategy': timing_strategy,
                         'selected_count': len(candidate_stocks),
                         'new_added': new_added,
+                        'new_added_items': new_added_items,   # 【2026-09-24】分策略明细 ✓
                         'pool_count': len(self.buy_candidate_pool),
                         'status': 'success'
                     })
@@ -5034,6 +5222,8 @@ class StrategyRunner:
             #      与候选池一致；当日已产生卖出信号的股票不再入池。
             from trading.pool_entry_rules import resolve_auto_add_holdings
 
+            # 【2026-09-24】先清空明细载体 ✓（未启用回池时不会残留上一轮结果 ✗）
+            self.last_holdings_pool_added_items = []
             if resolve_auto_add_holdings(config, self._load_engine_config()):
                 _sold_codes = {s.get('stock_code') for s in (sell_signals or [])
                                if s.get('stock_code')}
@@ -5041,6 +5231,8 @@ class StrategyRunner:
                     self.portfolio or {}, working_date, _sold_codes, selection_strategy)
                 if _n_hold:
                     logger.info(f"【持仓入池】{_n_hold} 只持仓股已回到候选池（当日卖出不计）")
+                # 【2026-09-24】把"持仓回池"明细并入新增明细 ✓
+                added_items.extend(getattr(self, 'last_holdings_pool_added_items', []) or [])
 
             # ========== 所有策略执行完成后，统一保存文件 ==========
             
@@ -5067,7 +5259,12 @@ class StrategyRunner:
                 "pool_summary": {
                     "stock_count": len(self.buy_candidate_pool),
                     "removed_count": removed_count if 'removed_count' in locals() and removed_count is not None else 0,
-                    "added_count": added_count if 'added_count' in locals() and added_count is not None else 0
+                    "added_count": added_count if 'added_count' in locals() and added_count is not None else 0,
+                    # 【2026-09-24】整体情况 + **明细** ✓（飞书简报与本地日报共用同一份 ✓）
+                    "added_items": added_items,
+                    "removed_items": removed_items,
+                    "added_selection_count": added_count,
+                    "added_holding_count": len(added_items) - added_count,
                 },
                 "pool_stocks": [
                     {
@@ -5128,6 +5325,12 @@ class StrategyRunner:
                     "run_date": working_date,
                     "is_first_run": is_first_run,
                     "pool_count": len(self.buy_candidate_pool),
+                    # 【2026-09-24】股票池增删（**整体 + 明细**）→ 经 pipeline details 透传给飞书简报 ✓
+                    "pool_added_items": added_items,
+                    "pool_removed_items": removed_items,
+                    "pool_added_selection_count": added_count,
+                    "pool_added_holding_count": len(added_items) - added_count,
+                    "pool_removed_count": removed_count,
                     "total_signals": len(signals),
                     "buy_signals": len(buy_signals),
                     "sell_signals": len(sell_signals),

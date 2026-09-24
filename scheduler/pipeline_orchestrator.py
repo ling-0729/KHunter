@@ -464,21 +464,20 @@ class PipelineOrchestrator:
             # 3. 海龟类策略（海龟/低位海龟/海龟plus）参数注入：按策略名写入 timing_params，
             #    与 web_server 批量执行、回测、运行器同一口径（build_turtle_family_params 合并）。
             #    2026-09-16 修复：原实现只认 'turtle' 且写顶层键 → 海龟plus 回退默认预设。
-            from trading.timing_strategies import TURTLE_FAMILY_STRATEGIES
+            # 【2026-09-23 合并】海龟类参数统一走**唯一读取入口** ✓（yaml 只保留一个配置块）
+            from trading.timing_strategies import (
+                TURTLE_FAMILY_STRATEGIES, load_turtle_family_params)
             _timing_names = {str(t.get('timing_strategy') or '') for t in tasks}
             _turtle_tasks = [n for n in TURTLE_FAMILY_STRATEGIES if n in _timing_names]
             if _turtle_tasks:
                 try:
                     from utils.strategy_config_manager import StrategyConfigManager
                     config_manager = StrategyConfigManager()
-                    _blocks = {'turtle': 'TurtleStrategy', 'low_turtle': 'TurtleStrategy',
-                               'turtle_plus': 'TurtlePlusStrategy'}
                     _timing_params = dict(run_config.get('timing_params') or {})
                     for _name in _turtle_tasks:
-                        _params = config_manager.get_strategy_config(
-                            _blocks.get(_name, 'TurtleStrategy')).get('params', {}) or {}
+                        _params = load_turtle_family_params(_name, config_manager)
                         _timing_params[_name] = {**_params, **(_timing_params.get(_name) or {})}
-                        logger.info("  从配置文件读取%s策略参数: %s", _name, _params)
+                        logger.info("  海龟类参数（%s）: %s", _name, _params)
                     run_config['timing_params'] = _timing_params
                     # 单一海龟类策略时同时写顶层键（运行器/引擎优先读顶层配置）
                     if len(_turtle_tasks) == 1:
@@ -516,6 +515,16 @@ class PipelineOrchestrator:
                     details["sell_signals"] = data.get("sell_signals", 0)
                     details["signals_generated"] = data.get("total_signals", 0)
                     details["signal_file"] = data.get("ptrade_csv_file", "")
+
+                    # 【2026-09-24】股票池增删（整体 + 明细）→ 透传给飞书简报 ✓
+                    #   数据源：StrategyRunner.run_strategies_batch 返回的 data ✓
+                    #   （池内合计 + 新增明细/移除明细 + 选股/持仓回池分项计数 ✓）
+                    details["pool_count"] = data.get("pool_count", 0)
+                    details["pool_added_items"] = data.get("pool_added_items", []) or []
+                    details["pool_removed_items"] = data.get("pool_removed_items", []) or []
+                    details["pool_added_selection_count"] = data.get("pool_added_selection_count", 0)
+                    details["pool_added_holding_count"] = data.get("pool_added_holding_count", 0)
+                    details["pool_removed_count"] = data.get("pool_removed_count", 0)
 
                     # ===== 获取资金信息 =====
                     sr = self.strategy_runner
