@@ -328,6 +328,9 @@ export async function showTemperatureTrend() {
     }
 }
 
+// 【2026-09-20】上次趋势数据缓存：窗口尺寸变化 / 重新打开弹窗时重绘
+let lastTempTrend = null;
+
 /**
  * 渲染温度趋势图表
  * @param {Array} trend - 趋势数据
@@ -336,9 +339,15 @@ function renderTempTrendChart(trend) {
     const canvas = document.getElementById('temp-trend-chart');
     if (!canvas) return;
     
-    // 使用简单的Canvas绑制
+    // 使用简单的Canvas绘制
+    lastTempTrend = trend;
     const ctx = canvas.getContext('2d');
-    const width = canvas.width = canvas.parentElement.clientWidth;
+    // 【2026-09-20】修复空白图：容器未完成布局时 clientWidth 为 0 → 画布宽度 0 → 空白。
+    //   ① 给兜底宽度；② 画布用 CSS 100% 宽承载显示尺寸，避免"画布撑大父容器"的循环
+    const measured = (canvas.parentElement && canvas.parentElement.clientWidth) || 0;
+    canvas.style.width = '100%';
+    canvas.style.height = '280px';
+    const width = canvas.width = (measured > 0 ? measured : 600);
     const height = canvas.height = 280;
     
     // 清除画布
@@ -589,3 +598,14 @@ export async function recalculateTemperature() {
 window.closeModal = closeModal;
 window.showTemperatureTrend = showTemperatureTrend;
 window.recalculateTemperature = recalculateTemperature;
+
+// 【2026-09-20】窗口尺寸变化时重绘手绘趋势图（原实现只在打开时绘一次 → 缩放后变形/空白）
+window.addEventListener('resize', function () {
+    if (lastTempTrend && document.getElementById('temp-trend-chart')) {
+        try {
+            renderTempTrendChart(lastTempTrend);
+        } catch (e) {
+            console.warn('[市场温度] 尺寸变化重绘失败', e);
+        }
+    }
+});

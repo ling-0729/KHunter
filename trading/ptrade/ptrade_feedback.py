@@ -134,6 +134,8 @@ class PTradeFeedbackHandler:
         self.running_dir = os.path.join(project_root, DEFAULT_RUNNING_DIR)
         # ETF 持仓市值累积（read_holdings 跳过 ETF 时暂存，供 build_portfolio 使用）
         self._etf_market_value = 0.0
+        # 其它非股票持仓市值累积（标准券/质押券等，2026-09-18：与 ETF 同样不纳入股票持仓）
+        self._other_market_value = 0.0
         # 初始资金（来自 trading.initial_capital 或默认值）
         trading_cfg = config.get('trading', {}) if config else {}
         self.initial_capital = float(trading_cfg.get(
@@ -313,6 +315,7 @@ class PTradeFeedbackHandler:
         col_map = {h.strip(): i for i, h in enumerate(headers)}
         holdings = []
         self._etf_market_value = 0.0  # 重置 ETF 市值累积值
+        self._other_market_value = 0.0  # 重置其它非股票持仓（标准券等）市值累积值
 
         def _safe_str(row, idx):
             if idx < len(row):
@@ -360,6 +363,23 @@ class PTradeFeedbackHandler:
             profit_loss = _safe_float(row, col_map.get("盈亏金额", 8), "盈亏金额")
             cost_price = _safe_float(row, col_map.get("成本价", 13), "成本价")
             market_value = _safe_float(row, col_map.get("证券市值", 14), "证券市值")
+
+            # 【2026-09-18】持仓数量为 0（已清仓、仅留痕迹行）→ 不计入持仓列表
+            #   否则前端会显示"持仓 0 / 现价 0 / -100%"的无效行
+            if quantity <= 0:
+                logger.info(f"PTrade 反馈: 跳过持仓为 0 的 {stock_code_raw} {stock_name}"
+                            f"（不纳入 KHunter 持仓）")
+                continue
+
+            # 【2026-09-18】标准券（质押券）不是股票 → 与 ETF 同样处理：
+            #   不纳入 KHunter 持仓列表；其市值单独累积，避免被误当成可用股票资产
+            #   识别口径：证券名称含"标准券"，或证券类别为 z/Z（PTrade 质押券标记）
+            _sec_category = _safe_str(row, col_map.get("证券类别", 17))
+            if '标准券' in stock_name or _sec_category in ('z', 'Z'):
+                self._other_market_value += market_value or 0.0
+                logger.info(f"PTrade 反馈: 跳过标准券 {stock_code_raw} {stock_name} "
+                            f"市值={market_value}，不纳入 KHunter 持仓（同 ETF 口径）")
+                continue
             # 推导 suffix 并构造完整代码
             suffix = self._get_stock_suffix(trade_category, stock_code_raw)
             stock_code = f"{stock_code_raw}{suffix}"

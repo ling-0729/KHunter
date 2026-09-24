@@ -5,6 +5,61 @@
 // 全局变量
 let riskChart = null;
 let temperatureChart = null;
+// 【2026-09-20】温度趋势数据缓存：弹窗打开时用它重绘。
+//   首次渲染发生在页面加载阶段，此时 #temperature-modal 还是 display:none
+//   → 容器尺寸为 0 → 图表会渲染成空白（与 ADX 弹窗同类问题）
+let temperatureTrendData = null;
+// 【2026-09-20】风险趋势数据缓存（同一问题：弹窗隐藏时首绘 → 0 尺寸 → 空白）
+let riskTrendData = null;
+
+/* 【2026-09-20】Chart.js 兜底加载器（自愈）
+ * 背景：模板中 Chart.js 若未生效（旧缓存 HTML / 未重启服务 / CDN 被阻断），
+ *      页面所有图表都会空白。此处在"需要画图"时按需加载**本地内置副本**
+ *      /static/js/lib/chart.umd.min.js，加载完成后自动重绘 → 无需重启即可自愈。
+ * 用法：_ensureChartJs(成功回调, 失败回调)
+ */
+function _ensureChartJs(onReady, onFail) {
+    if (window.Chart) { if (onReady) onReady(); return; }
+    if (window.__chartJsState === 'loading') {          // 已在加载 → 稍后重试
+        setTimeout(function () { _ensureChartJs(onReady, onFail); }, 120);
+        return;
+    }
+    if (window.__chartJsState === 'failed') {           // 已知失败 → 不再重复请求
+        if (onFail) onFail();
+        return;
+    }
+    window.__chartJsState = 'loading';
+    const s = document.createElement('script');
+    s.src = '/static/js/lib/chart.umd.min.js';
+    s.onload = function () {
+        if (window.Chart) {
+            window.__chartJsState = 'ok';
+            console.log('[图表] 已按需加载本地 Chart.js ✓');
+            if (onReady) onReady();
+        } else {
+            window.__chartJsState = 'failed';
+            if (onFail) onFail();
+        }
+    };
+    s.onerror = function () {
+        window.__chartJsState = 'failed';
+        console.warn('[图表] 本地 Chart.js 加载失败：/static/js/lib/chart.umd.min.js');
+        if (onFail) onFail();
+    };
+    document.head.appendChild(s);
+}
+window.ensureChartJs = _ensureChartJs;    // 供 ES 模块（backtest 等）复用
+
+/** 在图表容器内显示"缺库"提示（同一容器只插一次） */
+function _showChartHint(canvas, hintId, text) {
+    const box = canvas && canvas.parentElement;
+    if (!box || document.getElementById(hintId)) return;
+    const hint = document.createElement('div');
+    hint.id = hintId;
+    hint.style.cssText = 'color:#b45309;font-size:12px;padding:8px 0;';
+    hint.textContent = text || '⚠️ 图表库（Chart.js）未加载，趋势曲线暂不可用';
+    box.appendChild(hint);
+}
 
 /**
  * 初始化统计数据
@@ -52,12 +107,54 @@ async function loadRiskHistory(days = 30) {
         const response = await fetch(`/api/risk/history?days=${days}`);
         const result = await response.json();
         
-        if (result.success && result.data) {
-            renderRiskTrendChart(result.data);
+        let hist = (result.success && result.data) ? result.data : [];
+        // 【2026-09-20】自愈兜底：若 /api/risk/history 只回 1 条（旧进程仍只读内存 ✗），
+        //   改用**单日接口** /api/risk/status?date= 逐日补齐（该接口读库 ✓、无需重启 ✓）。
+        //   重启服务后主路径即恢复正常 ✓，本兜底自动不再触发 ✓。
+        if (hist.length <= 2) {
+            const filled = await _backfillRiskHistory(days);
+            if (filled.length > hist.length) {
+                console.log('[风控] 已兜底补齐历史 ' + filled.length + ' 天（接口仅返回 ' + hist.length + ' 条）');
+                hist = filled;
+            }
         }
+        renderRiskTrendChart(hist);
     } catch (error) {
         console.error('加载风控历史失败:', error);
     }
+}
+
+/**
+ * 【2026-09-20】兜底补齐风控历史（免重启自愈）
+ *   逐日调用 /api/risk/status?date=YYYY-MM-DD（该接口优先读库 ✓），
+ *   组装成与 /api/risk/history 相同结构的数组（含 date/var_1d/var_5d）。
+ *   仅取工作日（周末无数据），最多 days 条。
+ */
+async function _backfillRiskHistory(days) {
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    const ymd = function (d) {
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    };
+    const today = new Date();
+    const dates = [];
+    for (let i = 0; i < days * 2 && dates.length < days; i++) {
+        const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+        const wd = d.getDay();
+        if (wd === 0 || wd === 6) continue;          // 跳过周末
+        dates.push(ymd(d));
+    }
+    dates.reverse();                                  // 升序（与折线一致）
+    const res = await Promise.all(dates.map(async function (dt) {
+        try {
+            const r = await fetch('/api/risk/status?date=' + dt);
+            const j = await r.json();
+            return (j && j.success && j.data
+                && j.data.var_1d !== null && j.data.var_1d !== undefined) ? j.data : null;
+        } catch (e) {
+            return null;
+        }
+    }));
+    return res.filter(function (x) { return x; });
 }
 
 /**
@@ -128,17 +225,32 @@ function renderRiskTrendChart(data) {
     const canvas = document.getElementById('risk-trend-chart');
     if (!canvas || !data.length) return;
     
+    riskTrendData = data;        // 【2026-09-20】缓存，供弹窗打开时重绘
+
     // 销毁旧图表
     if (riskChart) {
         riskChart.destroy();
+        riskChart = null;
     }
+
+    // 【2026-09-20】缺库 → 按需加载本地 Chart.js 后自动重绘（自愈）；失败才提示
+    if (!window.Chart) {
+        _ensureChartJs(
+            function () { renderRiskTrendChart(riskTrendData || data); },
+            function () { _showChartHint(canvas, 'risk-chart-hint'); }
+        );
+        return;
+    }
+    const _oldRiskHint = document.getElementById('risk-chart-hint');
+    if (_oldRiskHint) _oldRiskHint.remove();
     
     const labels = data.map(item => item.date);
     const var1dData = data.map(item => (item.var_1d * 100).toFixed(2));
     const var5dData = data.map(item => (item.var_5d * 100).toFixed(2));
     
     const ctx = canvas.getContext('2d');
-    riskChart = new Chart(ctx, {
+    // 【2026-09-20】改用 window.Chart（与其它图表统一）
+    riskChart = new window.Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
@@ -448,16 +560,31 @@ function renderTemperatureTrendChart(data) {
     
     if (!trendData.length) return;
     
+    temperatureTrendData = data;        // 【2026-09-20】缓存，供弹窗打开时重绘
+
     // 销毁旧图表
     if (temperatureChart) {
         temperatureChart.destroy();
+        temperatureChart = null;
     }
+
+    // 【2026-09-20】缺库 → 先按需加载本地 Chart.js 并自动重绘（自愈）；真正失败才提示
+    if (!window.Chart) {
+        _ensureChartJs(
+            function () { renderTemperatureTrendChart(temperatureTrendData || data); },
+            function () { _showChartHint(canvas, 'temperature-chart-hint'); }
+        );
+        return;
+    }
+    const _oldTempHint = document.getElementById('temperature-chart-hint');
+    if (_oldTempHint) _oldTempHint.remove();
     
     const labels = trendData.map(item => item.trade_date);
     const tempData = trendData.map(item => item.temperature);
     
     const ctx = canvas.getContext('2d');
-    temperatureChart = new Chart(ctx, {
+    // 【2026-09-20】改用 window.Chart：经典脚本+ES 模块混用时更稳妥
+    temperatureChart = new window.Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
@@ -508,6 +635,10 @@ function openRiskModal() {
     const modal = document.getElementById('risk-modal');
     if (modal) {
         modal.classList.add('show');
+        // 【2026-09-20】弹窗显示后按真实尺寸重绘（首绘在隐藏状态下会发生 0 尺寸 → 空白）
+        if (riskTrendData) {
+            renderRiskTrendChart(riskTrendData);
+        }
     }
 }
 
@@ -528,6 +659,11 @@ function openTemperatureModal() {
     const modal = document.getElementById('temperature-modal');
     if (modal) {
         modal.classList.add('show');
+        // 【2026-09-20】用缓存数据重绘一次：首绘发生在弹窗隐藏时（容器 0 尺寸 → 空白），
+        //   弹窗显示后按真实尺寸重绘即正常。
+        if (temperatureTrendData) {
+            renderTemperatureTrendChart(temperatureTrendData);
+        }
     }
 }
 
@@ -539,6 +675,343 @@ function closeTemperatureModal() {
     if (modal) {
         modal.classList.remove('show');
     }
+}
+
+/* ==================== 市场速览 · ADX（2026-09-20 新增）====================
+ * 在"市场温度"卡片温度值后展示**全A指数 ADX**，点击下钻「近一个月 ADX 详情」。
+ * 数据来源：GET /api/market-index-adx/trend?days=30（market_index_adx 表，每日落库）
+ * 设计：徽章与弹窗均由本段自注入 DOM → 无需改动 index.html。
+ */
+let marketAdxChart = null;
+let marketAdxData = null;
+
+function _marketAdxColor(strength) {
+    const s = strength || '';
+    if (s.indexOf('强趋势') >= 0) return '#dc2626';
+    if (s.indexOf('趋势明确') >= 0) return '#f59e0b';
+    if (s.indexOf('萌芽') >= 0) return '#0ea5e9';
+    return '#64748b';
+}
+
+/**
+ * 渲染「市场ADX」**独立卡片**（2026-09-20 调整）
+ *   原先把 ADX 徽章塞进"市场温度"卡片内部 → 文字被挤压换行，观感差；
+ *   现改为与其它概览卡同款（.stat-card）的独立卡片，位置紧邻"市场温度"，点击下钻详情。
+ *   （函数名保留 _renderMarketAdxBadge 以兼容调用点，实际渲染卡片）
+ */
+function _renderMarketAdxBadge(data) {
+    if (!data || data.latest_adx === null || data.latest_adx === undefined) return;
+    const tempEl = document.getElementById('stat-temperature');
+    if (!tempEl || !tempEl.parentNode) return;
+
+    const trend = data.trend || [];
+    const last = trend.length ? trend[trend.length - 1] : {};
+    const st = data.latest_strength || '';
+    const dir = last.trend_direction || '';
+    const chg = (last.adx_change === null || last.adx_change === undefined)
+        ? null : Number(last.adx_change);
+    const color = _marketAdxColor(st);
+
+    let card = document.getElementById('stat-adx-card');
+    if (!card) {
+        // ⚠️ 修正（2026-09-20）：#stat-temperature 是**温度卡片内部的 <h3>**，
+        //   若插成它的兄弟会嵌进温度卡内部导致重叠错乱 → 必须挂到**网格容器**上，
+        //   并紧邻"市场温度**卡片**"（.stat-card）插入。
+        const tempCard = tempEl.closest ? tempEl.closest('.stat-card') : null;
+        const grid = (tempCard && tempCard.parentNode) ? tempCard.parentNode : tempEl.parentNode;
+        card = document.createElement('div');
+        card.id = 'stat-adx-card';
+        card.className = 'stat-card';                       // 与其它概览卡片同款样式
+        card.style.cssText = 'cursor:pointer;';
+        card.title = '点击查看近一个月 ADX 详情';
+        card.onclick = function (e) {
+            if (e && e.stopPropagation) e.stopPropagation();
+            openMarketAdxModal();
+        };
+        if (tempCard && grid && tempCard.parentNode === grid) {
+            grid.insertBefore(card, tempCard.nextSibling);   // 网格中紧邻温度卡
+        } else if (grid) {
+            grid.appendChild(card);                          // 兜底：追加到网格末尾
+        }
+    }
+
+    const chgTxt = chg === null ? '' : (chg >= 0 ? '↑ ' + chg.toFixed(2) : '↓ ' + Math.abs(chg).toFixed(2));
+    card.innerHTML =
+        '<div style="display:flex;align-items:center;gap:12px;">' +
+        '  <span style="font-size:30px;line-height:1;">📈</span>' +
+        '  <div style="min-width:0;">' +
+        '    <h3 style="margin:0;font-size:30px;font-weight:700;line-height:1.15;color:' + color + ';">'
+        + Number(data.latest_adx).toFixed(1) + '</h3>' +
+        '    <div style="font-size:13px;color:#64748b;margin-top:2px;">市场ADX(14)'
+        + (chgTxt ? ' · ' + chgTxt : '') + '</div>' +
+        '    <div style="font-size:12px;color:#64748b;margin-top:2px;white-space:nowrap;">' +
+        '      <span style="color:' + color + ';font-weight:600;">' + (st || '-') + '</span>' +
+        (dir ? ' · ' + dir : '') +
+        '      <span style="margin-left:6px;color:#94a3b8;">▸详情</span>' +
+        '    </div>' +
+        '  </div>' +
+        '</div>';
+}
+
+let marketAdxDays = 30;          // 详情区间（交易日）：30=近1月 / 60=近3月 / 120=近半年
+
+async function _loadMarketAdx(days) {
+    try {
+        if (days) marketAdxDays = Number(days);
+        const resp = await fetch('/api/market-index-adx/trend?days=' + marketAdxDays);
+        const json = await resp.json();
+        if (!json || !json.success) return false;
+        marketAdxData = json.data || null;
+        _renderMarketAdxBadge(marketAdxData);
+        const modal = document.getElementById('market-adx-modal');
+        if (modal && modal.classList.contains('show')) _renderMarketAdxChart();
+        return true;
+    } catch (e) {
+        console.warn('[市场速览] ADX 数据获取失败', e);
+        return false;
+    }
+}
+
+function _syncMarketAdxRangeButtons() {
+    document.querySelectorAll('#market-adx-range button').forEach(function (b) {
+        const on = Number(b.getAttribute('data-days')) === Number(marketAdxDays);
+        b.style.background = on ? '#2563eb' : '#f1f5f9';
+        b.style.color = on ? '#ffffff' : '#475569';
+    });
+}
+
+async function switchMarketAdxRange(days) {
+    await _loadMarketAdx(days);
+    _syncMarketAdxRangeButtons();
+}
+
+async function loadMarketIndexAdx() { await _loadMarketAdx(marketAdxDays); }
+
+// 事件委托兜底：卡片可能被重渲染（onclick 属性丢失）→ 用 document 级委托保证点击必定生效
+document.addEventListener('click', function (ev) {
+    const t = ev.target;
+    if (t && t.closest && t.closest('#stat-adx-card')) {
+        if (ev.stopPropagation) ev.stopPropagation();
+        openMarketAdxModal();
+    }
+}, true);
+
+function _ensureMarketAdxModal() {
+    let modal = document.getElementById('market-adx-modal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'market-adx-modal';
+    modal.className = 'modal-overlay';   // ⚠️ 必须与既有弹窗(#temperature-modal)一致，否则遮罩样式不生效→弹窗不可见
+    modal.innerHTML =
+        '<div class="modal-content modal-lg">' +
+        '  <div class="modal-header">' +
+        '    <h3>📈 市场 ADX 详情（全A指数 000985.CSI · 周期14）</h3>' +
+        '    <button class="modal-close" onclick="closeMarketAdxModal()">&times;</button>' +
+        '  </div>' +
+        '  <div class="modal-body">' +
+        '    <div id="market-adx-range" style="margin-bottom:10px;">' +
+        '      <button data-days="30" onclick="switchMarketAdxRange(30)" style="padding:4px 12px;margin-right:6px;border:0;border-radius:4px;cursor:pointer;font-size:12px;background:#2563eb;color:#fff;">近1月</button>' +
+        '      <button data-days="60" onclick="switchMarketAdxRange(60)" style="padding:4px 12px;margin-right:6px;border:0;border-radius:4px;cursor:pointer;font-size:12px;background:#f1f5f9;color:#475569;">近3月</button>' +
+        '      <button data-days="120" onclick="switchMarketAdxRange(120)" style="padding:4px 12px;margin-right:6px;border:0;border-radius:4px;cursor:pointer;font-size:12px;background:#f1f5f9;color:#475569;">近半年</button>' +
+        '    </div>' +
+        '    <div id="market-adx-summary" style="margin-bottom:12px;font-size:13px;color:#475569;"></div>' +
+        // ⚠️ 修复（2026-09-20）：Chart.js 用 maintainAspectRatio:false 时，画布尺寸取自
+        //   **父容器**；canvas 自身写 height 只改显示盒、不改绘制缓冲（父容器高度自适应 → 缓冲 0
+        //   → 图表一片空白）。标准写法：外层给"固定高度的定位容器"，canvas 不写尺寸。
+        '    <div style="position:relative;height:300px;">' +
+        '      <canvas id="market-adx-chart"></canvas>' +
+        '    </div>' +
+        '    <div id="market-adx-table-wrap" style="margin-top:16px;max-height:260px;overflow:auto;"></div>' +
+        '  </div>' +
+        '</div>';
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function openMarketAdxModal() {
+    const modal = _ensureMarketAdxModal();
+    modal.classList.add('show');
+    _syncMarketAdxRangeButtons();     // 弹窗可能被重建 → 恢复当前区间按钮态
+    _renderMarketAdxChart();
+}
+
+function closeMarketAdxModal() {
+    const modal = document.getElementById('market-adx-modal');
+    if (modal) modal.classList.remove('show');
+}
+
+function _fmtDate8(v) {
+    const s = String(v || '');
+    return s.length === 8 ? (s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8)) : s;
+}
+
+function _fmtNum(v, digits) {
+    return (v === null || v === undefined || isNaN(Number(v))) ? null : Number(v).toFixed(digits === undefined ? 2 : digits);
+}
+
+function _renderMarketAdxTable(trend) {
+    const wrap = document.getElementById('market-adx-table-wrap');
+    if (!wrap) return;
+    const heads = ['日期', 'ADX', '变化', '+DI', '−DI', '档位', '方向', '收盘'];
+    const th = 'padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left;white-space:nowrap;';
+    const td = 'padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;';
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        + '<thead><tr style="position:sticky;top:0;background:#f8fafc;">'
+        + heads.map(function (h) { return '<th style="' + th + '">' + h + '</th>'; }).join('')
+        + '</tr></thead><tbody>';
+    trend.slice().reverse().forEach(function (r) {          // 最新在前
+        const c = _marketAdxColor(r.trend_strength);
+        const chg = (r.adx_change === null || r.adx_change === undefined)
+            ? '' : ((Number(r.adx_change) >= 0 ? '+' : '') + Number(r.adx_change).toFixed(2));
+        html += '<tr>'
+            + '<td style="' + td + '">' + _fmtDate8(r.trade_date) + '</td>'
+            + '<td style="' + td + 'font-weight:600;color:' + c + ';">' + (_fmtNum(r.adx) || '-') + '</td>'
+            + '<td style="' + td + 'color:#64748b;">' + chg + '</td>'
+            + '<td style="' + td + 'color:#10b981;">' + (_fmtNum(r.plus_di) || '-') + '</td>'
+            + '<td style="' + td + 'color:#ef4444;">' + (_fmtNum(r.minus_di) || '-') + '</td>'
+            + '<td style="' + td + 'color:' + c + ';">' + (r.trend_strength || '-') + '</td>'
+            + '<td style="' + td + '">' + (r.trend_direction || '-') + '</td>'
+            + '<td style="' + td + '">' + (_fmtNum(r.close) || '-') + '</td>'
+            + '</tr>';
+    });
+    wrap.innerHTML = html + '</tbody></table>';
+}
+
+function _renderMarketAdxChart() {
+    const canvas = document.getElementById('market-adx-chart');
+    if (!canvas) return;
+    const trend = (marketAdxData && marketAdxData.trend) || [];
+    if (!trend.length) {
+        const box = document.getElementById('market-adx-summary');
+        if (box) box.textContent = '暂无 ADX 数据（请确认每日数据更新已执行）';
+        return;
+    }
+    const labels = trend.map(function (r) { return _fmtDate8(r.trade_date); });
+    const values = trend.map(function (r) { return r.adx === null ? null : Number(r.adx); });
+    const plusDis = trend.map(function (r) { return r.plus_di === null ? null : Number(r.plus_di); });
+    const minusDis = trend.map(function (r) { return r.minus_di === null ? null : Number(r.minus_di); });
+    const strengths = trend.map(function (r) { return r.trend_strength || ''; });
+
+    // +DI / −DI 交叉：金叉（+DI 上穿 −DI）/ 死叉（下穿）→ 仅交叉点画符号
+    const crossUp = [], crossDown = [];
+    let lastCross = null;
+    for (let i = 0; i < trend.length; i++) {
+        const p = plusDis[i], m = minusDis[i];
+        const pp = i > 0 ? plusDis[i - 1] : null;
+        const pm = i > 0 ? minusDis[i - 1] : null;
+        if (p === null || m === null || pp === null || pm === null) {
+            crossUp.push(null); crossDown.push(null); continue;
+        }
+        if (pp < pm && p >= m) {
+            crossUp.push(p); crossDown.push(null);
+            lastCross = { i: i, type: '金叉' };
+        } else if (pp > pm && p <= m) {
+            crossUp.push(null); crossDown.push(m);
+            lastCross = { i: i, type: '死叉' };
+        } else {
+            crossUp.push(null); crossDown.push(null);
+        }
+    }
+
+    const box = document.getElementById('market-adx-summary');
+    if (box && marketAdxData) {
+        const dir = marketAdxData.trend[marketAdxData.trend.length - 1].trend_direction || '-';
+        box.innerHTML = '最新 <b>' + labels[labels.length - 1] + '</b>：ADX <b style="color:'
+            + _marketAdxColor(marketAdxData.latest_strength) + ';">'
+            + Number(marketAdxData.latest_adx || 0).toFixed(1) + '</b>（'
+            + (marketAdxData.latest_strength || '-') + ' · ' + dir + '）&nbsp;|&nbsp; 区间均值 '
+            + Number(marketAdxData.avg_adx || 0).toFixed(1)
+            + '，最高 ' + Number(marketAdxData.max_adx || 0).toFixed(1)
+            + '，最低 ' + Number(marketAdxData.min_adx || 0).toFixed(1)
+            + (lastCross ? ('&nbsp;|&nbsp; 最近 DI 交叉：<b>' + labels[lastCross.i] + ' '
+                + lastCross.type + '</b>') : '')
+            + '&nbsp;|&nbsp; 档位：&lt;20 无趋势(震荡) · 20~25 趋势萌芽 · ≥25 趋势明确 · ≥50 强趋势';
+    }
+    _renderMarketAdxTable(trend);
+    if (marketAdxChart) { marketAdxChart.destroy(); marketAdxChart = null; }
+    // ⚠️ 2026-09-20：缺库 → 按需加载本地副本后自动重绘（自愈）；真正失败才在摘要处提示
+    if (!window.Chart) {
+        _ensureChartJs(
+            function () { _renderMarketAdxChart(); },
+            function () {
+                if (box) {
+                    box.innerHTML += '&nbsp;|&nbsp; <span style="color:#b45309;">'
+                        + '⚠️ 图表库（Chart.js）未加载，曲线暂不可用</span>';
+                }
+            }
+        );
+        return;
+    }
+    const flat = function (v) { return labels.map(function () { return v; }); };
+    marketAdxChart = new window.Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'ADX(14)', data: values,
+                    borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.10)',
+                    borderWidth: 2, pointRadius: 2, tension: 0.25, fill: true
+                },
+                {
+                    label: '+DI', data: plusDis,
+                    borderColor: '#10b981', borderWidth: 1.4, pointRadius: 0,
+                    tension: 0.25, fill: false
+                },
+                {
+                    label: '-DI', data: minusDis,
+                    borderColor: '#ef4444', borderWidth: 1.4, pointRadius: 0,
+                    tension: 0.25, fill: false
+                },
+                {
+                    label: 'DI金叉(看多)', data: crossUp, showLine: false,
+                    borderColor: '#059669', backgroundColor: '#059669',
+                    pointRadius: 5, pointStyle: 'triangle'
+                },
+                {
+                    label: 'DI死叉(看空)', data: crossDown, showLine: false,
+                    borderColor: '#b91c1c', backgroundColor: '#b91c1c',
+                    pointRadius: 5, pointStyle: 'rectRot'
+                },
+                {
+                    label: '分档线 25', data: flat(25),
+                    borderColor: '#f59e0b', borderDash: [6, 4], borderWidth: 1,
+                    pointRadius: 0, fill: false
+                },
+                {
+                    label: '分档线 20', data: flat(20),
+                    borderColor: '#94a3b8', borderDash: [6, 4], borderWidth: 1,
+                    pointRadius: 0, fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: true },
+                tooltip: {
+                    callbacks: {
+                        afterLabel: function (ctx) {
+                            // 仅对 ADX 主序列附加"档位"说明
+                            if (ctx.datasetIndex !== 0) return '';
+                            return '趋势档位: ' + (strengths[ctx.dataIndex] || '-');
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: { suggestedMin: 0, suggestedMax: 60, title: { display: true, text: 'ADX / DI' } }
+            }
+        }
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadMarketIndexAdx);
+} else {
+    loadMarketIndexAdx();
 }
 
 /**

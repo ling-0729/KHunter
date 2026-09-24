@@ -97,3 +97,13 @@ strategy_order:
     name: MainUptrendDipBuyStrategy
     display_name: 主升低吸策略
     description: 主升途中回调结束后，放量长阳贴紧突破回调中最近反弹高点R（一拉→二调→突破R）
+
+  - order: 34
+    name: NewStockDrawdownStrategy
+    display_name: 次新腰斩策略
+    description: 上市半年内的次新股，且当前价较上市以来最高价跌幅≥50%（深度回撤后的次新超跌机会）
+
+  - order: 35
+    name: OversoldReboundStrategy
+    display_name: 超跌反弹策略
+    description: 选股日收盘价低于近120日最高价50%（相对最高价腰斩）+ MACD底背离(必须) + 任一附加底部特征(底分型/低位九转/启明星)

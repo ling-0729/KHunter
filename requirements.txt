@@ -13,3 +13,5 @@ Pillow>=10.0.0
 fastdtw>=0.3.4
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
+# 生产环境 WSGI 服务器（Windows 推荐 ✓；配套 wsgi.py / start_prod.bat）
+waitress>=3.0.0

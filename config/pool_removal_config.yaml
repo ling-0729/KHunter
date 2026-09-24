@@ -156,3 +156,10 @@ removal_strategies:
     min_hold_days: 5
     is_enabled: true
     remark: "加入股票池5天后验证趋势"
+
+  # 次新腰斩策略
+  NewStockDrawdownStrategy:
+    display_name: "次新腰斩策略"
+    min_hold_days: 5
+    is_enabled: true
+    remark: "次新超跌，加入股票池5天后验证趋势"

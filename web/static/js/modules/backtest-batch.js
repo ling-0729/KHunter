@@ -326,7 +326,11 @@ class BacktestUIManager {
     // 然后检查是否有相同策略名称+择时策略+日期范围的页签
     const strategyName = result.strategy_name || task.strategy_name;
     const dateRange = task.start_date && task.end_date ? `${task.start_date}~${task.end_date}` : '';
-    const uniqueKey = `${strategyName}-${timingStrategyDisplay}-${dateRange}`;
+    // 【2026-09-21】唯一键纳入 task.id ✓
+    //   背景：批量任务常是"同一策略 + 同一择时，仅区间不同" ✓，而后端 task_results
+    //   **不回传** start_date/end_date ✗ → dateRange 为空 ✗ → 4 个结果的 uniqueKey
+    //   完全相同 ✗ → 后 3 个被判"重复"直接跳过 ✗（本次现象：完成 4 个只显示 1 个 ✓）
+    const uniqueKey = `${strategyName}-${timingStrategyDisplay}-${dateRange}-#${task.id}`;
     
     for (const tab of existingTabs) {
       if (tab.dataset.uniqueKey === uniqueKey) {
@@ -360,6 +364,11 @@ class BacktestUIManager {
     tabText += ` - ${timingStrategyDisplay}`;
     if (task.start_date && task.end_date) {
       tabText += ` ${task.start_date}~${task.end_date}`;
+    }
+    // 【2026-09-21】无区间信息时补任务序号 ✓，避免"多个页签同名"难以区分 ✓
+    //   （后端 task_results 未回传区间 ✗，前端只能用序号兜底 ✓）
+    if (!(task.start_date && task.end_date) && task.id !== undefined && task.id !== null) {
+      tabText += ` #${task.id}`;
     }
     
     tabTitle.innerHTML = `
@@ -522,7 +531,11 @@ class BacktestUIManager {
         <div style="margin-bottom: 24px;">
           <h5 style="margin-bottom: 12px; color: #374151; font-size: 14px;">权益曲线</h5>
           <div style="border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; background: #ffffff;">
-            <canvas id="equity-chart-${task.id}" height="300"></canvas>
+            <!-- 【2026-09-20】Chart.js 标准写法：固定高度定位容器
+                 （原为 canvas 内联 height + 父容器无高度 → 画布缓冲为 0 → 权益曲线空白） -->
+            <div style="position:relative; height:300px; width:100%;">
+              <canvas id="equity-chart-${task.id}"></canvas>
+            </div>
           </div>
         </div>
 
@@ -646,7 +659,7 @@ class BacktestUIManager {
     
     // 创建新图表
     try {
-      const chart = new Chart(ctx, {
+      const chart = new window.Chart(ctx, {   // 【2026-09-20】统一用 window.Chart
         type: 'line',
         data: {
           labels: labels,
@@ -962,6 +975,20 @@ function formatDuration(seconds) {
  * @param {Object} status - /backtest/batch/status 返回的 data 对象
  * @returns {Object} { etaText, currentTaskText, progressPercent }
  */
+// 【2026-09-20】ETA 观测基准：前端**首次看到当前任务在跑**的时刻
+//   用途：排除"点击开始 → 引擎真正处理每日流程"之间的预处理/预加载耗时 ✓
+//   （用户要求：估算只统计"处理每日流程"的时间 ✓；切任务/切批次自动重置 ✓）
+const _batchEtaObs = { batchId: null, taskKey: null, taskSeenAt: null, durations: [] };
+
+/** 【2026-09-20】还原「开始执行回测」按钮的文案与样式（运行结束后调用 ✓） */
+function _restoreExecutionBtn() {
+  const b = backtestUIManager && backtestUIManager.elements
+    ? backtestUIManager.elements.startExecutionBtn : null;
+  if (!b) return;
+  if (b.dataset.origText) b.textContent = b.dataset.origText;
+  if (b.dataset.origStyle !== undefined) b.setAttribute('style', b.dataset.origStyle);
+}
+
 function calcBatchEta(status) {
   // 缺少 current_task 时回退到粗粒度进度
   if (!status.current_task) {
@@ -973,9 +1000,35 @@ function calcBatchEta(status) {
 
   const ct = status.current_task;
   const now = Date.now();
-  // 解析当前任务开始时间，用于计算已耗时
-  const startedAt = ct.started_at ? new Date(ct.started_at).getTime() : null;
-  const elapsedSec = startedAt ? (now - startedAt) / 1000 : 0;
+  // 【2026-09-20】估算基准（排除预处理/预加载耗时 ✓）：
+  //   ① 首选：前端**首次观测到当前任务在跑**的时刻（_batchEtaObs ✓）
+  //   ② 兜底：后端 current_task.started_at（例如刚打开页面时任务已在跑 ✓）
+  const _obsKey = `${status.batch_id || ''}#${ct.index !== undefined ? ct.index : (ct.strategy_name || '')}`;
+  if (_batchEtaObs.batchId !== (status.batch_id || '')) {   // 换了批次 → 清空历史 ✓
+    _batchEtaObs.batchId = status.batch_id || '';
+    _batchEtaObs.durations = [];
+  }
+  if (_batchEtaObs.taskKey !== _obsKey) {       // 新任务 → 结算上一个任务的"每日流程"耗时 ✓
+    if (_batchEtaObs.taskKey && _batchEtaObs.taskSeenAt) {
+      const _prev = (now - _batchEtaObs.taskSeenAt) / 1000;
+      if (_prev > 0) _batchEtaObs.durations.push(_prev);
+    }
+    _batchEtaObs.taskKey = _obsKey;
+    _batchEtaObs.taskSeenAt = now;
+  }
+  const _backendStart = ct.started_at ? new Date(ct.started_at).getTime() : null;
+  // 【2026-09-20】基准 = **第 1 个交易日完成的那一刻** ✓
+  //   原因：任务刚"running"时引擎往往还在预处理/预加载 ✗（实测该任务 19:09 running、
+  //   19:2x 才进入逐日循环 ✗）→ 用任务启动时刻会把预处理算进单日耗时 → 预估偏大 ✗。
+  //   改为一观察到 done_days>0 就打点 ✓，并以 (done_days-1) 为分母 ✓ → 只统计"每日流程" ✓
+  const _dd0 = Number(ct.done_days) || 0;     // ⚠️ 此处 doneDays 尚未声明 ✗ → 直接用 ct 字段 ✓
+  if (_dd0 === 0) {
+    _batchEtaObs.firstDoneAt = null;          // 新任务/回退 → 重置 ✓
+  } else if (!_batchEtaObs.firstDoneAt) {
+    _batchEtaObs.firstDoneAt = now;           // 首个交易日刚完成 ✓
+  }
+  const startedAt = _batchEtaObs.firstDoneAt || _batchEtaObs.taskSeenAt || _backendStart;
+  const elapsedSec = startedAt ? Math.max(0, (now - startedAt) / 1000) : 0;
 
   const doneDays = ct.done_days || 0;
   const totalDays = ct.total_days || 0;
@@ -984,7 +1037,9 @@ function calcBatchEta(status) {
   let currentTaskRemainSec = null; // null 表示"预估中"
   // 前3个交易日单日耗时不稳定，不展示预估
   if (doneDays >= 3 && totalDays > 0 && startedAt) {
-    const secPerDay = elapsedSec / doneDays;
+    // 【2026-09-20】分母用 (done_days - 1)：因为基准是"第 1 天完成时" ✓
+    //   → 只反映"每日流程"的净耗时 ✓（不含预处理/预加载 ✓）
+    const secPerDay = elapsedSec / Math.max(1, doneDays - 1);
     const remainDays = totalDays - doneDays;
     currentTaskRemainSec = remainDays * secPerDay;
   }
@@ -1004,7 +1059,14 @@ function calcBatchEta(status) {
       }
     }
   });
-  const avgTaskSec = validTaskCount > 0 ? totalTaskSec / validTaskCount : null;
+  // 【2026-09-20】平均任务耗时优先用**前端观测值** ✓（其计时从"首次看到任务在跑"起 ✓，
+  //   已排除预处理/预加载 ✗）；后端值（started_at→completed_at ✓）含预处理，仅作兜底 ✓
+  const _feAvgSec = _batchEtaObs.durations.length
+    ? _batchEtaObs.durations.reduce((a, b) => a + b, 0) / _batchEtaObs.durations.length
+    : null;
+  const avgTaskSec = _feAvgSec !== null
+    ? _feAvgSec
+    : (validTaskCount > 0 ? totalTaskSec / validTaskCount : null);
 
   // 3. 未开始任务数（总任务 - 已完成 - 当前执行中1个）
   const completedTasks = status.completed_tasks || 0;
@@ -1012,15 +1074,32 @@ function calcBatchEta(status) {
   const pendingTaskCount = Math.max(0, totalTasks - completedTasks - 1);
 
   // 4. 未开始任务预估总耗时
-  const pendingTaskRemainSec = avgTaskSec !== null ? avgTaskSec * pendingTaskCount : null;
+  // 【2026-09-20】无"已完成任务均值"时，用**当前任务速率**外推 ✓
+  //   （用户明确：本批共 5 个策略/任务 ✓ → 批次总剩余必须包含后续任务 ✗）
+  //   该任务预计总耗时 ≈ 单日净耗时 × 任务总交易日数 ✓（≥3 天门槛与上面一致 ✓）
+  const _rateTaskSec = (doneDays >= 3 && startedAt && totalDays > 0)
+    ? (elapsedSec / Math.max(1, doneDays - 1)) * totalDays
+    : null;
+  const _pendingBaseSec = (avgTaskSec !== null) ? avgTaskSec : _rateTaskSec;
+  const pendingTaskRemainSec = _pendingBaseSec !== null
+    ? _pendingBaseSec * pendingTaskCount
+    : null;
 
   // 5. 批次总剩余 = 当前任务剩余 + 未开始任务预估
   let totalRemainSec = null;
+  let etaByTaskAvg = false;            // 【2026-09-20】是否采用"任务级均值"兜底
   if (currentTaskRemainSec !== null && pendingTaskRemainSec !== null) {
     totalRemainSec = currentTaskRemainSec + pendingTaskRemainSec;
   } else if (currentTaskRemainSec !== null) {
     // 仅有当前任务剩余（无历史平均）
     totalRemainSec = currentTaskRemainSec;
+  } else if (pendingTaskRemainSec !== null) {
+    // 【2026-09-20 修复】当前任务刚起步时（doneDays < 3 → 单日耗时不稳定，故
+    //   currentTaskRemainSec = null ✗），"已完成任务的平均耗时"明明可用 ✓ 却
+    //   被原实现整体丢弃 ✗ → 界面一直停在"预估中" ✗（本次问题的根因 ✓）。
+    //   现改为：按均值估"当前任务 1 份 + 未开始任务 N 份" ✓，并标注估算依据 ✓
+    totalRemainSec = avgTaskSec + pendingTaskRemainSec;
+    etaByTaskAvg = true;
   }
 
   // 组装 ETA 文本
@@ -1031,6 +1110,9 @@ function calcBatchEta(status) {
     if (currentTaskRemainSec !== null) {
       const curTxt = formatDuration(currentTaskRemainSec);
       etaText = `当前剩余 ${curTxt}，批次总剩余 ${remainTxt}`;
+    } else if (etaByTaskAvg) {
+      // 该分支只在"有已完成任务均值"时进入 ✓（当前任务剩余未知 ✓）
+      etaText = `批次总剩余 ${remainTxt}（按已完成任务均值估算，共 ${totalTasks} 个任务）`;
     } else {
       etaText = `批次总剩余 ${remainTxt}`;
     }
@@ -1224,7 +1306,16 @@ async function executeBacktestBatch() {
     }
 
     // 禁用开始执行按钮
-    backtestUIManager.elements.startExecutionBtn.disabled = true;
+    // 【2026-09-20】运行中：文案改「回测中…」并置灰 ✓（结束后由 _restoreExecutionBtn 还原 ✓）
+  const _seBtn = backtestUIManager.elements.startExecutionBtn;
+  if (_seBtn) {
+    if (_seBtn.dataset.origText === undefined) _seBtn.dataset.origText = _seBtn.textContent.trim() || '开始执行回测';
+    if (_seBtn.dataset.origStyle === undefined) _seBtn.dataset.origStyle = _seBtn.getAttribute('style') || '';
+    _seBtn.textContent = '回测中…';
+    _seBtn.disabled = true;
+    _seBtn.setAttribute('style',
+      'padding:6px 16px;font-size:12px;background:#94a3b8;border-color:#94a3b8;color:#fff;cursor:not-allowed;');
+  }
 
     // 加载保存的回测配置
     let savedParams = {
@@ -1348,6 +1439,7 @@ async function executeBacktestBatch() {
     // 执行完成
     backtestUIManager.hideProgress();
     backtestUIManager.elements.startExecutionBtn.disabled = false;
+    _restoreExecutionBtn();      // 【2026-09-20】还原按钮文案与样式 ✓
     backtestUIManager.showInfo('批量回测执行完成', 'success');
 
   } catch (error) {
@@ -1355,6 +1447,7 @@ async function executeBacktestBatch() {
     backtestUIManager.showError(`批量回测执行失败: ${error.message}`);
     backtestUIManager.hideProgress();
     backtestUIManager.elements.startExecutionBtn.disabled = false;
+    _restoreExecutionBtn();      // 【2026-09-20】还原按钮文案与样式 ✓
   }
 }
 

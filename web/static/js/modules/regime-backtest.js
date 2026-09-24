@@ -214,7 +214,13 @@ function _rsFormatClock(date) {
 function _rsSetProgress(p) {
     const box = document.getElementById('regime-progress');
     if (!box) return;
-    if (!p) { box.style.display = 'none'; return; }
+    // 【2026-09-20】空闲且本地未在跑 → 直接隐藏。
+    //   原实现仅在 p 为空时隐藏 ✗：后端在"引擎尚未上报"时会返回空闲快照
+    //   （running=false、message=''、percent=0 ✗）→ 于是露出一个 0.0% 的空进度条，
+    //   标签还落到 `p.message || '完成'` 显示「完成」✗（本次问题的直接现象 ✓）
+    const _loading = !!(_regimeState && _regimeState.loading);
+    _regimeState.lastProgressRunning = !!(p && p.running);   // 【2026-09-20】供"连接中断后续监控"判断 ✓
+    if (!p || (!p.running && !_loading)) { box.style.display = 'none'; return; }
     box.style.display = 'block';
     const pct = Math.max(0, Math.min(100, Number(p.percent) || 0));
     const bar = document.getElementById('regime-progress-bar');
@@ -225,13 +231,33 @@ function _rsSetProgress(p) {
     if (bar) bar.style.width = pct + '%';
     if (num) num.textContent = pct.toFixed(1) + '%';
     if (txt) {
-        txt.textContent = p.running
-            ? `回测执行中：${p.current_date || '准备中'}（${p.done_days || 0}/${p.total_days || 0} 个交易日）`
-            : (p.message || '完成');
+        if (p.running) {
+            txt.textContent = `回测执行中：${p.current_date || '准备中'}（${p.done_days || 0}/${p.total_days || 0} 个交易日）`;
+        } else {
+            // 【2026-09-20】注意：这里**不能**依据 p.message / p.percent 判断"本轮已结束" ✗ ——
+            //   上一轮遗留的 percent=100 / message='完成' 会在新一轮引擎尚未
+            //   `_begin_regime_progress`（还没开始上报）时被读到 ✗ → 误显示「完成」✗
+            //   （这正是本次"执行中却显示完成"的现象之一 ✓）。
+            //   故：运行期间（_loading=true）一律显示"执行中" ✓；结束后进度区自动隐藏 ✓。
+            // 【2026-09-20】本地仍在跑（loading ✓）但引擎还没上报 → 明确写"执行中"，
+            //   并给出本地已耗时 ✓，绝不显示"完成" ✗
+            // 【2026-09-20】去冗余 ✓：不再在这里显示"已耗时"（原与下面 ETA 行重复 ✗），
+            //   且此阶段属**预处理/预加载** ✓ → 按用户要求不计入估算 ✓
+            txt.textContent = '回测执行中：正在准备/计算（等待引擎上报交易日进度）';
+        }
     }
-    // 预估时间展示：仅在回测运行中且有开始时间时计算
+    // 预估时间展示
     if (eta) {
-        eta.textContent = p.running ? _rsCalcEtaText(p) : '';
+        if (p.running) {
+            eta.textContent = _rsCalcEtaText(p);
+        } else if (_loading) {
+            // 【2026-09-20】引擎尚未上报（预处理/预加载阶段 ✓）：
+            //   ① 不再重复显示"已耗时"（与上一行重复 ✗）
+            //   ② 明确告知：这段时间是预处理，**不计入**剩余时间估算 ✓
+            eta.textContent = '预处理/预加载中（该阶段耗时不计入估算）· 等待引擎上报交易日进度…';
+        } else {
+            eta.textContent = '';
+        }
     }
 }
 
@@ -240,26 +266,40 @@ function _rsSetProgress(p) {
  * @param {Object} p - 进度快照（含 started_at/done_days/total_days）
  * @returns {string} 预估文案，例如 "已耗时 02:15 · 预计剩余 05:30 · 预计 14:50 完成"
  */
+/** 【2026-09-20】引擎侧已耗时（秒）
+ *  基准 = **首次观测到 running=true** 的时刻（`_regimeState.engineStartedAt` ✓）
+ *  → 天然排除"点击按钮 → 引擎开始跑"之间的预处理/预加载耗时 ✓
+ *  （用户要求：估算只统计"处理每日流程"的时间 ✓）
+ */
+function _rsEngineElapsedSec() {
+    const t0 = _regimeState && _regimeState.engineStartedAt;
+    if (!t0) return 0;
+    return Math.max(0, (Date.now() - t0) / 1000);
+}
+
 function _rsCalcEtaText(p) {
-    // 缺少开始时间或交易日数据，不展示预估
-    if (!p.started_at || !p.total_days) return '';
-    // 兼容 "YYYY-MM-DD HH:MM:SS" 格式，替换为 ISO 标准的 T 分隔
-    const startedAt = new Date(String(p.started_at).replace(' ', 'T'));
-    if (isNaN(startedAt.getTime())) return '';
     const doneDays = Number(p.done_days) || 0;
     const totalDays = Number(p.total_days) || 0;
-    // 已耗时秒数（now - started_at）
-    const elapsedSec = (Date.now() - startedAt.getTime()) / 1000;
+    // 【2026-09-20】基准时刻优先级：
+    //   ① 本前端**首次观测到引擎在跑**的时刻 ✓（最准：已排除预处理 ✓）
+    //   ② 兜底用引擎自带 started_at ✓（例如直接进页面时引擎已在跑 ✓）
+    let t0 = _regimeState && _regimeState.engineStartedAt;
+    if (!t0 && p.started_at) {
+        const d = new Date(String(p.started_at).replace(' ', 'T'));
+        if (!isNaN(d.getTime())) t0 = d.getTime();
+    }
+    if (!t0 || !totalDays) return '';
+    const elapsedSec = (Date.now() - t0) / 1000;
     if (elapsedSec < 0) return '';
-    // 前3个交易日数据不稳定，仅显示已耗时，不展示预估
+    // 前3个交易日数据不稳定，仅显示已耗时，不展示预估（按用户要求保留该门槛 ✓）
     if (doneDays < 3) {
         return `已耗时 ${_rsFormatDuration(elapsedSec)} · 预估中...（前3个交易日数据稳定后展示）`;
     }
-    // 单日耗时 = 已耗时 / 已处理交易日数
+    // 单日流程耗时 = 引擎耗时 / 已处理交易日数（**不含**预处理 ✓）
     const perDaySec = elapsedSec / doneDays;
     // 剩余交易日数（至少0）
     const remainDays = Math.max(0, totalDays - doneDays);
-    // 剩余秒数 = 剩余交易日 × 单日耗时
+    // 剩余秒数 = 剩余交易日 × 单日流程耗时
     const remainSec = remainDays * perDaySec;
     // 预计完成时刻 = 当前时间 + 剩余秒数
     const finishAt = new Date(Date.now() + remainSec * 1000);
@@ -270,6 +310,10 @@ function _rsCalcEtaText(p) {
 async function _rsPollProgress() {
     try {
         const r = await _rsFetchJSON('/api/trading/backtest/regime/progress');
+        // 【2026-09-20】首次观测到"引擎在跑" → 记为估算基准（据此排除前面的预处理耗时 ✓）
+        if (r && r.success && r.data && r.data.running && !_regimeState.engineStartedAt) {
+            _regimeState.engineStartedAt = Date.now();
+        }
         if (r && r.success) _rsSetProgress(r.data);
     } catch (e) {
         console.warn('[自适应回测] 进度查询失败', e);
@@ -450,6 +494,56 @@ function _rsRenderResult(data) {
     document.getElementById('regime-result').style.display = 'block';
 }
 
+/**
+ * 【2026-09-20】连接中断后的"继续监控"模式
+ *   背景：`/regime/run` 是**同步长请求**（可能跑几十分钟~几小时 ✗），
+ *   服务端/中间层超时会把连接掐断 → 前端 `fetch` 抛 "Failed to fetch" ✗，
+ *   而**后台引擎仍在继续跑** ✓（进度接口继续前进 ✓）。
+ *   原实现在此直接判"回测失败"并停掉轮询 ✗ → 进度条停滞 ✗。
+ *   现：识别为网络中断后**保持轮询** ✓，直到后台 `running` 变为 false ✓，
+ *   期间进度/ETA 照常刷新 ✓；结束由外层 finally 统一收尾（按钮还原 ✓）。
+ */
+async function _rsWatchAfterDisconnect() {
+    return new Promise(function (resolve) {
+        let ticks = 0;
+        const MAX_TICKS = 6 * 60 * 60;              // 安全上限：最多盯 6 小时 ✓
+        const timer = setInterval(async function () {
+            ticks += 1;
+            await _rsPollProgress();
+            const stillRunning = !!(_regimeState && _regimeState.lastProgressRunning);
+            if (!stillRunning || ticks >= MAX_TICKS) {
+                clearInterval(timer);
+                _rsSetStatus(ticks >= MAX_TICKS
+                    ? '后台仍在运行，但前端已达监控上限，请稍后到回测结果中查看'
+                    : '后台回测已结束（前端连接曾中断，详细结果请查看回测结果列表）');
+                resolve();
+            }
+        }, 1000);
+    });
+}
+
+/**
+ * 【2026-09-20】等待后台异步回测结束（配合异步提交 ✓）
+ *   轮询 `/regime/progress`：一旦观测到 running=true → 说明已开工 ✓；
+ *   之后 running 变 false ✓ → 视为结束 ✓。
+ *   宽限：前 30 秒即使还没 running 也继续等 ✓（引擎启动+预加载需要时间 ✓）。
+ * @returns {Promise<boolean>} true=已结束 / false=超过上限
+ */
+async function _rsWaitRunFinished() {
+    const MAX_TICKS = 6 * 3600;          // 安全上限 6 小时 ✓
+    let seenRunning = false;
+    for (let i = 0; i < MAX_TICKS; i++) {
+        await _rsPollProgress();
+        if (_regimeState.lastProgressRunning) {
+            seenRunning = true;
+        } else if (seenRunning || i > 30) {
+            return true;
+        }
+        await new Promise(function (r) { setTimeout(r, 1000); });
+    }
+    return false;
+}
+
 async function _rsRunBacktest() {
     if (_regimeState.loading) return;
     const startDate = document.getElementById('regime-start-date').value;
@@ -472,9 +566,20 @@ async function _rsRunBacktest() {
     _regimeState.loading = true;
     _rsSetStatus('回测执行中，请稍候（区间越长耗时越久）...');
     const btn = document.getElementById('regime-run-btn');
-    if (btn) btn.disabled = true;
+    if (btn) {
+        // 【2026-09-20】运行中：文案改「回测中…」并**置灰** ✓
+        //   （原来只设 disabled ✗，但按钮是内联 background:#1677ff → 看上去仍是可点的蓝色 ✗）
+        if (btn.dataset.origText === undefined) btn.dataset.origText = btn.textContent.trim() || '开始回测';
+        if (btn.dataset.origStyle === undefined) btn.dataset.origStyle = btn.getAttribute('style') || '';
+        btn.textContent = '回测中…';
+        btn.disabled = true;
+        btn.setAttribute('style',
+            'padding:8px 20px;background:#94a3b8;color:#fff;border:none;border-radius:4px;cursor:not-allowed;');
+    }
 
     // 进度：先本地置零，再每 1s 轮询后端进度
+    _regimeState.runStartedAt = Date.now();     // 总提交时刻（仅参考）
+    _regimeState.engineStartedAt = null;        // 【2026-09-20】清空"引擎开始跑"的基准 → 由轮询首次 running=true 时打点 ✓
     _rsSetProgress({ running: true, percent: 0, done_days: 0, total_days: 0,
                      current_date: '', message: '准备中' });
     const _progressTimer = setInterval(_rsPollProgress, 1000);
@@ -495,26 +600,56 @@ async function _rsRunBacktest() {
                 JSON.stringify({ start: startDate, end: endDate }));
         } catch (e) { /* 隐私模式等场景忽略 */ }
         _rsSaveConfig(true);
-        const res = await _rsFetchJSON('/api/trading/backtest/regime/run', {
+        // 【2026-09-20】异步提交 ✓：接口立即返回 task_id（不再挂长连接 ✗ → 不会被超时掐断 ✓）
+        const sub = await _rsFetchJSON('/api/trading/backtest/regime/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
-        if (!res.success) throw new Error(res.message || '回测失败');
-        _rsRenderResult(res.data || {});
-        const perf = (res.data || {}).performance || {};
-        const rid = (res.data || {}).result_id;
+        if (!sub.success) throw new Error(sub.message || '提交失败');
+        // 轮询到后台结束 ✓（期间进度/已耗时/ETA 由 _rsPollProgress 持续刷新 ✓，不会停滞 ✓）
+        const finished = await _rsWaitRunFinished();
+        if (!finished) {
+            _rsSetStatus('后台仍在运行：已超过前端等待上限，请稍后到回测结果中查看（进度不再刷新）');
+            return;
+        }
+        // 取回结果 ✓
+        const rr = await _rsFetchJSON('/api/trading/backtest/regime/result');
+        const rdata = (rr && rr.data) || {};
+        if (rdata.error) throw new Error(rdata.error);
+        if (!rdata.result) throw new Error('未取到回测结果（可能已入库但结果态丢失，请到回测结果查看）');
+        const resultData = rdata.result;
+        _rsRenderResult(resultData);
+        const perf = resultData.performance || {};
+        const rid = resultData.result_id;
         _rsSetStatus(`完成：总收益 ${perf.total_return !== undefined ? perf.total_return.toFixed(2) : '-'}%`
             + `，切换 ${((res.data || {}).strategy_switches || []).length} 次`
             + (rid ? `，结果已保存（#${rid}）` : '，结果保存失败'));
     } catch (e) {
         console.error('[自适应回测] 失败', e);
-        _rsSetStatus('回测失败：' + e.message, true);
+        // 【2026-09-20】区分"网络层中断"与"回测本身失败" ✓：
+        //   前者（Failed to fetch / 连接被掐断）→ 后台其实还在跑 ✗ → 不报失败 ✗，
+        //   改为"继续监控" ✓，进度条与 ETA 不再停滞 ✓
+        const _msg = String((e && e.message) || e || '');
+        const _isNetErr = (e instanceof TypeError)
+            || /failed to fetch|networkerror|load failed|network error/i.test(_msg);
+        if (_isNetErr) {
+            _rsSetStatus('连接已中断（服务端在长耗时任务上断开，属正常超时），后台仍在运行：'
+                + '正在继续监控进度，结果以服务端记录为准…');
+            await _rsWatchAfterDisconnect();      // 保持轮询直到后台结束 ✓
+        } else {
+            _rsSetStatus('回测失败：' + _msg, true);
+        }
     } finally {
         clearInterval(_progressTimer);
         await _rsPollProgress();       // 收尾刷新一次（显示 100%/完成）
         _regimeState.loading = false;
-        if (btn) btn.disabled = false;
+        if (btn) {
+            // 【2026-09-20】结束后还原：文案与样式恢复 ✓
+            btn.disabled = false;
+            if (btn.dataset.origText) btn.textContent = btn.dataset.origText;
+            if (btn.dataset.origStyle !== undefined) btn.setAttribute('style', btn.dataset.origStyle);
+        }
     }
 }
 
@@ -554,18 +689,46 @@ export async function initRegimeBacktestPage() {
     try {
         _lastRange = JSON.parse(localStorage.getItem('regime_last_range') || 'null');
     } catch (e) { _lastRange = null; }
-    if (startInput && !startInput.value) {
-        if (_lastRange && _lastRange.start) {
-            startInput.value = _lastRange.start;
-        } else {
-            const s = new Date(today.getTime() - 365 * 24 * 3600 * 1000);
-            startInput.value = s.toISOString().slice(0, 10);
+    // 【2026-09-20】修正日期恢复（两个问题都修）：
+    //   ① 原实现带 `!startInput.value` 前置 ✗ → SPA 二次进入本页（DOM 保留旧值）
+    //      或模板预置默认值时，**整段跳过恢复** ✗
+    //   ② 原实现只在点「开始回测」时才写入 localStorage ✗
+    //      → 若还没跑过回测，就"从来没有上次区间"可恢复 ✗
+    //   现在：**只要存过"上次区间"就强制回填** ✓；且日期一改动就**立即**持久化 ✓
+    const _ymd = function (d) {                    // 本地时区日期（原 toISOString 是 UTC，凌晨会差一天 ✗）
+        const p = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    };
+    if (_lastRange && _lastRange.start && _lastRange.end) {
+        if (startInput) startInput.value = _lastRange.start;
+        if (endInput) endInput.value = _lastRange.end;
+    } else {
+        if (startInput && !startInput.value) {
+            startInput.value = _ymd(new Date(today.getTime() - 365 * 24 * 3600 * 1000));
+        }
+        if (endInput && !endInput.value) {
+            endInput.value = _ymd(today);
         }
     }
-    if (endInput && !endInput.value) {
-        endInput.value = (_lastRange && _lastRange.end)
-            ? _lastRange.end : today.toISOString().slice(0, 10);
-    }
+
+    // 【2026-09-20】日期一改动就记住（不必等"开始回测"）→ 下次进入自动恢复 ✓
+    const _persistRange = function () {
+        const s = startInput && startInput.value;
+        const e2 = endInput && endInput.value;
+        if (!s || !e2) return;
+        try {
+            localStorage.setItem('regime_last_range', JSON.stringify({ start: s, end: e2 }));
+        } catch (err) { /* 隐私模式等场景忽略 */ }
+    };
+    [startInput, endInput].forEach(function (el) {
+        if (el && !el.dataset.rangeBound) {
+            el.addEventListener('change', _persistRange);
+            el.addEventListener('input', _persistRange);
+            el.dataset.rangeBound = '1';
+        }
+    });
+    // 首次进入即把当前（默认/上次）区间落一次，保证"上次区间"一定存在 ✓
+    if (startInput && startInput.value && endInput && endInput.value) _persistRange();
 
     if (!_regimeState.selectors.length || !_regimeState.timings.length) {
         await _rsLoadOptions();
@@ -600,6 +763,14 @@ export async function initRegimeBacktestPage() {
     }
     // 【2026-09-20】"保存为默认配置"按钮已移除：配置在每次运行前自动持久化
     //   （rules/confirm_days → 后端 yaml；时间区间 → localStorage）
+    // 【2026-09-20】兼容旧模板：服务端 Jinja 模板有进程内缓存（需重启服务才刷新 ✗），
+    //   旧页面可能仍渲染出这个"死按钮"（无事件绑定 ✗）→ 这里直接移除，
+    //   保证界面与新版一致 ✓（无需重启服务 ✓）
+    const staleSaveBtn = document.getElementById('regime-save-config-btn');
+    if (staleSaveBtn && staleSaveBtn.parentNode) {
+        staleSaveBtn.parentNode.removeChild(staleSaveBtn);
+        console.log('[自适应回测] 已移除旧模板残留的「保存为默认配置」按钮');
+    }
 }
 
 // 兼容：app.js 若以命名空间方式装配

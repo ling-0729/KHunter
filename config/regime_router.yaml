@@ -9,6 +9,9 @@ regime_router:
     selector: null
     timing: null
     position: null
+  direction_filter:
+    enabled: false
+    block_open_when_bear: true
   rules:
     明确:
       selector: 金三角策略
@@ -16,12 +19,12 @@ regime_router:
       position: 1
       buy_execution: open
     萌芽:
-      selector: 多金叉共振
+      selector: 空仓
       timing: uptrend_pullback
-      position: 0.3
+      position: 0
       buy_execution: open
     震荡:
-      selector: 主升低吸策略
+      selector: 空仓
       timing: uptrend_pullback
       position: 0
       buy_execution: open

@@ -649,23 +649,66 @@ class DataCollectionService:
             'message': '初始化任务已恢复'
         }
     
-    def start_update(self, update_types: Optional[List[str]] = None) -> Dict[str, Any]:
+    # 手动"重新更新"（force=True）时，若上次更新已是最新，则回退到最近 N 个自然日重新拉取
+    FORCE_LOOKBACK_DAYS = 7
+
+    @classmethod
+    def _resolve_window(cls, last_update_date: Optional[str], target_date: str,
+                        force: bool = False) -> Optional[str]:
+        """计算本次更新实际使用的起始日期（窗口起点）
+
+        手动重新更新（force=True，前端"更新数据"按钮）时**不考虑当天是否更新过**：
+          - 窗口为空（`last_update_date >= target_date` 或缺失）→ 回退到
+            `target_date - FORCE_LOOKBACK_DAYS`（默认 7 个自然日 ≈ 5 个交易日），
+            保证确实重新拉取（K线写入是 `INSERT OR REPLACE`，重跑幂等 ✓）；
+          - 窗口本来更宽（`last_update_date < target_date`）→ 原样沿用，不缩小 ✓。
+
+        Args:
+            last_update_date: 上次更新完成日期（YYYY-MM-DD，可能为 None）
+            target_date: 目标更新日期（YYYY-MM-DD）
+            force: 是否手动强制重新更新
+
+        Returns:
+            起始日期（YYYY-MM-DD）
+        """
+        if not force:
+            return last_update_date
+        if last_update_date and last_update_date < target_date:
+            return last_update_date
+        try:
+            end = datetime.strptime(str(target_date)[:10], '%Y-%m-%d')
+        except (ValueError, TypeError):
+            end = datetime.now()
+        return (end - timedelta(days=cls.FORCE_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
+
+    def start_update(self, update_types: Optional[List[str]] = None,
+                     force: bool = False) -> Dict[str, Any]:
         """
         开始数据更新
         
         Args:
             update_types: 更新类型列表
+            force: True = 手动重新更新（不考虑当天是否已更新过，重新拉取最近数据）
         
         Returns:
             dict: 更新任务信息
         """
         # 检查是否已有更新任务运行
         if self.update_status['running']:
+            # 记录到日志：此前该分支静默返回，导致"点了没反应"难以排查
+            logger.warning(
+                f"数据更新请求被拒绝：已有更新任务正在运行"
+                f"（force={force}，前端会收到'已有更新任务正在运行'）")
+            self._add_update_log("⚠ 数据更新请求被拒绝：已有更新任务正在运行")
             return {
                 'success': False,
                 'message': '已有更新任务正在运行',
                 'taskId': None
             }
+
+        # 记录本次是否为"手动重新更新"（用于日志自证：有这行 = 新代码 + force 生效）
+        if force:
+            logger.info("收到手动重新更新请求（force=True）：将忽略'已是最新'的幂等跳过")
         
         # 生成任务ID
         task_id = f"UPDATE_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -673,7 +716,7 @@ class DataCollectionService:
         # 在后台线程中执行更新
         thread = threading.Thread(
             target=self._run_update,
-            args=(task_id, update_types),
+            args=(task_id, update_types, force),
             daemon=True
         )
         thread.start()
@@ -684,7 +727,8 @@ class DataCollectionService:
             'taskId': task_id
         }
     
-    def _run_update(self, task_id: str, update_types: Optional[List[str]]):
+    def _run_update(self, task_id: str, update_types: Optional[List[str]],
+                    force: bool = False):
         """
         执行更新任务（在后台线程中运行）
         
@@ -772,9 +816,25 @@ class DataCollectionService:
                 logger.error(f"查询上次更新日期失败: {str(e)}")
                 last_update_date = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
             
+            # 【手动重新更新】force=True（前端"更新数据"按钮）→ 不考虑当天是否更新过：
+            #   窗口为空时回退到最近 FORCE_LOOKBACK_DAYS 个自然日，保证确实重新拉取；
+            #   K线写入为 INSERT OR REPLACE（幂等），重跑不会产生重复/脏数据
+            if force:
+                _eff = self._resolve_window(last_update_date, target_date, force=True)
+                if _eff != last_update_date:
+                    self._add_update_log(
+                        f"⚠ 手动重新更新：忽略'数据已是最新'状态，"
+                        f"窗口回退为 {_eff} ~ {target_date}")
+                    logger.info(f"手动重新更新：窗口 {last_update_date} → {_eff}（target={target_date}）")
+                else:
+                    self._add_update_log(
+                        f"⚠ 手动重新更新：忽略幂等跳过（窗口 {last_update_date} ~ {target_date}）")
+                last_update_date = _eff
+
             # 【幂等保护】数据已是最新则跳过全部更新步骤，直接进入后续流程（策略运行）
             # 判断依据：上次更新完成日期(last_update_date) >= 目标更新日期(target_date)
-            if last_update_date and last_update_date >= target_date:
+            #   force=True（手动重新更新）时**不跳过**
+            if (not force) and last_update_date and last_update_date >= target_date:
                 # 记录跳过原因，便于运维在日志中确认幂等生效
                 self._add_update_log(
                     f"ℹ 数据已是最新（上次更新日期 {last_update_date} >= 目标更新日期 {target_date}），"

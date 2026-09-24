@@ -112,21 +112,21 @@ async function startDataUpdate() {
     try {
         console.log('用户点击了开始数据更新按钮');
         
-        // 确认更新
-        if (!confirm('确定要开始数据更新吗？')) {
+        // 确认更新（手动点击 = 重新更新：后端忽略"今天已更新过"的幂等跳过）
+        if (!confirm('确定要开始数据更新吗？（将忽略"今天已更新"状态，重新拉取最近数据）')) {
             console.log('用户取消了数据更新');
             return;
         }
         
         console.log('发送请求到后端...');
         
-        // 调用后端API启动更新
+        // 调用后端API启动更新（force=true：手动重新更新，不考虑当天是否更新过）
         const response = await fetch('/api/data/update/start', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({})
+            body: JSON.stringify({ force: true })
         });
         
         const result = await response.json();

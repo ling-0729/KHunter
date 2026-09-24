@@ -236,7 +236,11 @@ export class RiskModule {
                     <h5 class="card-title mb-0">风险等级历史趋势</h5>
                 </div>
                 <div class="card-body">
-                    <canvas id="risk-history-chart"></canvas>
+                    <!-- 【2026-09-20】Chart.js 标准写法：固定高度定位容器
+                         （父容器 .card-body 高度自适应 + maintainAspectRatio:false → 画布缓冲为 0 → 图表空白） -->
+                    <div style="position:relative; height:300px; width:100%;">
+                        <canvas id="risk-history-chart"></canvas>
+                    </div>
                 </div>
             </div>
         `;
@@ -263,7 +267,7 @@ export class RiskModule {
 
         // 创建新图表
         const ctx = canvas.getContext('2d');
-        this.riskChart = new Chart(ctx, {
+        this.riskChart = new window.Chart(ctx, {   // 【2026-09-20】统一用 window.Chart
             type: 'line',
             data: {
                 labels: labels,

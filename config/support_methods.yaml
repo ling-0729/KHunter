@@ -93,9 +93,12 @@ strategies:
     description: 金三角策略，使用20日均线作为支撑位
 
   # 超跌反弹策略
+  #   ⚠️ 2026-09-19 对齐：原为 t_day_low，但 strategy_config_manager.VALID_SUPPORT_METHODS
+  #   不含该方法（走该路径时实际得到 ma20），且 strategy_params.yaml 内同策略写 ma20
+  #   → 两条链路结果不一致。此处统一为 ma20，消除口径冲突。
   OversoldReboundStrategy:
-    support_method: t_day_low
-    description: 超跌反弹策略，使用T日（选股日）最低价作为支撑位
+    support_method: ma20
+    description: 超跌反弹策略，使用20日均线作为支撑位
 
   # 低位九转策略
   LowTD9Strategy:
@@ -106,6 +109,11 @@ strategies:
   LeaderStrategy:
     support_method: key_open
     description: 龙头策略，使用关键日开盘价作为支撑位
+
+  # 次新腰斩策略
+  NewStockDrawdownStrategy:
+    support_method: ma20
+    description: 次新腰斩策略（上市以来K线≤120根+自最高价跌幅≥50%），使用20日均线作为支撑位
 
 # 默认支撑位计算方法（当策略未配置时使用）
 default_support_method: ma20

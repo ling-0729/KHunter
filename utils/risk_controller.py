@@ -168,16 +168,37 @@ class RiskController:
             return self.risk_manager.get_default_risk_status(date)
     
     def get_risk_history(self, days: int = 30) -> list:
-        """
-        获取历史风控状态
-        
+        """获取历史风控状态（**优先读数据库** · 2026-09-20 修复）
+
+        背景：原实现只读内存 `self.risk_history`（其磁盘副本 `data/risk_history.json`
+        实际并不存在）→ `/api/risk/history` 返回空/极少 → 前端"近30天风险趋势(VaR)"
+        只剩 1 个点。而每日风控状态**本来就写入 DB 表 `risk_status`**（实测已累积 100+ 天，
+        含 var_1d/var_5d/es_1d/risk_level 等全部字段）→ 改为优先从 DB 读取。
+
         参数：
             days: 获取最近多少天的历史记录
-            
+
         返回：
-            风控状态列表
+            列表，元素为 `dict`（DB 行）或 `RiskStatus`（内存兜底）；
+            调用方需兼容两种类型（见 web_server /api/risk/history）。
         """
-        # 返回最近N天的记录
+        try:
+            from utils.global_db import get_global_db
+            rows = get_global_db().query(
+                'SELECT * FROM risk_status ORDER BY date DESC LIMIT ?', (int(days),)) or []
+            if rows:
+                out = []
+                for r in reversed(rows):          # 按日期升序返回（与前端折线一致）
+                    d = dict(r)
+                    # DB 用 0/1 存储布尔字段 → 还原为 bool，避免前端显示 0/1
+                    for _k in ('strategy_enabled', 'liquidate'):
+                        if _k in d and isinstance(d[_k], int):
+                            d[_k] = bool(d[_k])
+                    out.append(d)
+                return out
+        except Exception as e:
+            logger.warning(f"从 DB 读取风控历史失败，回退内存缓存: {e}")
+        # 兜底：内存缓存（历史实现路径）
         return self.risk_history[-days:] if self.risk_history else []
     
     def get_risk_config(self) -> dict:

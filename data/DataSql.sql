@@ -662,6 +662,8 @@ CREATE TABLE IF NOT EXISTS backtest_result (
     -- initial_capital: 初始资金，类型REAL，默认300000，单位元
     final_capital REAL DEFAULT 0,
     -- final_capital: 最终资金，类型REAL，默认0，单位元
+    router_config TEXT,
+    -- router_config: 自适应回测的"档位路由配置摘要"（文本，2026-09-20 新增，历史详情展示用）
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     -- created_at: 创建时间，类型TIMESTAMP，默认当前时间
 );

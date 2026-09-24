@@ -14,11 +14,9 @@ let backtestConfig = {
     support_level_method: 'ma20',
     timing_strategy: 'support',
     timing_params: {
-        turtle: {
-            n_entry: 6,
-            n_exit: 6,
-            atr_period: 6
-        },
+        // 【2026-09-23】海龟类参数统一由后端读取 yaml（唯一配置源 ✓），此处不再硬编码 ✗：
+        //   原 `turtle: {n_entry: 6, n_exit: 6, atr_period: 6}` ✗ 会在请求里**覆盖**后端配置 ✗，
+        //   导致单次回测的海龟参数与批量回测/实盘不一致 ✗（典型的"配置漂移"来源 ✓）。
         rsi: {
             overbought: 70,
             oversold: 30,
@@ -1094,13 +1092,29 @@ function displayBacktestResultInModal(result) {
                 </div>
             </div>
             
+            ${result.router_config ? `
+            <!-- 选股/择时条件（各档位配置）——自适应回测保存时持久化 -->
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-header">
+                    <h3>选股/择时条件（各档位配置）</h3>
+                </div>
+                <div class="card-body">
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.8; color: #334155; font-family: inherit;">${String(result.router_config).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>
+                </div>
+            </div>` : ''}
+            
             <!-- 收益曲线图表 -->
             <div class="card" style="margin-bottom: 20px;">
                 <div class="card-header">
                     <h3>收益曲线</h3>
                 </div>
                 <div class="card-body">
-                    <canvas id="modal-backtest-equity-chart" style="height: 300px;"></canvas>
+                    <!-- 【2026-09-20】Chart.js 标准写法：外层固定高度定位容器。
+                         原为 canvas 内联 height（只改显示盒、不改绘制缓冲）→ 父容器高度自适应
+                         时画布缓冲为 0 → 图表一片空白。 -->
+                    <div style="position:relative; height:300px; width:100%;">
+                        <canvas id="modal-backtest-equity-chart"></canvas>
+                    </div>
                 </div>
             </div>
         `;
@@ -1374,7 +1388,8 @@ function drawEquityChart(capitalHistory, dates) {
     
     // 创建新图表
     try {
-        window.equityChart = new Chart(ctx, {
+        if (!window.Chart) { throw new Error('图表库(Chart.js)未加载'); }
+        window.equityChart = new window.Chart(ctx, {
             type: 'line',
             data: {
                 labels: labels,
@@ -1427,7 +1442,52 @@ function drawEquityChart(capitalHistory, dates) {
  * @param {Array} capitalHistory - 资金历史
  * @param {Array} dates - 日期列表
  */
+function _backtestChartHint() {
+    const box = document.getElementById('modal-backtest-results-container');
+    if (!box || document.getElementById('backtest-chart-hint')) return;
+    const div = document.createElement('div');
+    div.id = 'backtest-chart-hint';
+    div.className = 'card';
+    div.style.marginBottom = '20px';
+    div.innerHTML = '<div class="card-header"><h3>收益曲线</h3></div>'
+        + '<div class="card-body" style="color:#b45309;font-size:13px;">'
+        + '⚠️ 图表库（Chart.js）未加载。项目已内置本地副本（无需联网），'
+        + '请按 <b>F5</b> 重新加载页面；其余回测数据不受影响。</div>';
+    box.appendChild(div);
+}
+
 function drawEquityChartInModal(capitalHistory, dates) {
+    // 【2026-09-20 修复】Chart.js 由 CDN 引入，若未加载/被网络阻断，
+    //   原实现用裸标识符 `new Chart(...)` 会抛 "Chart is not defined" →
+    //   被 loadBacktestResultInModal 的 try 兜住 → 整个详情报"加载回测结果失败"。
+    //   现：改用 window.Chart（ES 模块下更稳妥）+ 缺库时只提示、不阻断详情加载。
+    if (!window.Chart) {
+        // 【2026-09-20】自愈：缺库时动态加载**项目内置**的本地 Chart.js，加载完成后重绘本图。
+        //   注意：不依赖 dashboard_stats.js（可能未加载或未更新），此处自带加载逻辑，
+        //   因此只要页面重新加载过（F5）就一定能画出来，且**无需联网**。
+        if (window.ensureChartJs) {
+            window.ensureChartJs(function () { drawEquityChartInModal(capitalHistory, dates); });
+            return;
+        }
+        if (!window.__backtestChartLoading) {
+            window.__backtestChartLoading = true;
+            const s = document.createElement('script');
+            s.src = '/static/js/lib/chart.umd.min.js';
+            s.onload = function () {
+                window.__backtestChartLoading = false;
+                if (window.Chart) {
+                    drawEquityChartInModal(capitalHistory, dates);   // 加载成功 → 重绘
+                } else {
+                    _backtestChartHint();
+                }
+            };
+            s.onerror = function () { window.__backtestChartLoading = false; _backtestChartHint(); };
+            document.head.appendChild(s);
+            return;
+        }
+        _backtestChartHint();
+        return;
+    }
     const ctx = document.getElementById('modal-backtest-equity-chart');
     if (!ctx) {
         // 如果模态框中没有图表元素，添加一个
@@ -1439,14 +1499,22 @@ function drawEquityChartInModal(capitalHistory, dates) {
                         <h3>收益曲线</h3>
                     </div>
                     <div class="card-body">
-                        <canvas id="modal-backtest-equity-chart" style="height: 300px;"></canvas>
+                        <!-- 【2026-09-20】同上：固定高度定位容器（否则画布缓冲为 0 → 图表空白） -->
+                        <div style="position:relative; height:300px; width:100%;">
+                            <canvas id="modal-backtest-equity-chart"></canvas>
+                        </div>
                     </div>
                 </div>
             `;
         }
     }
     
-    const chartCtx = document.getElementById('modal-backtest-equity-chart').getContext('2d');
+    const _canvasEl = document.getElementById('modal-backtest-equity-chart');
+    if (!_canvasEl) {   // 【2026-09-20】兜底：画布不存在时不再抛错中断整个详情加载
+        console.warn('[回测详情] 未找到收益曲线画布，跳过绘制');
+        return;
+    }
+    const chartCtx = _canvasEl.getContext('2d');
     
     // 销毁旧图表
     if (window.modalEquityChart) {
@@ -1467,8 +1535,8 @@ function drawEquityChartInModal(capitalHistory, dates) {
         return ((capital - initialCapital) / initialCapital) * 100;
     });
     
-    // 创建新图表
-    window.modalEquityChart = new Chart(chartCtx, {
+    // 创建新图表（window.Chart：ES 模块下避免裸标识符解析问题）
+    window.modalEquityChart = new window.Chart(chartCtx, {
         type: 'line',
         data: {
             labels: labels,

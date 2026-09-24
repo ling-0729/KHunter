@@ -98,6 +98,11 @@ strategies:
     profit_loss_ratio: 3.5
     description: 龙头策略
 
+  NewStockDrawdownStrategy:
+    win_rate: 0.28
+    profit_loss_ratio: 3.2
+    description: 次新腰斩策略（次新超跌，待实测校准）
+
   _default_:
     win_rate: 0.28
     profit_loss_ratio: 3.2

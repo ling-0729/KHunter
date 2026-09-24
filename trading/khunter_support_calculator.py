@@ -50,6 +50,7 @@ class KHunterSupportCalculator:
         'MultiPartyCannonStrategy': 'key_open',
         'ResistanceBreakoutStrategy': 'key_close_5',
         'MainUptrendDipBuyStrategy': 'key_close_5',
+        'NewStockDrawdownStrategy': 'ma20',
         'StrongWashWeakToStrongStrategy': 'key_close',
         'TrendAccelerationInflectionStrategy': 'key_close_5',
         'TrendResonanceReversalStrategy': 'ma20',

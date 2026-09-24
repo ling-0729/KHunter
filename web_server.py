@@ -778,14 +778,37 @@ def get_stock_detail(code):
         from utils.technical import KDJ
         kdj_df = KDJ(df, n=9, m1=3, m2=3)
         
-        # 转换为列表格式，返回最近100条数据
+        # 【2026-09-20】九转(TD)标注：在**完整历史**上算序列（避免 Setup 前置被截断），
+        #   再把结果按日期挂到每根 K 线行上（前端零签名改动即可绘制 1..9）。
+        td9_map = {}
+        try:
+            from utils.td_sequential import compute_td_marks
+            # 【2026-09-20】only_complete=False：同时输出"**进行中**"的序列（未走到 9），
+            #   供前端展示"末端在最后一根 K 线且计数 >= 7"的**即将完成九转** ✓
+            #   （策略侧仍用默认 only_complete=True ✓ 行为零变化 ✓）
+            _res = compute_td_marks(df.iloc[::-1].reset_index(drop=True),
+                                    only_complete=False)                    # 倒序喂入
+            for _m in _res.get('marks', []):
+                _slot = td9_map.setdefault(_m['date'], {})
+                _slot[_m['type']] = _m['seq']
+                if _m.get('cancelled'):
+                    _slot[_m['type'] + '_cancelled'] = True
+            td9_meta = {'bars_used': _res.get('bars', 0),
+                        'buy_countdown_complete_on': _res.get('buy_countdown_complete_on'),
+                        'sell_countdown_complete_on': _res.get('sell_countdown_complete_on')}
+        except Exception as e:
+            logger.warning(f"九转标注计算失败（忽略，不影响K线）: {e}")
+            td9_meta = {}
+
+        # 转换为列表格式，返回最近 120 条数据（2026-09-20 由 100 扩到 120）
         data = []
-        # 取最后100条（最新的数据）
-        start_idx = max(0, len(df) - 100)
+        start_idx = max(0, len(df) - 120)
         for i in range(start_idx, len(df)):
             row = df.iloc[i]
             kdj_row = kdj_df.iloc[i]
+            _d = row['date'].strftime('%Y-%m-%d')
             data.append({
+                'td9': td9_map.get(_d),
                 'date': row['date'].strftime('%Y-%m-%d'),
                 'open': round(row['open'], 2) if pd.notna(row['open']) else None,
                 'high': round(row['high'], 2) if pd.notna(row['high']) else None,
@@ -799,7 +822,8 @@ def get_stock_detail(code):
                 'J': round(kdj_row['J'], 2) if pd.notna(kdj_row['J']) else None
             })
         
-        return jsonify({'success': True, 'code': code, 'data': data})
+        return jsonify({'success': True, 'code': code, 'data': data,
+                        'td9_meta': td9_meta})
     except Exception as e:
         logger.error(f"获取股票详情失败: {e}")
         return jsonify({'success': False, 'error': str(e)})
@@ -2639,18 +2663,21 @@ def start_update():
     
     请求体：
         {
-            'updateTypes': ['basic_data', 'history_data', ...]
+            'updateTypes': ['basic_data', 'history_data', ...],
+            'force': true      # 可选：手动重新更新（不考虑当天是否已更新过）
         }
     
     返回：
         更新任务信息
     """
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         update_types = data.get('updateTypes', None)
+        # 前端"更新数据"按钮传 force=True：忽略"数据已是最新"的幂等跳过，重新开始更新
+        force = bool(data.get('force', False))
         
         # 启动更新任务
-        result = data_collection_service.start_update(update_types)
+        result = data_collection_service.start_update(update_types, force=force)
         
         return jsonify({
             'success': result['success'],
@@ -3204,6 +3231,31 @@ def get_latest_market_temperature():
         })
 
 
+@app.route('/api/market-index-adx/trend', methods=['GET'])
+def get_market_index_adx_trend():
+    """市场指数 ADX 趋势（市场速览"温度"旁展示 + 下钻详情用 · 2026-09-20）
+
+    数据来源：`market_index_adx` 表（每日数据更新时由 `MarketIndexADX().calculate()`
+    落库；标的为全A口径指数 000985.CSI，period=14）→ **无需实时计算**。
+
+    请求参数：
+        days: 天数，默认 30（约近一个月交易日）
+
+    返回：
+        data.trend: [{trade_date, adx, plus_di, minus_di, trend_strength, ...}]（升序）
+        data.latest_adx / latest_strength / latest_trade_date / avg_adx / max_adx / min_adx
+    """
+    try:
+        from trading.market_index_adx_dao import MarketIndexADXDAO
+        days = int(request.args.get('days', 30))
+        days = max(1, min(days, 250))
+        result = MarketIndexADXDAO().get_trend(days)
+        return jsonify({'success': True, 'data': clean_data_for_json(result)})
+    except Exception as e:
+        logger.error(f"获取市场指数ADX趋势失败: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/market-temperature/trend', methods=['GET'])
 def get_market_temperature_trend():
     """
@@ -3537,21 +3589,20 @@ def run_strategy_batch():
         #   trading.timing_strategies.build_turtle_family_params 合并）。
         #   2026-09-16 修复：原实现只认 'turtle' 且写顶层键 → 海龟plus 回退默认预设(10/5/10)，
         #   与 config/strategy_params.yaml（12/6/12）不一致，回测结果无法代表配置口径。
-        from trading.timing_strategies import TURTLE_FAMILY_STRATEGIES
+        # 【2026-09-23 合并】海龟类参数统一走**唯一读取入口** ✓（yaml 只保留一个配置块）
+        from trading.timing_strategies import (
+            TURTLE_FAMILY_STRATEGIES, load_turtle_family_params)
         _timing_names = {str(t.get('timing_strategy') or '') for t in tasks}
         _turtle_tasks = [n for n in TURTLE_FAMILY_STRATEGIES if n in _timing_names]
         if _turtle_tasks:
-            _blocks = {'turtle': 'TurtleStrategy', 'low_turtle': 'TurtleStrategy',
-                       'turtle_plus': 'TurtlePlusStrategy'}
             try:
+                from utils.strategy_config_manager import StrategyConfigManager
                 config_manager = StrategyConfigManager()
                 _timing_params = dict(config.get('timing_params') or {})
                 for _name in _turtle_tasks:
-                    _params = config_manager.get_strategy_config(
-                        _blocks.get(_name, 'TurtleStrategy')).get('params', {}) or {}
+                    _params = load_turtle_family_params(_name, config_manager)
                     # 调用方显式传入的同名键优先（不覆盖）
                     _timing_params[_name] = {**_params, **(_timing_params.get(_name) or {})}
-                    logger.info(f"从配置文件读取{_name}策略参数: {_params}")
                 config['timing_params'] = _timing_params
                 # 单一海龟类策略时同时写顶层键（运行器/引擎优先读顶层配置）
                 if len(_turtle_tasks) == 1:
@@ -3632,7 +3683,10 @@ def get_strategy_status():
             try:
                 with open(pool_file, 'r', encoding='utf-8') as f:
                     pool_data = json.load(f)
-                    selected_stocks = len(pool_data.get('pool', []))
+                    # 【2026-09-18】统计口径同样剔除非股票品种（标准券/质押券）
+                    from trading.strategy_runner import filter_non_stock_pool
+                    selected_stocks = len(filter_non_stock_pool(
+                        pool_data.get('pool', []), where='选股数量统计'))
             except Exception as e:
                 logger.warning(f"读取股票池文件失败: {str(e)}")
         
@@ -3942,6 +3996,36 @@ def _get_portfolio_auto(runner, working_date: str):
     })
 
 
+_TRADING_DAYS_CACHE = {'dates': None, 'fetched_at': 0.0}
+
+
+def _get_trading_days_cached():
+    """近 400 天的**真实交易日**列表（`stock_kline` 去重日期 ✓）· 进程内缓存 10 分钟 ✓
+
+    用途：`/api/portfolio` 的"持有天"需**精确到交易日** ✗
+    （按工作日近似会把法定节假日算进去 ✗）
+    """
+    import time as _time
+    from datetime import date as _date, timedelta as _tdelta
+
+    now_ts = _time.time()
+    if (_TRADING_DAYS_CACHE['dates'] is not None
+            and (now_ts - _TRADING_DAYS_CACHE['fetched_at']) < 600):
+        return _TRADING_DAYS_CACHE['dates']
+    dates = []
+    try:
+        from utils.global_db import get_global_db
+        _start = (_date.today() - _tdelta(days=400)).strftime('%Y-%m-%d')
+        rows = get_global_db().query(
+            'SELECT DISTINCT date FROM stock_kline WHERE date >= ? ORDER BY date', (_start,))
+        dates = sorted({str(r['date'])[:10] for r in rows if r and r.get('date')})
+    except Exception as _e:
+        logger.warning(f"读取交易日历失败（持有天将回退为工作日口径）: {_e}")
+    _TRADING_DAYS_CACHE['dates'] = dates
+    _TRADING_DAYS_CACHE['fetched_at'] = now_ts
+    return dates
+
+
 @app.route('/api/portfolio')
 def get_portfolio():
     """
@@ -4075,6 +4159,47 @@ def get_portfolio():
                     # 累加持仓市值（用新价格）
                     total_value += quantity * current_price
                     
+                    # 【2026-09-21】持有天数修复 ✓
+                    #   原实现：'hold_days': pos.get('hold_days', …0) ✗ —— 但持仓字典里
+                    #   **根本没有 hold_days 字段** ✗ → 接口恒返回 0 ✗ → 前端"持有天"全 0 ✗
+                    #   现：从建仓日算到当前日，统计**工作日**（周一~周五 ✓）近似交易日口径 ✓
+                    #   （不引入新依赖 ✓；与"买入当日=0 天"的习惯一致 ✓）
+                    _hold_days_out = 0
+                    _buy_date_str = ''
+                    try:
+                        _hv = pos.get('hold_days') or pos.get('holding_days')
+                        if _hv not in (None, ''):
+                            _hold_days_out = max(0, int(float(_hv)))
+                        if _hold_days_out <= 0:
+                            _raw_buy = (pos.get('first_buy_date') or pos.get('buy_date')
+                                        or pos.get('added_date') or pos.get('key_date') or '')
+                            _d1 = ''.join(ch for ch in str(_raw_buy) if ch.isdigit())[:8]
+                            _d2 = ''.join(ch for ch in str(working_date) if ch.isdigit())[:8]
+                            if len(_d1) == 8 and len(_d2) == 8 and _d1 <= _d2:
+                                _iso1 = '%s-%s-%s' % (_d1[:4], _d1[4:6], _d1[6:8])
+                                _iso2 = '%s-%s-%s' % (_d2[:4], _d2[4:6], _d2[6:8])
+                                _buy_date_str = _iso1
+                                _tds = _get_trading_days_cached()
+                                if _tds:
+                                    # 【2026-09-21】**精确到交易日** ✓
+                                    #   统计 (建仓日, 当前日] 内的交易日数量 ✓
+                                    #   例：09-17 建仓 → 09-21（含 09-18）为 2 个交易日 ✓
+                                    _hold_days_out = max(
+                                        0, sum(1 for _td_date in _tds if _iso1 < _td_date <= _iso2))
+                                else:
+                                    # 兜底：交易日历取不到时，退回"工作日"近似 ✓
+                                    from datetime import date as _date, timedelta as _td
+                                    _cur = _date(int(_d1[:4]), int(_d1[4:6]), int(_d1[6:8]))
+                                    _end = _date(int(_d2[:4]), int(_d2[4:6]), int(_d2[6:8]))
+                                    _cnt = 0
+                                    while _cur <= _end:
+                                        if _cur.weekday() < 5:
+                                            _cnt += 1
+                                        _cur += _td(days=1)
+                                    _hold_days_out = max(0, _cnt - 1)
+                    except Exception as _he:
+                        logger.debug(f"计算持有天数失败（忽略，返回0）{stock_code}: {_he}")
+
                     positions_list.append({
                         'id': pos.get('id', stock_code),
                         'stock_code': stock_code,
@@ -4086,7 +4211,8 @@ def get_portfolio():
                         'take_profit_price': take_profit_price,
                         'profit_loss': pos.get('profit_loss', profit_loss),
                         'profit_loss_percent': pos.get('profit_loss_percent', profit_loss_percent),
-                        'hold_days': pos.get('hold_days', pos.get('holding_days', 0))
+                        'hold_days': _hold_days_out,
+                        'buy_date': _buy_date_str          # 顺带回传建仓日 ✓（前端可自行核对 ✓）
                     })
         
         # 计算总资产和盈亏率
@@ -4409,6 +4535,10 @@ def get_stock_pool():
                 pool = pool_data.get('pool', [])
         else:
             pool = []
+        # 【2026-09-18】展示层同样剔除非股票品种（标准券/质押券）：历史文件可能残留，
+        #   避免前端股票池继续显示（与运行器 / 持仓回池 同一判定口径）
+        from trading.strategy_runner import filter_non_stock_pool
+        pool = filter_non_stock_pool(pool, where='股票池展示')
         
         # 【优化】只调用一次获取交易日列表，避免对每只股票重复查询
         # 获取历史交易日（过去60天足够了）
@@ -4775,8 +4905,9 @@ def get_risk_history():
         # 获取历史风控状态
         history = controller.get_risk_history(days)
         
-        # 转换为字典列表
-        history_data = [status.to_dict() for status in history]
+        # 转换为字典列表（2026-09-20：get_risk_history 现优先返回 DB 行 dict，
+        #   内存兜底时才是 RiskStatus 对象 → 两种都兼容）
+        history_data = [s if isinstance(s, dict) else s.to_dict() for s in history]
         
         return jsonify({
             'success': True,

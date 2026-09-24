@@ -1185,6 +1185,9 @@
 
 /* 图表容器 */
 .chart-container {
+    /* 【2026-09-20】Chart.js 要求容器 position:relative 作为响应式尺寸计算基准
+       （缺失时弹窗/隐藏状态下渲染会出现 0 尺寸或尺寸错乱） */
+    position: relative;
     height: 250px;
     background: #f9fafb;
     border-radius: 8px;

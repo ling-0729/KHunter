@@ -7,7 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/khunter.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 【2026-09-20】Chart.js 改为本地内置（原为 CDN 引入：CDN 不可达时前端会报
+         "Chart is not defined"，回测详情/仪表盘图表全部失效） -->
+    <script src="/static/js/lib/chart.umd.min.js"></script>
     <style>
         /* 响应式设计 */
         @media (max-width: 768px) {
@@ -273,9 +275,11 @@
             background: #fecaca;
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- 【2026-09-20】前端三方库全部本地内置，不再依赖外部 CDN：
+         · Chart.js 已在 <head> 顶部引入（此处原为重复引入，已移除）；
+         · lightweight-charts / socket.io 改为本地副本，离线/内网可用 -->
+    <script src="/static/js/lib/lightweight-charts.standalone.production.js"></script>
+    <script src="/static/js/lib/socket.io.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -1043,7 +1047,11 @@
                                 <div style="margin-bottom:24px;">
                                     <h5 style="margin-bottom:12px; color:#374151; font-size:14px;">收益曲线</h5>
                                     <div style="border:1px solid #e5e7eb; border-radius:6px; padding:16px; background:#ffffff;">
-                                        <canvas id="backtest-equity-chart" height="300"></canvas>
+                                        <!-- 【2026-09-20】Chart.js 标准写法：外层固定高度定位容器
+                                             （原为 canvas 内联 height + 父容器无高度 → 画布缓冲为 0，图表空白） -->
+                                        <div style="position:relative; height:300px; width:100%;">
+                                            <canvas id="backtest-equity-chart"></canvas>
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -2160,9 +2168,10 @@
         </div>
     </div>
 
-    <script src="/static/js/dashboard_stats.js"></script>
-    <script type="module" src="/static/js/app.js?v=14"></script>
-    <script src="/static/js/kline_chart.js"></script>
+    <script src="/static/js/dashboard_stats.js?v=20260920"></script>
+    <!-- 【2026-09-20】v=15：强制刷新模块图（含 modules/backtest.js 等图表自愈逻辑） -->
+    <script type="module" src="/static/js/app.js?v=15"></script>
+    <script src="/static/js/kline_chart.js?v=20260920"></script>
     <script src="/static/js/init_simple.js?v=2"></script>
     <script src="/static/js/trading.js"></script>
     <script src="/static/js/data_update.js?v=2"></script>

@@ -1,0 +1,16 @@
+# 自动检测文本文件并规范化换行符（提交时统一为 LF）
+* text=auto
+
+# 二进制文件不转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.pptx binary
+*.db binary
+*.db-shm binary
+*.db-wal binary
+*.so binary
+*.pyd binary

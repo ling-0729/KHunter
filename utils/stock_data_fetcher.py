@@ -184,15 +184,50 @@ class StockDataFetcher:
         return {}
     
     def _save_stock_names(self, stock_dict: dict) -> None:
+        """把最新股票名称**刷新到数据库** stock_basic（数据更新环节的名称更新 · 2026-09-19）
+
+        背景（2026-09-19 排查）
+        ----------------------
+        本方法原为空实现（"已禁用，改为从数据库读取"），导致 `fetch_stock_list()` 拿到的
+        最新名称被**直接丢弃**；而库内 name 只在首次入库时写入一次、此后永不刷新。
+        若某股入库当天恰逢上市首日（数据源返回 `N某某` / 上市第 2~5 日返回 `C某某` 的
+        交易所上市标记），该错误名称会被**永久固化** —— 实测库存 23 条此类过期名称
+        （如 `301677 N欣兴工具`，上市已 37 个交易日）。
+
+        现改为两步：
+          1. 名称回写：仅更新**已存在**的代码（不新增行，避免造出缺字段记录）；
+          2. 上市标记纠错：清理已越过 N/C 标记窗口的历史脏名称（见 utils.fix_stale_stock_names）。
+
+        Args:
+            stock_dict: 股票代码（不含后缀）→ 名称 的映射字典
         """
-        保存股票名称到本地文件（已禁用，改为从数据库读取）
-        
-        参数：
-            stock_dict: 股票代码到名称的映射字典
-        """
-        # 不再保存到 stock_names.json 文件
-        # 系统已改为从数据库读取股票名称
-        logger.debug(f"跳过保存股票名称到文件（已改为数据库存储）")
+        if not stock_dict:
+            return
+        try:
+            from utils.global_db import get_global_db
+            db = get_global_db()
+            existing = {str(r.get('code')): str(r.get('name') or '')
+                        for r in (db.query('SELECT code, name FROM stock_basic') or [])}
+            changed = 0
+            for code, name in stock_dict.items():
+                code, name = str(code or ''), str(name or '')
+                if not code or not name or code not in existing:
+                    continue                     # 只刷新已存在的代码
+                if existing[code] != name:
+                    db.update('stock_basic', {'name': name}, {'code': code})
+                    changed += 1
+            logger.info(f"股票名称刷新完成: 库内 {len(existing)} 只 / 本次比对 {len(stock_dict)} 只 "
+                        f"/ 更新 {changed} 只")
+            # 清理"已过 N/C 标记窗口"的历史脏名称（静默模式，避免刷日志）
+            try:
+                from utils.fix_stale_stock_names import fix_stale_names
+                n = fix_stale_names(db, verbose=False)
+                if n:
+                    logger.info(f"上市标记名称纠错: {n} 条（N/C 前缀已过期）")
+            except Exception as e:
+                logger.warning(f"上市标记名称纠错失败（忽略）: {e}")
+        except Exception as e:
+            logger.warning(f"刷新股票名称失败（忽略，不影响行情更新）: {e}")
     
     def _fetch_stock_list_http(self) -> dict:
         """
@@ -1568,16 +1603,18 @@ class StockDataFetcher:
                 # 按日期排序
                 stock_df = stock_df.sort_values('trade_date', ascending=True).reset_index(drop=True)
 
-                # 检测时间段内的变化，仅保留目标日期当天的除权
+                # 检测**整个时间段内**的因子变化（2026-09-17 修复）
+                #   ⚠️ 原实现有 `if change_date != trade_date: continue` → 只认目标日**当天**的除权，
+                #   使"检测时间段"（由 last_update ~ target 传入，可能是一个月）形同虚设：
+                #   若更新任务漏跑/中断（节假日、服务未启动、跑在非交易日），区间内发生的除权
+                #   会被永久漏检 → 相关股票历史K线仍停留在旧复权因子基准 → 价格序列出现断层。
+                #   现改为：区间内任一交易日因子变化都算除权，该股票（只登记一次，见下方判断）
+                #   会被 _rebuild_stock_history 整段重建（删库 + 重取 6 年前复权历史）。
                 stock_factor_changes = []
                 for i in range(1, len(stock_df)):
                     prev_factor = stock_df.iloc[i-1]['adj_factor']
                     curr_factor = stock_df.iloc[i]['adj_factor']
                     change_date = stock_df.iloc[i]['trade_date']
-
-                    # 只检测目标日期当天的除权
-                    if change_date != trade_date:
-                        continue
 
                     # 对比因子是否变化（浮点数比较，使用相对误差）
                     if abs(curr_factor - prev_factor) > 0.0001 * prev_factor:

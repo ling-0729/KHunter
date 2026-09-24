@@ -112,6 +112,11 @@
       "name": "主升低吸策略",
       "weight": 50,
       "description": "正向信号，一拉二调后贴紧突破R"
+    },
+    {
+      "name": "次新腰斩策略",
+      "weight": 55,
+      "description": "正向信号，上市半年内且较上市以来最高价跌幅≥50%"
     }
   ],
   "veto_config": {

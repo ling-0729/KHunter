@@ -677,6 +677,11 @@ class KlineUpdater:
             result['factor_changes'] = check_result.get('factor_changes', {})
             logger.warning(f"【除权检测】检测到 {len(check_result['exdividend_stocks'])} 只股票发生除权")
             logger.warning(f"【除权检测】检测时间段：{start_date if start_date else '前一交易日'} ~ {trade_date}")
+            # 区间内除权股票偏多时给出提示（重建为逐只重取多年历史，耗时较长）
+            if len(check_result['exdividend_stocks']) > 50:
+                logger.warning(
+                    "【除权检测】区间内除权股票较多（>50 只），重建将逐只重取多年历史、耗时较长；"
+                    "建议保持每日更新，避免长时间漏跑后一次性补建")
             # 逐只股票打印详细除权信息
             for stock_code in check_result['exdividend_stocks']:
                 changes = check_result.get('factor_changes', {}).get(stock_code, [])

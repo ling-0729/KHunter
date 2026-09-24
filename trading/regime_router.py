@@ -97,6 +97,9 @@ DEFAULT_CONFIG: Dict = {
     'state_file': None,          # None → data/running/regime_state.json
     'rules': None,               # None → DEFAULT_RULES
     'manual_override': {'enabled': False, 'selector': None, 'timing': None, 'position': None},
+    # 方向过滤（2026-09-17 严格方案）：空头方向（-DI > +DI）不开新仓
+    #   默认关闭；regime_router.yaml 中 enabled: true 时生效
+    'direction_filter': {'enabled': False, 'block_open_when_bear': True},
 }
 
 
@@ -106,6 +109,7 @@ class RouteDecision:
     regime: str = ''                 # 生效档位（'震荡' | '萌芽' | '明确'）
     selector_strategy: str = ''      # 选股策略（中文名，可直接传给选股流程）
     no_selection: bool = False       # 选股「空值」=空仓：选股/评分照常执行，结果置 0 只
+    bear_blocked: bool = False       # 空头方向过滤命中：当日不开新仓（仓位系数置 0）
     timing_strategy: str = ''        # 择时策略（工厂 key，如 'macd_bollinger'）
     position_ratio: float = 1.0      # 仓位系数 0.0 ~ 1.0
     buy_execution: str = ''          # 买入执行方式：'open' | 'ma_limit'
@@ -146,6 +150,8 @@ class RegimeRouter:
         self.init_immediate = bool(cfg.get('init_immediate', True))
         self.rules: Dict[str, Dict] = cfg.get('rules') or DEFAULT_RULES
         self.manual: Dict = cfg.get('manual_override') or {}
+        # 方向过滤配置（空头方向不开新仓；见 _apply_direction_filter）
+        self.direction_filter: Dict = cfg.get('direction_filter') or {}
         self.state_path = Path(cfg.get('state_file') or _STATE_PATH)
 
     # ------------------------------------------------------------------
@@ -344,7 +350,7 @@ class RegimeRouter:
                 if active and self.rules.get(active):
                     logger.debug(f'ADX 无数据({trade_date})，沿用 {active}')
                     return self._build(active, decision, int(st.get('pending_count') or 0),
-                                       source='stale')
+                                       source='stale', adx_rec=rec)
                 decision.source = 'disabled'
                 return decision
 
@@ -380,7 +386,7 @@ class RegimeRouter:
                 logger.debug(f'[RegimeRouter] 等待确认中（{raw} 连续 {count}/{self.confirm_days} 日）')
                 return decision
 
-            result = self._build(active, decision, count, source='auto')
+            result = self._build(active, decision, count, source='auto', adx_rec=rec)
             if switched:
                 logger.info(f'[RegimeRouter] 生效决策: {result.regime} | '
                             f'选股={result.selector_strategy or (NO_SELECTION_LABEL + "(结果置0)")} '
@@ -393,8 +399,8 @@ class RegimeRouter:
             return RouteDecision(source='disabled')
 
     def _build(self, regime: str, decision: RouteDecision, count: int,
-               source: str = 'auto') -> RouteDecision:
-        """按 regime 查表 + 应用人工覆盖"""
+               source: str = 'auto', adx_rec: Optional[Dict] = None) -> RouteDecision:
+        """按 regime 查表 + 应用人工覆盖 + 方向过滤（空头不开新仓）"""
         rule = self.rules.get(regime)
         if not rule:
             logger.debug(f'路由表缺少 regime={regime}，回退 disabled')
@@ -433,7 +439,40 @@ class RegimeRouter:
                         f'选股={decision.selector_strategy or (NO_SELECTION_LABEL + "(结果置0)")} '
                         f'择时={decision.timing_strategy} 仓位={decision.position_ratio:.0%}')
 
+        # 方向过滤（严格方案）：空头方向（-DI > +DI）→ 当日不开新仓
+        self._apply_direction_filter(decision, adx_rec)
+
         return decision
+
+    def _apply_direction_filter(self, decision: RouteDecision,
+                                rec: Optional[Dict]) -> None:
+        """方向过滤：空头方向（-DI > +DI）→ 当日不开新仓（2026-09-17 严格方案）
+
+        语义：
+          - 判定用**信号日（T-1）及之前**的 +DI/-DI（来自 market_index_adx，防前视）；
+          - 生效方式 = 把 `position_ratio` 置 0 → 回测引擎的仓位上限门禁只拦"新建仓"，
+            **加仓不受仓位限制、卖出/止盈止损照常**；
+          - 严格优先：在人工覆盖（manual_override）之后应用，避免被覆盖绕过；
+            需要临时放行时，把配置 `direction_filter.enabled` 置 false 即可。
+          - 开关关闭 / 缺少 DI 数据 / 决策未生效（pending、disabled）→ 一律不改动
+            （保证不改变历史行为）。
+        """
+        cfg = self.direction_filter or {}
+        if not cfg.get('enabled') or not cfg.get('block_open_when_bear', True):
+            return
+        if not rec or not decision.is_active():
+            return
+        try:
+            pdi = float(rec.get('plus_di'))
+            mdi = float(rec.get('minus_di'))
+        except (TypeError, ValueError):
+            return
+        if mdi > pdi:
+            decision.position_ratio = 0.0
+            decision.bear_blocked = True
+            logger.info(
+                f'[RegimeRouter] 方向过滤生效: -DI({mdi:.1f}) > +DI({pdi:.1f}) → '
+                f'{decision.regime} 档当日不开新仓（仓位系数置 0；加仓/卖出不受影响）')
 
     # ------------------------------------------------------------------
     # 辅助

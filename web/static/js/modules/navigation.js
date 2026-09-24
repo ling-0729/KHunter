@@ -112,7 +112,7 @@ export function switchPage(page) {
     } else if (page === 'regime-backtest') {
         // 自适应回测页面 - 初始化
         // 版本参数用于突破浏览器模块缓存（改动后需递增）
-        import('./regime-backtest.js?v=20260911').then(module => module.initRegimeBacktestPage());
+        import('./regime-backtest.js?v=20260920').then(module => module.initRegimeBacktestPage());
     } else if (page === 'khunter') {
         // 狩猎场页面 - 初始化
         import('./khunter.js').then(module => module.initKHunterPage());

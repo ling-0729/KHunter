@@ -94,6 +94,115 @@ function initKlineChart(containerId, rawData) {
  * @param {number} adjustedRange - 调整后的价格范围
  * @param {number} candleSpacing - K线间距
  */
+/**
+ * 绘制九转(TD Sequential)标注（2026-09-20 新增）
+ *   买入(下跌)序列：贴在该根 K 线**低点下方** → **红色数字**
+ *   卖出(上升)序列：贴在该根 K 线**高点上方** → **绿色数字**
+ *   样式（2026-09-20 调整）：**不使用圆点**，只显示加粗数字 + 白色光晕（描边），
+ *   因此不受 K 线间距限制、也不会沿走势斜排压盖；
+ *   序号 9（完成位）字号更大（**不加下划线** · 2026-09-20 按反馈去掉）；被取消的序列 → 灰色
+ *   显示口径（2026-09-20）：完整 9 转 **或** "进行中且末端在最后一根 K 线、计数 >= 7"
+ *   数据来源：后端 GET /api/stock/<code> 每根 K 线的 td9 字段（按日期挂载）
+ * 数据来源：后端 GET /api/stock/<code> 每根 K 线的 td9 字段（按日期挂载）
+ */
+function drawTD9Marks(ctx, formattedData, padding, chartHeight, adjustedMin, adjustedRange, candleSpacing) {
+    if (!formattedData || !formattedData.candleData || !formattedData.candleData.length) return;
+    const getY = (price) => padding + chartHeight - ((price - adjustedMin) / adjustedRange) * chartHeight;
+    // 【2026-09-20】按国内习惯：买入序列=红、卖出序列=绿（原为买绿卖红 ✗）
+    const C_BUY = '#dc2626', C_SELL = '#16a34a', C_OFF = '#94a3b8';
+    const narrow = candleSpacing < 7;          // K 线密集时字号略小
+    const fs = narrow ? 11 : 12;               // 【2026-09-20】加大字号：只留数字也要醒目 ✓
+
+    // 【2026-09-20】按类型扫描连续段（序号逐根 +1），满足以下**任一**条件即显示：
+    //   ① 完整 9 转：本段序号走到 9 ✓
+    //   ② **进行中**（2026-09-20 新增需求）：序列末端就在**最后一根 K 线**上，
+    //      且当前计数 **>= 7** ✓ → 提前显示，便于预判"即将完成的九转"（不必等它到 9）
+    //   其余碎片（中间位置断掉、或末端不足 7）一律不画 ✓
+    const TYPES = ['buy_setup', 'buy_countdown', 'sell_setup', 'sell_countdown'];
+    const completeKeys = new Set();            // `${index}|${type}` —— 需要显示的序号
+    const lastIdx = formattedData.candleData.length - 1;
+    TYPES.forEach(function (t) {
+        let run = [];
+        const flush = function () {
+            if (run.length) {
+                const tail = run[run.length - 1];
+                const isComplete = tail.v >= 9;
+                const isPendingOnLastBar = (tail.i === lastIdx && tail.v >= 7);
+                if (isComplete || isPendingOnLastBar) {
+                    run.forEach(function (r) { completeKeys.add(r.i + '|' + t); });
+                }
+            }
+            run = [];
+        };
+        formattedData.candleData.forEach(function (c, i) {
+            const v = c.td9 ? c.td9[t] : null;
+            if (v === undefined || v === null) { flush(); return; }
+            if (run.length && !(i === run[run.length - 1].i + 1
+                    && v === run[run.length - 1].v + 1)) {
+                flush();
+            }
+            run.push({ i: i, v: v });
+        });
+        flush();
+    });
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let drawn = 0;                                  // 【2026-09-22】绘制计数，便于自检 ✓
+    formattedData.candleData.forEach((candle, index) => {
+        const td9 = candle.td9;
+        if (!td9) return;
+        const x = padding + index * candleSpacing + candleSpacing / 2;
+        // 【2026-09-20】按要求**恢复"跟随 K 线"的原始位置**（此前的固定横排已回退 ✗）：
+        //   买入序列 → 贴在该根 K 线**低点下方**（Setup 近、Countdown 再下一层）
+        //   卖出序列 → 贴在该根 K 线**高点上方**
+        //   由于现在只画数字（无圆点 ✓），不会再出现圆点互相压盖的问题 ✓
+        const slots = [
+            ['buy_setup', getY(candle.low) + 13, C_BUY, td9.buy_setup_cancelled],
+            ['buy_countdown', getY(candle.low) + 28, C_BUY, td9.buy_countdown_cancelled],
+            ['sell_setup', getY(candle.high) - 13, C_SELL, td9.sell_setup_cancelled],
+            ['sell_countdown', getY(candle.high) - 28, C_SELL, td9.sell_countdown_cancelled]
+        ];
+        slots.forEach(([key, yRaw, color, cancelled]) => {
+            const seq = td9[key];
+            if (seq === undefined || seq === null) return;
+            // 只画"完整 9 转"所属的序号（未完成序列不标注，见上方 completeKeys）
+            if (!completeKeys.has(index + '|' + key)) return;
+            // 【2026-09-22】把标注 Y 值**钳制在 K 线区内** ✗→✓：
+            //   买点原本在低点下方 +13/+28px，若该 K 线贴近区间底部，数字会落进
+            //   成交量区 ✗ → 被后绘制的成交量柱盖住 ✗（图上看不到标注的根因之一 ✓）
+            const y = Math.min(padding + chartHeight - 8, Math.max(padding + 8, yRaw));
+            // 【2026-09-20】去掉圆点，只显示"明显的数字"：
+            //   ① 粗体 + 白色光晕（描边）→ 压在任何背景上都清晰 ✓
+            //   ② 完成位（9）字号更大（不加下划线 ✓ 已按反馈去掉 ✗）
+            const label = String(seq);
+            const txtColor = cancelled ? C_OFF : color;
+            ctx.globalAlpha = cancelled ? 0.65 : 1;
+            ctx.font = 'bold ' + (seq >= 9 ? fs + 2 : fs)
+                + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(255,255,255,0.95)';   // 白色光晕
+            ctx.strokeText(label, x, y);
+            ctx.fillStyle = txtColor;
+            ctx.fillText(label, x, y);
+            ctx.globalAlpha = 1;
+            drawn += 1;                         // 【2026-09-22】计入已绘制数 ✓
+        });
+    });
+    ctx.restore();
+    // 【2026-09-22】自检日志：若"数据有 9 转却看不到标注"，先看这里 ✓
+    //   · drawn > 0 → 数据/逻辑正常（此前看不到是被成交量柱盖住 ✗，已修 ✓）
+    //   · drawn = 0 → 该窗口内确实没有"完整 9 转 / 末端≥7 的进行中序列" ✓
+    if (drawn > 0) {
+        console.log('[九转] 已绘制 ' + drawn + ' 个序号标记');
+    } else {
+        console.warn('[九转] 本窗口无 9 转可标注（需"完整 9 转"，或"末端在最后一根且计数≥7"）');
+    }
+}
+
 function drawMovingAverages(ctx, formattedData, padding, chartHeight, adjustedMin, adjustedRange, candleSpacing) {
     // 定义均线配置（MA5、MA10和MA20）
     const maConfigs = [
@@ -149,26 +258,71 @@ function drawMovingAverages(ctx, formattedData, padding, chartHeight, adjustedMi
  * @param {number} padding - 内边距
  */
 function drawMALegend(ctx, maConfigs, padding) {
-    const legendX = padding + 20;
-    const legendY = padding + 20;
-    const lineHeight = 18;
-    
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
-    ctx.textAlign = 'left';
-    
-    maConfigs.forEach((config, index) => {
-        if (!config.data || config.data.length === 0) return;
-        
-        const y = legendY + index * lineHeight;
-        
-        // 绘制颜色块
-        ctx.fillStyle = config.color;
-        ctx.fillRect(legendX, y - 8, 12, 2);
-        
-        // 绘制标签
-        ctx.fillStyle = config.color;
-        ctx.fillText(config.label, legendX + 18, y);
+    // 【2026-09-20】图例布局：横向一行 + 移到"标题行"（绘图区**之外**）
+    //   ① 原纵向堆叠（legendY + index*18）✗ → 标签彼此压盖 ✗
+    //   ② 曾画在绘图区内（padding+8）✗ → 白色底把 K 线挡住了 ✗
+    //   现：横向排列，位置在标题右侧（绘图区之上）→ 与 K 线零重叠 ✓，仍处左上角区域 ✓
+    const items = maConfigs.filter(function (c) { return c.data && c.data.length; });
+    if (!items.length) return;
+
+    const font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
+    ctx.save();
+    ctx.font = font;
+
+    const swatchW = 16, swatchGap = 6, itemGap = 18, boxPadX = 10;
+    let contentW = 0;
+    items.forEach(function (c, i) {
+        contentW += swatchW + swatchGap + ctx.measureText(c.label).width + (i ? itemGap : 0);
     });
+
+    // 【2026-09-20】区域修正：图例移到**标题行**（K 线绘图区**之上**、紧接标题右侧）
+    //   原实现画在 padding+8（绘图区内部）✗ → 白色底把 K 线挡住了 ✗；
+    //   现在图例不再与 K 线重叠，仍处"左上角"区域 ✓
+    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
+    const titleW = ctx.measureText('K线图表').width;
+    ctx.font = font;                          // ⚠️ 还原 12px 粗体：后续标签的测量与绘制都用它 ✓
+    const boxX = padding + 10 + titleW + 24;
+    const boxY = padding - 36;               // 与标题基线（padding-20）同一行
+    const boxH = 24;
+    const boxW = contentW + boxPadX * 2;
+
+    // 圆角白底（避免与 K 线/网格互相干扰）
+    const r = 7;
+    ctx.beginPath();
+    ctx.moveTo(boxX + r, boxY);
+    ctx.lineTo(boxX + boxW - r, boxY);
+    ctx.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
+    ctx.lineTo(boxX + boxW, boxY + boxH - r);
+    ctx.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
+    ctx.lineTo(boxX + r, boxY + boxH);
+    ctx.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
+    ctx.lineTo(boxX, boxY + r);
+    ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.55)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 横向依次绘制：色条 + 名称
+    let x = boxX + boxPadX;
+    const cy = boxY + boxH / 2;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    items.forEach(function (c) {
+        ctx.strokeStyle = c.color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(x, cy);
+        ctx.lineTo(x + swatchW, cy);
+        ctx.stroke();
+        x += swatchW + swatchGap;
+        ctx.fillStyle = c.color;
+        ctx.fillText(c.label, x, cy);
+        x += ctx.measureText(c.label).width + itemGap;
+    });
+    ctx.restore();
 }
 
 /**
@@ -320,8 +474,16 @@ function drawKlineChart(ctx, canvas, formattedData, rawData) {
     // 绘制均线
     drawMovingAverages(ctx, formattedData, padding, klineHeight, adjustedMin, adjustedRange, candleSpacing);
     
+    
     // 绘制成交量图表
     drawVolumeChart(ctx, formattedData, padding, volumeStartY, volumeHeight, candleWidth, candleSpacing);
+
+    // 【2026-09-22 修复】九转(TD)标注改到**最后**绘制（原来在成交量图之前 ✗）：
+    //   买点序号画在 K 线低点下方 +13/+28px，一旦贴近 K 线区底部就会落进成交量区 ✗，
+    //   而后绘制的成交量柱最高可占满整个成交量区 → 把数字**整段盖掉** ✗✓
+    //   （这正是"数据/算法都对，但图上看不到标注"的原因 ✓）
+    //   配合 drawTD9Marks 内部的 Y 值钳制，确保数字始终落在 K 线区内、且压在最上层 ✓
+    drawTD9Marks(ctx, formattedData, padding, klineHeight, adjustedMin, adjustedRange, candleSpacing);
     
     // 绘制坐标轴
     ctx.strokeStyle = '#333';
@@ -465,7 +627,9 @@ function formatKlineData(rawData) {
                 open: item.open,
                 high: item.high,
                 low: item.low,
-                close: item.close
+                close: item.close,
+                // 九转(TD)标注：后端按日期挂好 {buy_setup,buy_countdown,sell_setup,sell_countdown,_cancelled}
+                td9: item.td9 || null
             });
             closePrices.push(item.close);
             
