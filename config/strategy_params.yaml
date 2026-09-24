@@ -1931,26 +1931,42 @@ strategies:
     support_method: key_open
   OversoldReboundStrategy:
     color: '#f59e0b'
-    description: 识别近100交易日深度下跌(区间最高→最低跌幅>50%)后，近3交易日出现MACD底背离/底分型(右K阳线确认)/低位九转任一底部特征的超跌反弹机会
+    description: 识别选股日收盘价低于近120日最高价50%(相对最高价腰斩)后，近3交易日出现MACD底背离(必须)/底分型/低位九转/启明星任一附加底部特征的超跌反弹机会
     display_name: 超跌反弹策略
     icon: 📉
     param_details:
-      bottom_window:
-        default: 3
-        description: 底部特征搜索窗口（最近N个交易日）
-        display_name: 底部特征窗口
-        group: 底部特征条件
-        max: 10
-        min: 1
-        type: int
-      decline_threshold:
-        default: 0.5
-        description: 区间最高价到最低价的下跌幅度阈值（>阈值视为超跌）
-        display_name: 下跌幅度(%)
+      high_drawdown_days:
+        default: 120
+        description: 超跌窗口：取近 N 个交易日内的最高价作为比较基准
+        display_name: 超跌窗口(日)
         group: 超跌深度条件
-        max: 0.7
-        min: 0.3
+        max: 250
+        min: 60
+        type: int
+      high_drawdown_min:
+        default: 0.5
+        description: 选股日收盘价须低于近 N 日最高价的 (1-该值)；0.5 即"腰斩"
+        display_name: 相对最高价跌幅
+        group: 超跌深度条件
+        max: 0.8
+        min: 0.2
         type: float
+      exclude_new_stock_bars:
+        default: 120
+        description: 选股范围：K 线数 ≤ 该值视为次新并排除（与"次新腰斩策略"互斥）
+        display_name: 次新排除阈值(根)
+        group: 选股范围
+        max: 250
+        min: 60
+        type: int
+      min_data_len:
+        default: 130
+        description: 预加载窗口（历史交易日），需大于次新排除阈值以保证判定可靠
+        display_name: 历史窗口(交易日)
+        group: 选股范围
+        max: 250
+        min: 121
+        type: int
       enable_bottom_fractal:
         default: true
         description: 是否启用底分型特征（近3日最低价居中）
@@ -2087,12 +2103,14 @@ strategies:
     - description: 控制多策略综合评分的参数
       name: 评分参数
     params:
-      bottom_window: 3
-      decline_threshold: 0.5
+      exclude_new_stock_bars: 120
+      high_drawdown_days: 120
+      high_drawdown_min: 0.5
+      min_data_len: 130
       enable_bottom_fractal: 'true'
       enable_low_td9: 'true'
       enable_morning_star: 'true'
-      fractal_require_yang: 'false'
+      fractal_require_yang: 'true'
       lookback_days: 100
       macd_divergence_days: 20
       macd_fast: 12
@@ -2103,7 +2121,7 @@ strategies:
       rebound_cap: 0.3
       require_selection_day_yang: 'true'
       selection_day_min_gain: 0.01
-      strategy_weight: 50
+      strategy_weight: 60
       volume_avg_days: 5
       volume_surge_ratio: 1.3
     support_method: ma20
@@ -2634,296 +2652,92 @@ strategies:
     display_name: 海龟策略
     icon: 🐢
     param_details:
-      add_atr:
-        default: 0.5
-        description: 加仓ATR间隔，价格每上涨此ATR倍数加仓一次
-        display_name: 加仓ATR间隔
-        group: 加仓参数
-        max: 2.0
-        min: 0.25
-        type: float
+      # 【2026-09-23 精简】只保留必须项 ✓ —— 其余参数统一走代码默认值，无需在界面暴露 ✓
+      #   （默认值与精简前完全相同 ✓，行为不变 ✓；需要时才在下方 params 里补键 ✓）
       atr_period:
         default: 10
-        description: ATR计算周期
+        description: ATR计算周期（用于加仓间隔与ATR止损）
         display_name: ATR周期
-        group: ATR参数
+        group: 通道与ATR
         max: 30
         min: 5
         type: int
-      base_position_amount:
-        default: 50000
-        description: 底仓金额（元）
-        display_name: 底仓金额(元)
-        group: 仓位参数
-        max: 100000
-        min: 10000
-        type: int
-      entry_atr:
-        default: 0.02
-        description: 入场ATR比例，用于计算仓位
-        display_name: 入场ATR比例
-        group: 仓位参数
-        max: 0.05
-        min: 0.01
-        type: float
-      exit_atr:
-        default: 2.0
-        description: 出场ATR止损倍数，跌破入场价-此倍数*ATR止损
-        display_name: ATR止损倍数
-        group: 止损参数
-        max: 4.0
-        min: 1.0
-        type: float
-      n1:
-        default: 12
-        description: 入场通道周期，突破此周期的最高价入场
-        display_name: 入场通道周期
-        group: 通道参数
+      n_entry:
+        default: 10
+        description: 入场通道周期，第一买点为突破此周期最高价
+        display_name: 入场通道
+        group: 通道与ATR
         max: 20
         min: 1
         type: int
-      n2:
-        default: 20
-        description: 出场通道周期，跌破此周期的最低价出场
-        display_name: 出场通道周期
-        group: 通道参数
+      n_exit:
+        default: 5
+        description: 出场通道周期，跌破此周期最低价出场
+        display_name: 出场通道
+        group: 通道与ATR
         max: 55
-        min: 10
-        type: int
-      preset:
-        default: classic
-        description: 预设配置模式，classic为经典海龟(20/10)，short为短线海龟(10/5)，ultra_short为超短海龟(6/3)
-        display_name: 预设模式
-        group: 预设参数
-        options:
-        - classic
-        - short
-        - ultra_short
-        type: string
-    param_groups:
-    - description: 选择预设配置模式或自定义参数
-      name: 预设参数
-    - description: 控制唐奇安通道计算的参数
-      name: 通道参数
-    - description: 控制ATR指标计算的参数
-      name: ATR参数
-    - description: 控制止损止盈的参数
-      name: 止损参数
-    - description: 控制加仓条件的参数
-      name: 加仓参数
-    - description: 控制仓位的参数
-      name: 仓位参数
-    params:
-      add_atr: 0.5
-      atr_period: 12
-      base_position_amount: 20000
-      entry_atr: 0.02
-      exit_atr: 2.0
-      n_entry: 12
-      n_exit: 6
-      preset: custom
-    presets:
-      classic:
-        description: 经典海龟，20日入场/10日离场，适合趋势明显的品种
-        display_name: 经典海龟(20/10)
-        icon: 🐢
-        params:
-          add_atr: 0.5
-          atr_period: 20
-          base_position_amount: 20000
-          entry_atr: 0.02
-          exit_atr: 2.0
-          n_entry: 20
-          n_exit: 10
-      short:
-        description: 短线海龟，10日入场/5日离场，反应更灵敏
-        display_name: 短线海龟(10/5)
-        icon: ⚡
-        params:
-          add_atr: 0.5
-          atr_period: 10
-          base_position_amount: 20000
-          entry_atr: 0.02
-          exit_atr: 2.0
-          n_entry: 10
-          n_exit: 5
-      ultra_short:
-        description: 超短海龟，6日入场/3日离场，适合强势股高频交易
-        display_name: 超短海龟(6/3)
-        icon: 🚀
-        params:
-          add_atr: 0.5
-          atr_period: 6
-          base_position_amount: 20000
-          entry_atr: 0.02
-          exit_atr: 2.0
-          n_entry: 6
-          n_exit: 3
-    support_method: ma20
-  TurtlePlusStrategy:
-    color: '#0ea5e9'
-    description: 海龟plus策略，以海龟策略为基础只做第二买点——前溯N个交易日内出现过第一买点（突破前高）且其间无卖点，今日满足加仓条件（较第一买点T+1开盘价盈利达标、阳线上涨、上影线过滤、ATR加仓间隔、MA20）时发出买入信号
-    display_name: 海龟plus
-    icon: ➕
-    param_details:
-      add_atr:
-        default: 0.5
-        description: 加仓ATR间隔，价格每上涨此ATR倍数方可加仓
-        display_name: 加仓ATR间隔
-        group: 加仓参数
-        max: 2.0
-        min: 0.25
-        type: float
-      add_profit_min:
-        default: 0.02
-        description: 加仓盈利门槛，信号日收盘价较第一买点T+1开盘价需盈利此比例以上
-        display_name: 加仓盈利门槛
-        group: 加仓参数
-        max: 0.1
-        min: 0.0
-        type: float
-      atr_period:
-        default: 12
-        description: ATR计算周期
-        display_name: ATR周期
-        group: ATR参数
-        max: 30
-        min: 5
-        type: int
-      base_position_amount:
-        default: 20000
-        description: 底仓金额（元）
-        display_name: 底仓金额(元)
-        group: 仓位参数
-        max: 100000
-        min: 10000
+        min: 3
         type: int
       exit_atr:
         default: 2.0
-        description: 出场ATR止损倍数，跌破入场价-此倍数*ATR止损
+        description: ATR止损倍数，跌破入场价-此倍数*ATR 即止损
         display_name: ATR止损倍数
-        group: 止损参数
+        group: 止损
         max: 4.0
         min: 1.0
         type: float
       lookback_days:
         default: 5
-        description: 前溯窗口（交易日），信号日之前多少个交易日内需存在第一买点
-        display_name: 前溯交易日数
-        group: 前溯参数
+        description: 前溯窗口（交易日）：海龟plus 在信号日之前多少日内需出现第一买点
+        display_name: 前溯交易日
+        group: 海龟plus
         max: 20
         min: 1
         type: int
       max_additions:
         default: 4
-        description: 加仓次数上限，与海龟一致（4次）；0=不限制
+        description: 加仓次数上限（0 = 不限制）—— 海龟plus 用
         display_name: 加仓次数上限
-        group: 加仓参数
+        group: 海龟plus
         max: 8
         min: 0
         type: int
-      n_entry:
-        default: 12
-        description: 入场通道周期，第一买点为突破此周期最高价
-        display_name: 入场通道周期
-        group: 通道参数
-        max: 20
-        min: 1
-        type: int
-      n_exit:
-        default: 6
-        description: 出场通道周期，跌破此周期最低价出场
-        display_name: 出场通道周期
-        group: 通道参数
-        max: 55
-        min: 3
-        type: int
-      preset:
-        default: custom
-        description: 预设配置模式，classic为经典海龟(20/10)，short为短线海龟(10/5)，ultra_short为超短海龟(6/3)
-        display_name: 预设模式
-        group: 预设参数
-        options:
-        - custom
-        - classic
-        - short
-        - ultra_short
-        type: string
-      require_add_atr:
-        default: true
-        description: 是否保留海龟原生加仓的ATR间隔门槛
-        display_name: 保留ATR加仓间隔
-        group: 加仓参数
-        type: bool
-      require_no_sell_between:
-        default: true
-        description: 第一买点之后出现卖点（跌破下线/ATR止损）时直接跳过该信号
-        display_name: 窗口内无卖点
-        group: 前溯参数
-        type: bool
+      add_profit_min:
+        default: 0.02
+        description: 加仓盈利门槛：较第一买点成交价需盈利此比例 —— 海龟plus 用
+        display_name: 加仓盈利门槛
+        group: 海龟plus
+        max: 0.1
+        min: 0.0
+        type: float
     param_groups:
-    - description: 选择预设配置模式或自定义参数
-      name: 预设参数
-    - description: 前溯窗口与卖点过滤（第二买点的前置条件）
-      name: 前溯参数
-    - description: 控制唐奇安通道计算的参数
-      name: 通道参数
-    - description: 控制ATR指标计算的参数
-      name: ATR参数
-    - description: 控制止损止盈的参数
-      name: 止损参数
-    - description: 控制加仓条件的参数
-      name: 加仓参数
-    - description: 控制仓位的参数
-      name: 仓位参数
+    - description: 唐奇安通道与 ATR（海龟 / 海龟plus 共用的核心参数）
+      name: 通道与ATR
+    - description: ATR 止损
+      name: 止损
+    - description: 仅海龟plus 使用的第二买点判据
+      name: 海龟plus
     params:
-      add_atr: 0.5
+      # ============ 海龟类策略的**唯一**参数来源（2026-09-23 合并 + 精简）============
+      # 海龟策略(turtle) 与 海龟plus(turtle_plus) **共用这一份** ✓
+      # 所有入口统一由 trading.timing_strategies.load_turtle_family_params() 读取 ✓
+      # 默认口径：短线海龟 **10/5/10** ✓
+      # 上表未列出的参数一律使用**代码默认值**（与精简前取值相同 ✓）：
+      #   entry_atr=0.02 · add_atr=0.5 · base_position_amount=20000
+      #   require_add_atr=true · require_no_sell_between=true · preset='short'
+      #   → 如需调整，把对应键补写到这里即可 ✓
       add_profit_min: 0.02
-      atr_period: 12
-      base_position_amount: 20000
+      atr_period: 10
       exit_atr: 2.0
       lookback_days: 5
       max_additions: 4
-      n_entry: 12
-      n_exit: 6
-      preset: custom
-      require_add_atr: true
-      require_no_sell_between: true
-    presets:
-      classic:
-        description: 经典海龟，20日入场/10日离场，适合趋势明显的品种
-        display_name: 经典海龟(20/10)
-        icon: 🐢
-        params:
-          add_atr: 0.5
-          atr_period: 20
-          base_position_amount: 20000
-          exit_atr: 2.0
-          n_entry: 20
-          n_exit: 10
-      short:
-        description: 短线海龟，10日入场/5日离场，反应更灵敏
-        display_name: 短线海龟(10/5)
-        icon: ⚡
-        params:
-          add_atr: 0.5
-          atr_period: 10
-          base_position_amount: 20000
-          exit_atr: 2.0
-          n_entry: 10
-          n_exit: 5
-      ultra_short:
-        description: 超短海龟，6日入场/3日离场，适合强势股高频交易
-        display_name: 超短海龟(6/3)
-        icon: 🚀
-        params:
-          add_atr: 0.5
-          atr_period: 6
-          base_position_amount: 20000
-          exit_atr: 2.0
-          n_entry: 6
-          n_exit: 3
+      n_entry: 10
+      n_exit: 5
     support_method: ma20
+  # 【2026-09-23 合并】此处原有 TurtlePlusStrategy 配置块（与海龟策略重复 ✗）已删除：
+  #   海龟策略(turtle) 与 海龟plus(turtle_plus) **共用** TurtleStrategy 的 params ✓，
+  #   统一由 trading.timing_strategies.load_turtle_family_params() 读取 ✓。
+  #   如需调整海龟类参数，只改 TurtleStrategy.params 一处即可 ✓。
   WBottomStrategy:
     color: '#14b8a6'
     description: 识别W底双底反转形态，结合颈线突破、趋势反转和量价配合确认买入信号
@@ -3068,6 +2882,78 @@ strategies:
       volume_expand_ratio: 1.5
       volume_ma_period: 5
       volume_shrink_ratio: 0.8
+    support_method: ma20
+  NewStockDrawdownStrategy:
+    color: '#ef4444'
+    description: 次新腰斩策略——上市半年内的次新股，且当前价较上市以来最高价跌幅≥50%
+    display_name: 次新腰斩策略
+    icon: 📉
+    param_details:
+      drawdown_min:
+        default: 0.5
+        description: 当前价较「上市以来最高价」的跌幅下限
+        display_name: 跌幅下限
+        group: 选股条件
+        max: 0.9
+        min: 0.3
+        type: float
+      max_kline_bars:
+        default: 120
+        description: 次新口径：上市以来 K 线总数上限（120 根 ≈ 半年交易日）
+        display_name: K线总数上限
+        group: 选股条件
+        max: 250
+        min: 30
+        type: int
+      lookback_days:
+        default: 220
+        description: 历史窗口天数（须覆盖次新股完整历史；回测预加载按此+60天取数）
+        display_name: 历史窗口(天)
+        group: 数据参数
+        max: 400
+        min: 130
+        type: int
+      max_price:
+        default: 500.0
+        description: 股价上限（异常高价过滤）
+        display_name: 股价上限
+        group: 数据参数
+        type: float
+      min_bars:
+        default: 20
+        description: 上市以来最少K线根数（数据完整性）
+        display_name: 最少K线根数
+        group: 数据参数
+        max: 60
+        min: 10
+        type: int
+      min_price:
+        default: 1.0
+        description: 股价下限（仙股/异常数据过滤）
+        display_name: 股价下限
+        group: 数据参数
+        type: float
+      strategy_weight:
+        default: 55
+        description: 技术面评分权重
+        display_name: 策略权重
+        group: 评分参数
+        type: int
+    param_groups:
+    - description: 控制次新股与回撤条件的设置
+      name: 选股条件
+    - description: 控制历史窗口与异常值过滤
+      name: 数据参数
+    - description: 控制评分参数
+      name: 评分参数
+    params:
+      drawdown_min: 0.5
+      lookback_days: 220
+      max_kline_bars: 120
+      max_price: 500.0
+      min_bars: 20
+      min_price: 1.0
+      strategy_weight: 55
     support_method: ma20
 strategy_runner:
   check_interval: 60

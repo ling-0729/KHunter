@@ -66,8 +66,15 @@ class TurtleStrategy(TimingStrategy):
         super().__init__(config)
         
         # 应用预设配置（如果指定了preset）
-        preset_name = self.config.get('preset', 'short')  # 默认短线海龟
-        preset = self.PRESETS.get(preset_name, CLASSIC_PRESET)
+        # 【2026-09-23】默认与兜底统一为 short（10/5/10）✓
+        #   原实现：默认值 short ✓ 但**未知 preset 名**回退 classic（20/10/20）✗ ——
+        #   `preset: custom` 这类非法值会静默变成"更宽的通道" ✗，与"默认 10/5/10"的预期不符 ✗。
+        preset_name = self.config.get('preset', 'short')  # 默认短线海龟（10/5/10）
+        preset = self.PRESETS.get(preset_name, SHORT_TURTLE_PRESET)
+        # 【2026-09-23】记录最终生效的预设名，供回测/实盘日志打印真实口径 ✓
+        #   （否则日志只能打印 config 里的原始 preset ✗ —— 精简后该键已不在配置中 ✗，
+        #     会显示 None ✗，让人误以为"参数没读到" ✗，实际走的是默认 short = 10/5/10 ✓）
+        self.preset_name = preset_name
         
         # 从预设或直接配置中获取参数
         self.n_entry = self.config.get('n_entry', preset['n_entry'])    # 入场通道周期
@@ -78,11 +85,49 @@ class TurtleStrategy(TimingStrategy):
         self.exit_atr = self.config.get('exit_atr', preset['exit_atr'])        # 出场ATR止损倍数
         self.base_position_amount = self.config.get('base_position_amount', 20000)  # 底仓金额（元）
         self.use_fixed_amount = self.config.get('use_fixed_amount', True)  # 是否使用固定金额
-        
+
+        # 【2026-09-23 口径统一】加仓参数改为**读配置** ✓（原实现在 get_timing_result 里硬编码 ✗，
+        #   导致面板/配置文件改成任何值都不生效 ✗ —— 海龟plus 一直是读配置的 ✓，父子口径不一致 ✗）：
+        #     · add_profit_min：加仓盈利门槛（缺省 2% ✓，与海龟plus 同键同默认 ✓）
+        #     · max_additions ：加仓次数上限（正整数=上限；0=不设限；缺省/None/非法=4 ✓）
+        #   盈利基准恒为**实际持仓均价** `position['buy_price']` ✓
+        #   （回测引擎 :868-871 与实盘运行器 :3499-3500 在加仓后都会把它更新为加权均价 ✓）
+        self.add_profit_min = self._to_float(self.config.get('add_profit_min'), 0.02)
+        self.max_additions = self._parse_max_additions(self.config.get('max_additions'))
+
         # 向后兼容旧参数名
         self.n1 = self.n_entry   # 入场上线周期
         self.n2 = self.n_exit     # 出场下线周期
-    
+
+    @staticmethod
+    def _to_float(value, default: float) -> float:
+        """安全转 float ✓（None / 空白串 / 非法值 → default ✓）"""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _parse_max_additions(value) -> Optional[int]:
+        """解析加仓次数上限（**海龟 / 低位海龟 / 海龟plus 共用同一实现** ✓）
+
+        - 正整数          → 该上限
+        - 0              → None（不设限，交由引擎/上层约束）
+        - 缺省/None/''/非法 → **4（与海龟plus 一致）**
+
+        Returns:
+            上限次数；None 表示不设限
+        """
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return 4
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return 4
+        return n if n > 0 else None
+
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """计算海归策略所需指标
         
@@ -279,20 +324,24 @@ class TurtleStrategy(TimingStrategy):
             current_quantity = position.get('quantity', 0)
             add_count = position.get('add_count', 0)  # 已加仓次数
 
-            # 海龟法则：最多加仓4次
-            max_additions = 4
-
             # 加仓条件：价格上涨add_atr*ATR（每次加仓后更新参考价）
-            # 首次加仓：以入场价为基准
-            # 后续加仓：以上次加仓价为基准
-            # 修改：加仓也需要阳线条件，与买入一致
-            # 新增：只有持仓盈利超过2%时才允许加仓
+            # 首次加仓：以入场价为基准；后续加仓：以上次加仓价为基准
+            # 加仓也需要阳线条件（与买入一致）
             # 前视偏差修复：所有信号判断用signal_bar（回测=T-1日，狩猎场=T日）
-            if add_count < max_additions:
-                # 检查持仓盈利状态：盈利必须超过2%，用信号日收盘价
+            #
+            # 【2026-09-23 口径统一】两处硬编码改为**读配置** ✓：
+            #   ① 加仓上限：`max_additions = 4` ✗ → `self.max_additions` ✓
+            #      （正整数=上限；0=不设限；缺省/非法=4 ✓，与海龟plus 同一解析器 ✓）
+            #   ② 盈利门槛：`profit_ratio > 0.02` ✗ → `>= self.add_profit_min` ✓（缺省 0.02 ✓）
+            #      · 口径 = **实际盈利** ✓：基准恒为 `entry_price = position['buy_price']`
+            #        （**持仓加权均价** ✓，回测/实盘加仓后均会更新 ✓），与海龟plus 一致 ✓
+            #      · 边界由 `>` 统一为 `>=` ✓（恰好等于门槛时两策略结论一致 ✓）
+            max_additions = self.max_additions
+            if max_additions is None or add_count < max_additions:
+                # 检查持仓盈利状态（按**实际持仓均价**衡量 ✓），用信号日收盘价
                 signal_close = signal_bar['close']
                 profit_ratio = (signal_close - entry_price) / entry_price if entry_price > 0 else 0
-                if profit_ratio > 0.02:  # 盈利超过2%
+                if profit_ratio >= self.add_profit_min:  # 盈利达门槛（可配置 ✓）
                     # last_add_price 可能为空(None/0)：首次加仓以入场价为基准，
                     # 故缺失时回退 entry_price（避免 None + float 抛 TypeError）
                     last_add_price = position.get('last_add_price') or entry_price
@@ -319,10 +368,15 @@ class TurtleStrategy(TimingStrategy):
                         if is_bullish and is_rising and upper_shadow_ok and is_above_ma20:
                             result.is_buy = True
                             result.signal_strength = 0.8
-                            result.message = f"加仓#{add_count + 1}，突破{add_threshold:.2f}"
+                            result.message = (
+                                f"加仓#{add_count + 1}，突破{add_threshold:.2f}"
+                                f"（持仓均价 {entry_price:.2f}，盈利 {profit_ratio * 100:.1f}%）")
                             result.trade_type = 'add'
                             result.add_count = add_count + 1
                             result.indicators['last_add_price'] = signal_bar['close']
+                            # 【2026-09-23】回填盈利口径（与海龟plus 同名同义 ✓，便于排查）
+                            result.indicators['add_ref_price'] = entry_price
+                            result.indicators['add_ref_label'] = '持仓均价'
                             # 以持仓数量为基准，加仓比例递减：1/2, 1/3, 1/4, 1/5, 1/6
                             add_ratio = 1.0 / (add_count + 2)
                             add_quantity = int(current_quantity * add_ratio) // 100 * 100

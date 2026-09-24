@@ -110,6 +110,12 @@ class StrategyRegistry:
                 converted[key] = self._parse_ma_periods(value)
             elif key == 'volume_ratio_max' and value == 'null':
                 converted[key] = None
+            elif isinstance(value, str) and value.strip().lower() in ('true', 'false'):
+                # 【2026-09-19 修复】YAML 中的 'true'/'false' 是**字符串**，被当作布尔用时
+                # 非空字符串恒为真 → 配置写 'false' 实际生效 True。
+                # 踩坑实例：超跌反弹策略 fractal_require_yang='false' 实际仍要求阳线，
+                # 与配置意图相反（排查记录：超跌反弹选股条件梳理）。此处统一转为真 bool。
+                converted[key] = value.strip().lower() == 'true'
             else:
                 converted[key] = value
         return converted

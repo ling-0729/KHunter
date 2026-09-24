@@ -95,6 +95,21 @@ class LowTD9Strategy(BaseStrategy):
 
     def _run_td_state_machine(self, df, setup_window, setup_offset,
                                countdown_offset, target, enable_cancellation):
+        """委托共享实现（`utils.td_sequential.compute_td_marks`）· 2026-09-20
+
+        原实现原样保留为 `_run_td_state_machine_legacy`，供回归逐条比对
+        （单测断言：两者在同一 df 上的聚合结果完全一致 → 保证策略行为零变化）。
+
+        :return: dict，含 setup_done/setup_end_pos/countdown_complete/
+                 countdown_end_pos/cancelled（与原实现完全相同的 5 个键）
+        """
+        from utils.td_sequential import compute_td_marks
+        return compute_td_marks(
+            df, setup_window, setup_offset, countdown_offset, target,
+            enable_cancellation)['buy_view']
+
+    def _run_td_state_machine_legacy(self, df, setup_window, setup_offset,
+                                     countdown_offset, target, enable_cancellation):
         """
         正向（时间顺序）运行 TD Sequential 状态机，识别买入 Setup 前置 + 买入 Countdown
 

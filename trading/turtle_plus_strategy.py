@@ -9,8 +9,16 @@
         （跌破 n_exit 日下线 / exit_atr 倍 ATR 止损）；出现即视为该轮已结束，**直接跳过**。
 
   今日判据 = 海龟「加仓条件」（不要求今日突破新高）：
-    A1 盈利门槛：信号日收盘价 ≥ 第一买点**成交价** × (1 + add_profit_min)，
-       成交价 = 第一买点信号日的**次一交易日开盘价**（即 T+1 开盘，与回测成交口径一致）
+    A1 盈利门槛（**2026-09-23 口径修正** ✓ 按实际盈利判定 ✓）：
+        信号日收盘价 ≥ **基准价** × (1 + add_profit_min)，基准价按场景取：
+          · **已有持仓（加仓）** → **实际持仓均价** `position['buy_price']` ✓
+            （回测=引擎持仓均价；实盘=PTrade 同步成本价；两端口径一致 ✓）
+          · **空仓（第二买点首仓）** → 第一买点**成交价** = 第一买点信号日的
+            **次一交易日开盘价**（T+1 开盘，与回测成交口径一致 ✓，原口径不变 ✓）
+        修正原因：旧实现**恒用**第一买点成交价 ✗ → 已有持仓时，即使**持仓浮亏**
+        也会因"股价较第一买点涨了 2%"而放行 ✗（实测 002185：持仓成本 18.5027 → 浮亏
+        -0.72%，却因基准 16.68 被算成 +10.13% 而生成加仓委托 ✗）。
+        现与父类海龟（`turtle_strategy.py` 用 `position['buy_price']`）口径统一 ✓。
     A2 ATR 间隔：信号日 high ≥ last_add_price + add_atr × ATR
        （require_add_atr 开启时；last_add_price 缺省回退第一买点成交价）
     A3 阳线 / A4 涨幅>0 / A5 上影线≤4% / A6 MA20 过滤
@@ -49,34 +57,17 @@ class TurtlePlusStrategy(TurtleStrategy):
         super().__init__(config)
         # 前溯窗口（交易日数量）
         self.lookback_days = int(self.config.get('lookback_days', 5))
-        # 加仓次数上限：默认与海龟一致（4 次）；显式传 0 = 不设限（交由引擎裁决）
-        self.max_additions = self._parse_max_additions(
-            self.config.get('max_additions', 4))
+        # 【2026-09-23】加仓上限（max_additions）与盈利门槛（add_profit_min）改由
+        #   **父类统一解析** ✓（同一实现、同一默认值 4 / 0.02 ✓），
+        #   避免父子各写一份、日后再次漂移 ✗（父类 __init__ 已设置这两个属性 ✓）
         # 口径开关
         self.require_no_sell_between = bool(
             self.config.get('require_no_sell_between', True))
         self.require_add_atr = bool(self.config.get('require_add_atr', True))
-        self.add_profit_min = float(self.config.get('add_profit_min', 0.02))
         self.require_higher_high = bool(self.config.get('require_higher_high', False))
 
-    @staticmethod
-    def _parse_max_additions(value) -> Optional[int]:
-        """解析加仓次数上限
-
-        - 正整数      → 该上限
-        - 0          → None（不设限，交由引擎/上层约束）
-        - 缺省/None/''/非法 → **4（与海龟一致）**
-
-        Returns:
-            上限次数；None 表示不设限
-        """
-        if value is None or (isinstance(value, str) and not value.strip()):
-            return 4
-        try:
-            n = int(value)
-        except (TypeError, ValueError):
-            return 4
-        return n if n > 0 else None
+    # 说明：`_parse_max_additions` 已上移至父类 `TurtleStrategy` ✓
+    #   —— 海龟 / 低位海龟 / 海龟plus 三处共用同一解析器，子类继承即可 ✓
 
     # ==================== 判据 ====================
 
@@ -188,28 +179,71 @@ class TurtlePlusStrategy(TurtleStrategy):
                 return None, '信号日高点未超过第一买点日高点'
         return first_idx, ''
 
+    @staticmethod
+    def _resolve_add_reference(position, base_price) -> Tuple[float, str]:
+        """加仓盈利门槛 A1 的**基准价**（2026-09-23 口径修正 ✓）
+
+        规则（按实际盈利判定 ✓）：
+          · **已有持仓（加仓）** → 基准 = **实际持仓均价** `position['buy_price']` ✓
+            （回测=引擎持仓均价；实盘=PTrade 同步成本价；两端口径一致 ✓）
+          · **空仓（第二买点首仓）** → 基准 = 第一买点成交价（T+1 开盘，原口径 ✓）
+
+        Args:
+            position: 持仓字典（无持仓传 None ✓）
+            base_price: 第一买点成交价（T+1 开盘 ✓）
+
+        Returns:
+            (基准价, 口径名称)；基准价不可用时退回第一买点成交价 ✓
+        """
+        if position:
+            cost = position.get('buy_price')
+            try:
+                cost = float(cost) if cost is not None else 0.0
+            except (TypeError, ValueError):
+                cost = 0.0
+            if cost > 0:
+                return cost, '持仓均价'
+        try:
+            return float(base_price or 0), '第一买点成交价'
+        except (TypeError, ValueError):
+            return 0.0, '第一买点成交价'
+
     def _check_add_entry(self, df: pd.DataFrame, signal_bar: pd.Series,
                          signal_idx: int, base_price: float,
-                         last_add_price: float) -> Tuple[bool, str]:
+                         last_add_price: float,
+                         add_ref_price: Optional[float] = None,
+                         add_ref_label: Optional[str] = None) -> Tuple[bool, str]:
         """今日判据 = 海龟「加仓条件」（不要求突破新高）
 
         Args:
             df: 已算好指标的行情数据
             signal_bar: 信号日 K 线
             signal_idx: 信号日索引
-            base_price: 第一买点成交价（T+1 开盘）
+            base_price: 第一买点成交价（T+1 开盘；**空仓首仓**的基准 ✓）
             last_add_price: 上次加仓价（缺省为第一买点成交价）
+            add_ref_price: A1 基准价 ✓（**有持仓时=持仓均价** ✓；缺省/非法时回退 base_price ✓）
+            add_ref_label: A1 基准口径名称（仅用于日志/提示文案 ✓）
 
         Returns:
             (是否满足, 不满足原因)
         """
         close = signal_bar['close']
-        # A1 盈利门槛：较第一买点成交价盈利 ≥ add_profit_min
-        if base_price <= 0:
-            return False, '第一买点成交价异常'
-        profit_ratio = (close - base_price) / base_price
+        # A1 盈利门槛（2026-09-23 口径修正 ✓）：**按实际盈利判定** ✓
+        #   旧实现恒以"第一买点成交价"为基准 ✗ → 已有持仓时，即使**持仓浮亏**也会
+        #   因"股价较第一买点涨了 2%"而放行 ✗（实测 002185：持仓成本 18.5027 → 浮亏 -0.72%，
+        #   却因基准 16.68 被算成 +10.13% 而生成加仓委托 ✗）
+        #   新实现：有持仓 → 持仓均价 ✓；空仓 → 第一买点成交价 ✓（与父类海龟口径统一 ✓）
+        if add_ref_price and add_ref_price > 0:
+            ref_price = float(add_ref_price)
+            ref_label = add_ref_label or '持仓均价'
+        else:
+            ref_price = float(base_price or 0)
+            ref_label = '第一买点成交价'
+        if ref_price <= 0:
+            return False, f'{ref_label}异常'
+        profit_ratio = (close - ref_price) / ref_price
         if profit_ratio < self.add_profit_min:
-            return False, (f'较第一买点成交价 {base_price:.2f} 仅 '
+            return False, (f'较{ref_label} {ref_price:.2f} 仅 '
                            f'{profit_ratio * 100:.2f}% < {self.add_profit_min * 100:.2f}%')
         # A2 ATR 间隔（require_add_atr 开启时）
         if self.require_add_atr:
@@ -291,8 +325,12 @@ class TurtlePlusStrategy(TurtleStrategy):
                 base_price = self._first_entry_fill_price(df, hit_idx)
                 last_add_price = (
                     (position.get('last_add_price') if position else None) or base_price)
+                # 【2026-09-23 口径修正】A1 盈利门槛基准价：**有持仓 → 持仓均价** ✓（按实际盈利 ✓）；
+                #   空仓 → 第一买点成交价 ✓（原口径不变 ✓）
+                add_ref_price, add_ref_label = self._resolve_add_reference(position, base_price)
                 ok, why = self._check_add_entry(
-                    df, signal_bar, signal_idx, base_price, last_add_price)
+                    df, signal_bar, signal_idx, base_price, last_add_price,
+                    add_ref_price=add_ref_price, add_ref_label=add_ref_label)
                 add_count = (position or {}).get('add_count', 0) or 0
                 if not ok:
                     result.indicators['skip_reason'] = f'今日不满足加仓条件：{why}'
@@ -300,13 +338,22 @@ class TurtlePlusStrategy(TurtleStrategy):
                     result.indicators['skip_reason'] = (
                         f'加仓次数已达上限 {self.max_additions}（由配置/引擎裁决）')
                 else:
-                    profit_pct = (signal_bar['close'] - base_price) / base_price * 100
+                    # 盈利口径与 A1 判定**同源** ✓（有持仓=持仓均价 ✓），并保留第一买点口径供参考 ✓
+                    ref_is_hold = bool(add_ref_price and add_ref_price > 0)
+                    ref_price = add_ref_price if ref_is_hold else base_price
+                    ref_label = add_ref_label if ref_is_hold else '第一买点成交价'
+                    profit_pct = ((signal_bar['close'] - ref_price) / ref_price * 100
+                                  if ref_price > 0 else 0.0)
+                    base_pct = ((signal_bar['close'] - base_price) / base_price * 100
+                                if base_price > 0 else 0.0)
                     result.is_buy = True
                     result.signal_strength = 0.8 if position else 1.0
                     result.support_level = (
                         signal_bar['up'] * 0.95 if pd.notna(signal_bar['up']) else 0)
                     result.indicators['lookback_hit_date'] = str(df['date'].iloc[hit_idx])
                     result.indicators['base_price'] = base_price
+                    result.indicators['add_ref_price'] = ref_price
+                    result.indicators['add_ref_label'] = ref_label
                     if position:
                         # 加仓：数量沿用父类 1/(n+2) 递减；add_count 必须回填（引擎据此跟踪）
                         result.trade_type = 'add'
@@ -316,10 +363,13 @@ class TurtlePlusStrategy(TurtleStrategy):
                         add_quantity = int(
                             (position.get('quantity', 0) or 0) * add_ratio) // 100 * 100
                         result.buy_quantity = max(add_quantity, 100)
+                        # 文案主口径 = **实际盈利** ✓（持仓均价 ✓）；第一买点口径仅作参考，
+                        #   避免再次出现"用第一买点盈利掩盖持仓浮亏"的误导 ✗
                         result.message = (
-                            f"{self.SIGNAL_LABEL}加仓#{add_count + 1}：第一买点 "
-                            f"{df['date'].iloc[hit_idx]}，较其 T+1 开盘价 {base_price:.2f} "
-                            f"盈利 {profit_pct:.2f}%")
+                            f"{self.SIGNAL_LABEL}加仓#{add_count + 1}：{ref_label} "
+                            f"{ref_price:.2f}，盈利 {profit_pct:.2f}%"
+                            f"（第一买点 {df['date'].iloc[hit_idx]} T+1 开盘价 "
+                            f"{base_price:.2f}，较其 {base_pct:.2f}%）")
                     else:
                         # 空仓：按首仓口径给数量（是否建仓由引擎裁决）
                         buy_price = (latest['open'] if use_prev_day_signal

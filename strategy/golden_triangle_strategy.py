@@ -110,6 +110,17 @@ class GoldenTriangleStrategy(BaseStrategy):
         if not self.quick_filter(df):
             return []
 
+        # 【2026-09-19 未来函数排查】排序自免疫：
+        #   本策略以"数据倒序（最新在前）"为前提取 iloc[0] 为信号日（见 _find_cross_points）。
+        #   标准路径（回测/实盘）经 BaseStrategy.execute_selection 已统一归一化为倒序，
+        #   但旁路调用方（strategy/strategy_registry.py、main.py 等直调
+        #   calculate_indicators + select_stocks）可能传入**升序**数据 →
+        #   iloc[0] 变成最旧一天，而 A/B 点的"向前查找"（index 递增）会落到**未来日期**
+        #   —— 即未来函数。此处统一归一化为倒序，消除对调用方顺序的隐式依赖。
+        #   注：calculate_indicators 会保留输入顺序，故先归一化再算指标，口径一致。
+        if len(df) >= 2 and str(df['date'].iloc[0]) < str(df['date'].iloc[-1]):
+            df = df.iloc[::-1].reset_index(drop=True)
+
         if stock_name and not self._validate_stock_name(stock_name):
             return []
 

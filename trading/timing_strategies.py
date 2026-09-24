@@ -224,3 +224,72 @@ def build_turtle_family_params(config: Dict, timing_params: Dict,
         specific['preset'] = cfg.get('turtle_preset')
     params.update({k: v for k, v in specific.items() if v is not None})
     return params
+
+
+# ==================== 海龟类配置的唯一读取入口（2026-09-23 合并）====================
+# 背景：海龟 / 海龟plus 的参数原先散落在**多处** ——
+#   ① yaml 里两个块（TurtleStrategy / TurtlePlusStrategy）；
+#   ② 各入口各自维护 `_blocks` 映射（routes / web_server / 流水线 / 批量回测）。
+#   已多次漂移并造成严重后果：同一策略、同一区间，批量回测用**代码默认**（10/5/10），
+#   而单次回测用另一套配置 → 收益差出一倍以上 ✗，回测结果无法指导实盘 ✗。
+# 现在：yaml **只保留一个** 海龟类配置块 ✓，所有入口统一调用本函数读取 ✓，
+#   新增海龟类策略或改参数只需动这一处 ✓。
+TURTLE_CONFIG_BLOCK = 'TurtleStrategy'
+
+# 代码内兜底默认（yaml 缺失/读取失败时使用）＝ 短线海龟 10/5/10 ✓
+TURTLE_DEFAULT_PARAMS = {
+    'n_entry': 10, 'n_exit': 5, 'atr_period': 10,
+    'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0,
+    'base_position_amount': 20000, 'preset': 'short',
+    # 海龟plus 专属（turtle/low_turtle 会忽略未知键）
+    'lookback_days': 5, 'max_additions': 4, 'add_profit_min': 0.02,
+    'require_add_atr': True, 'require_no_sell_between': True,
+}
+
+# 低位海龟保持自身口径（低位股常低于 MA20，故 n_entry 极小且关闭 MA20 过滤）
+LOW_TURTLE_DEFAULT_PARAMS = {
+    'n_entry': 1, 'n_exit': 6, 'atr_period': 12,
+    'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0,
+    'base_position_amount': 20000,
+}
+
+
+def load_turtle_family_params(timing_strategy: str, config_manager=None) -> Dict:
+    """读取海龟类策略参数（**唯一入口** ✓）
+
+    与 `build_turtle_family_params` 的分工：
+      · 本函数 = "**从配置取默认值**"（yaml → dict，各入口共用一份 ✓）
+      · `build_turtle_family_params` = "**与调用方传入值合并**"（顶层 config 优先 ✓）
+
+    取值规则：
+      · turtle / turtle_plus → yaml 的 `TurtleStrategy.params`（**同一份** ✓）
+      · low_turtle           → 自身固定口径（1/6/12、无 MA20 过滤 ✓），不参与共享块 ✓
+      · 非海龟类             → 返回 {}（调用方忽略注入 ✓）
+      · 读取失败 / 块缺失    → 退回 TURTLE_DEFAULT_PARAMS（10/5/10 ✓），并告警 ✓
+
+    Args:
+        timing_strategy: 择时策略名（turtle / low_turtle / turtle_plus / 其它）
+        config_manager: 可选，复用外部 StrategyConfigManager 实例
+
+    Returns:
+        dict: 策略参数键值
+    """
+    if timing_strategy not in TURTLE_FAMILY_STRATEGIES:
+        return {}
+    if timing_strategy == 'low_turtle':
+        return dict(LOW_TURTLE_DEFAULT_PARAMS)
+    try:
+        if config_manager is None:
+            from utils.strategy_config_manager import StrategyConfigManager
+            config_manager = StrategyConfigManager()
+        block = config_manager.get_strategy_config(TURTLE_CONFIG_BLOCK) or {}
+        params = dict(block.get('params') or {})
+        if params:
+            logger.info(f"从配置文件读取海龟类参数（{TURTLE_CONFIG_BLOCK}，供 {timing_strategy} 使用）: "
+                        f"n_entry={params.get('n_entry')}, n_exit={params.get('n_exit')}, "
+                        f"atr_period={params.get('atr_period')}, preset={params.get('preset')}")
+            return params
+        logger.warning(f"配置块 {TURTLE_CONFIG_BLOCK}.params 为空，使用代码默认（10/5/10）")
+    except Exception as e:
+        logger.warning(f"读取海龟类配置失败，使用代码默认（10/5/10）: {e}")
+    return dict(TURTLE_DEFAULT_PARAMS)

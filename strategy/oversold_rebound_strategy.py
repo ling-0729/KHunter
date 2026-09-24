@@ -33,9 +33,15 @@ class OversoldReboundStrategy(BaseStrategy):
 
     # 默认参数（与 config/strategy_params.yaml 的 params 段保持一致）
     DEFAULT_PARAMS = {
-        'lookback_days': 100,         # 超跌检查回溯交易日数
-        'decline_threshold': 0.50,    # 区间最高→最低下跌幅度阈值
-        'bottom_window': 3,           # 底部特征搜索窗口
+        'lookback_days': 100,         # 反弹幅度约束(C3)回溯交易日数
+        'high_drawdown_days': 120,    # 超跌窗口：近 N 日内最高价（2026-09-19 新增）
+        'high_drawdown_min': 0.50,    # 选股日收盘价须低于近 N 日最高价的 (1-该值)
+        # 【2026-09-19】与「次新腰斩策略」彻底分开：K 线数 ≤ 该值视为次新 → 本策略排除。
+        # 次新腰斩条件的恰是"≤120 根"，两者互斥，避免同一标的同时被两个策略选中。
+        'exclude_new_stock_bars': 120,
+        # 预加载窗口驱动参数（已在回测/实盘 lookback_keys 白名单内）：
+        # 需保证窗口内交易日 > exclude_new_stock_bars，否则正常老股会因窗口不足被误排除。
+        'min_data_len': 130,
         'macd_divergence_days': 20,   # MACD底背离判断窗口
         'macd_fast': 12,              # MACD快线EMA周期
         'macd_slow': 26,              # MACD慢线EMA周期
@@ -89,27 +95,34 @@ class OversoldReboundStrategy(BaseStrategy):
     # 规则1：超跌深度检查（C1）
     # ------------------------------------------------------------------ #
     def _check_oversold(self, df: pd.DataFrame, reasons: list) -> float:
-        """
-        检查近 lookback_days 日区间最高价到最低价的下跌幅度是否超过阈值
+        """超跌检查（2026-09-19 按用户口径调整）
 
-        :param df: 含 high/low 的 DataFrame（倒序）
+        条件：**选股日收盘价 < 近 high_drawdown_days 日最高价 × (1 − high_drawdown_min)**
+        等价表述：选股日收盘相对近 N 日最高价跌幅 ≥ high_drawdown_min（默认 120 日 / 50%）。
+
+        与旧口径（区间最高→最低跌幅）的区别：旧口径用"区间内最低价"判断，
+        即使当前已大幅反弹也可能命中；新口径锚定**选股日收盘价**，更贴近"现价腰斩"。
+
+        :param df: 含 high/close 的 DataFrame（倒序，index=0 最新）
         :param reasons: 命中理由列表（命中时追加说明）
-        :return: 满足超跌条件时返回下跌幅度(0~1)，否则返回 -1.0
+        :return: 满足时返回相对最高价的跌幅(0~1)，否则返回 -1.0
         """
-        lookback = int(self.params['lookback_days'])  # 回溯交易日数
-        threshold = float(self.params['decline_threshold'])  # 下跌幅度阈值
-        n = len(df)
-        if n < lookback:
+        days = int(self.params['high_drawdown_days'])        # 超跌窗口（交易日）
+        min_dd = float(self.params['high_drawdown_min'])     # 相对最高价的最小跌幅
+        if len(df) < days:
             return -1.0  # 数据不足无法判断
-        window = df.head(lookback)  # 取最近 lookback 日（倒序）
-        max_high = window['high'].max()  # 区间最高价
-        min_low = window['low'].min()  # 区间最低价
-        if max_high <= 0 or pd.isna(max_high) or pd.isna(min_low):
+        window = df.head(days)                               # 近 N 日（倒序）
+        max_high = window['high'].max()                      # 区间最高价
+        close0 = float(df['close'].iloc[0])                  # 选股日收盘价
+        if max_high <= 0 or pd.isna(max_high) or pd.isna(close0):
             return -1.0  # 价格异常
-        decline = (max_high - min_low) / max_high  # 下跌幅度
-        if decline > threshold:
-            reasons.append(f"近{lookback}日超跌幅度{decline*100:.1f}%（最高→最低）")
-            return decline  # 命中时返回下跌幅度
+        ratio = close0 / max_high                            # 收盘 / 区间最高
+        drawdown = 1.0 - ratio                               # 相对最高价的跌幅
+        if drawdown >= min_dd:                               # 即 close ≤ 最高价 × (1-min_dd)
+            reasons.append(
+                f"选股日收盘{close0:.2f}低于近{days}日最高价{max_high:.2f}的"
+                f"{ratio*100:.1f}%（跌幅{drawdown*100:.1f}%）")
+            return drawdown
         return -1.0
 
     # ------------------------------------------------------------------ #
@@ -285,7 +298,7 @@ class OversoldReboundStrategy(BaseStrategy):
             # 中间K线最高点也低于左右两侧（标准底分型，高低点均被包裹）
             if h1 < h0 and h1 < h2:
                 # 可选增强：右侧K线要求阳线确认
-                if self.params.get('fractal_require_yang', False):
+                if self.params.get('fractal_require_yang', True):
                     is_yang = df['close'].iloc[0] > df['open'].iloc[0]  # 最新K线收阳
                     if not is_yang:
                         return False
@@ -370,13 +383,31 @@ class OversoldReboundStrategy(BaseStrategy):
         :param stock_name: 股票名称（用于信号说明）
         :return: 命中返回 [signal_dict]，否则 []
         """
-        # 数据充足性检查（至少需覆盖超跌窗口+背离窗口）
+        # 数据充足性检查（至少需覆盖超跌窗口 + 反弹窗口 + 背离窗口）
         min_len = max(
             int(self.params['lookback_days']),
+            int(self.params.get('high_drawdown_days', 120)),
             int(self.params['macd_divergence_days']),
         )
         if df is None or len(df) < min_len:
             return []  # 数据不足，直接剪枝
+
+        # ST/退市名称过滤（2026-09-19 补齐：此前策略内未校验，仅依赖上游配置）
+        if stock_name and not self._validate_stock_name(stock_name):
+            return []
+
+        # 选股范围：排除次新股（K 线数 ≤ exclude_new_stock_bars）——与「次新腰斩策略」互斥
+        #   注：df 已按选股日切片，len(df) 即"截至选股日的可见 K 线数"；min_data_len 保证
+        #   预加载窗口内的根数足够（>阈值），因此本判定对老股不会误伤。
+        _bars_now = int(len(df))
+        _ex_bars = int(self.params.get('exclude_new_stock_bars', 120))
+        if _bars_now <= _ex_bars:
+            # 注意：本模块历史上**没有模块级 logger**，此处局部获取，避免 NameError
+            import logging
+            logging.getLogger(__name__).info(
+                "【超跌反弹】%s K线数 %d ≤ %d（次新），不在本策略选股范围",
+                stock_name or '', _bars_now, _ex_bars)
+            return []
 
         # 计算 MACD 指标（C2a 需要）
         df = self.calculate_indicators(df)
@@ -444,11 +475,15 @@ class OversoldReboundStrategy(BaseStrategy):
 
         :return: 条件说明字符串列表
         """
-        t = float(self.params['decline_threshold'])
+        hd = int(self.params.get('high_drawdown_days', 120))
+        hdd = float(self.params.get('high_drawdown_min', 0.50))
         lb = int(self.params['lookback_days'])
         cap = float(self.params['rebound_cap'])
+        ex_bars = int(self.params.get('exclude_new_stock_bars', 120))
         return [
-            f"必要条件：近{lb}交易日区间最高价到最低价下跌幅度 > {t*100:.0f}%",
+            f"选股范围：上市以来 K 线数 > {ex_bars} 根（排除次新，与次新腰斩策略互斥）",
+            f"必要条件：选股日收盘价 < 近{hd}日最高价的 {(1-hdd)*100:.0f}%"
+            f"（相对最高价跌幅 ≥ {hdd*100:.0f}%）",
             f"必要条件：选股日收盘较区间最低价反弹幅度 <= {cap*100:.0f}%",
             "必要条件：选股日为阳线且相对前一日收盘涨幅 > 0",
             f"必要条件：选股日相对前一日收盘涨幅 > {float(self.params['selection_day_min_gain'])*100:.0f}%",
