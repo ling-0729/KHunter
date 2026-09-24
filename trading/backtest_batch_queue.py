@@ -209,6 +209,12 @@ class BacktestBatchQueue:
                     'completed_at': t.get('completed_at'),
                     # 该任务交易日总数（_execute_loop 任务结束时写入）
                     'total_days': t.get('total_days'),
+                    # 【2026-09-21】回传任务区间 ✓
+                    #   前端结果页签据此区分"同策略、不同区间"的多个任务 ✗
+                    #   （此前不回传 ✗ → 唯一键相同 ✗ → 后 3 个结果被当成重复跳过 ✗，只显示 1 个 ✓）
+                    #   兜底：任务定义里没有时，从回测结果里取（result 通常带 start_date/end_date ✓）
+                    'start_date': t.get('start_date') or (t.get('result') or {}).get('start_date'),
+                    'end_date': t.get('end_date') or (t.get('result') or {}).get('end_date'),
                 }
                 for i, t in enumerate(tasks)
                 if t.get('status') in ('completed', 'failed')
@@ -336,34 +342,36 @@ class BacktestBatchQueue:
             'end_date': end_date
         })
 
-        # 从配置文件读取海龟/低位海龟策略参数
-        if timing_strategy == 'turtle':
+        # 【2026-09-23 合并】海龟类参数统一走**唯一读取入口** ✓
+        #   yaml 只保留一个海龟类配置块（TurtleStrategy.params ✓），海龟与海龟plus 共用 ✓；
+        #   低位海龟由该入口返回自身 1/6/12 口径 ✓。
+        #   历史坑（已消除）：本处原先手写 turtle / low_turtle 两个分支，
+        #   海龟plus 漏注入 ✗ → 批量回测跑代码默认预设，与单次回测/配置不一致 ✗。
+        from trading.timing_strategies import (TURTLE_FAMILY_STRATEGIES,
+                                               TURTLE_FAMILY_PARAM_KEYS,
+                                               load_turtle_family_params)
+        if timing_strategy in TURTLE_FAMILY_STRATEGIES:
             try:
                 config_manager = StrategyConfigManager()
-                turtle_config = config_manager.get_strategy_config('TurtleStrategy')
-                turtle_params = turtle_config.get('params', {})
-                # 将海龟参数添加到config中，供backtest_engine使用
-                config.update({
-                    'n_entry': turtle_params.get('n_entry'),
-                    'n_exit': turtle_params.get('n_exit'),
-                    'atr_period': turtle_params.get('atr_period'),
-                    'entry_atr': turtle_params.get('entry_atr'),
-                    'add_atr': turtle_params.get('add_atr'),
-                    'exit_atr': turtle_params.get('exit_atr'),
-                    'preset': turtle_params.get('preset'),
-                    'base_position_amount': turtle_params.get('base_position_amount')
-                })
-                logger.info(f"批量回测从配置文件读取海龟策略参数: n_entry={turtle_params.get('n_entry')}, "
-                           f"n_exit={turtle_params.get('n_exit')}, atr_period={turtle_params.get('atr_period')}")
+                params = load_turtle_family_params(timing_strategy, config_manager)
+                _tp = dict(config.get('timing_params') or {})
+                # 调用方显式传入的同名键优先（不覆盖 ✓）
+                params = {**params, **(_tp.get(timing_strategy) or {})}
+                _tp[timing_strategy] = params
+                config['timing_params'] = _tp
+                # 顶层键（引擎/运行器优先读顶层配置 ✓），只写海龟类已知键 ✓
+                config.update({k: v for k, v in params.items()
+                               if v is not None and k in TURTLE_FAMILY_PARAM_KEYS})
+                # 预设特例：顶层键名为 turtle_preset ✓（timing_params 内仍叫 preset ✓）
+                if params.get('preset') is not None:
+                    config['turtle_preset'] = params['preset']
+                logger.info(
+                    f"批量回测注入海龟类参数（{timing_strategy}）: n_entry={params.get('n_entry')}, "
+                    f"n_exit={params.get('n_exit')}, atr_period={params.get('atr_period')}, "
+                    f"preset={params.get('preset')}, lookback_days={params.get('lookback_days')}, "
+                    f"max_additions={params.get('max_additions')}")
             except Exception as e:
-                logger.warning(f"批量回测读取海龟策略配置失败，使用默认参数: {str(e)}")
-        elif timing_strategy == 'low_turtle':
-            # 低位海龟默认参数：1/6/12（无MA20过滤）
-            config.update({
-                'n_entry': 1, 'n_exit': 6, 'atr_period': 12,
-                'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0, 'base_position_amount': 20000
-            })
-            logger.info(f"批量回测低位海龟策略参数: n_entry=1, n_exit=6, atr_period=12（去除MA20过滤）")
+                logger.warning(f"批量回测读取海龟类策略配置失败，沿用调用方参数: {e}")
 
         engine = BacktestEngine(db_path="data/stock_selection.db")
         result = engine.run_backtest(strategy_name, config)
@@ -394,6 +402,8 @@ class BacktestBatchQueue:
                 'profit_loss_ratio': result.get('performance', {}).get('profit_loss_ratio', 0),
                 'max_drawdown': result.get('performance', {}).get('max_drawdown', 0),
                 'sharpe_ratio': result.get('performance', {}).get('sharpe_ratio', 0),
+                # 【2026-09-22 修复】同上：补上漏传的 avg_hold_days（否则落库恒为 0 ✗）
+                'avg_hold_days': result.get('performance', {}).get('avg_hold_days', 0),
                 'initial_capital': config.get('initial_capital', 300000),
                 'final_capital': final_capital
             }

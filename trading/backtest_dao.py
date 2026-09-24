@@ -219,8 +219,22 @@ class BacktestDAO:
                 logger.error("回测结果为空")
                 return 0
             
+            # 【2026-09-20】确保 router_config 列存在（历史库无该列 → 幂等加列）
+            #   自适应回测在保存时会把"各档位策略配置摘要"写入该列，供回测历史详情展示
+            try:
+                _conn = self.db.connect()
+                _cols = [c[1] for c in _conn.execute(
+                    "PRAGMA table_info(backtest_result)").fetchall()]
+                if 'router_config' not in _cols:
+                    _conn.execute("ALTER TABLE backtest_result ADD COLUMN router_config TEXT")
+                    _conn.commit()
+                    logger.info("backtest_result 表已新增 router_config 列")
+            except Exception as e:
+                logger.warning(f"router_config 列检查/新增失败（忽略，配置摘要将不落库）: {e}")
+
             # 使用DBManager的insert方法，它已经处理了事务和lastrowid的获取
             result_id = self.db.insert('backtest_result', {
+                'router_config': result.get('router_config', '') or '',
                 'strategy_name': result.get('strategy_name', ''),
                 'support_level_method': result.get('support_level_method', ''),
                 'backtest_name': result.get('backtest_name', ''),

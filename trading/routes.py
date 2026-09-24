@@ -12,6 +12,8 @@ from utils.strategy_config_manager import StrategyConfigManager
 import logging
 
 # 获取日志记录器
+import threading  # 【2026-09-20】自适应回测异步化需要（此前未导入 ✗）
+
 logger = logging.getLogger(__name__)
 
 # 创建蓝图
@@ -27,16 +29,19 @@ akshare_fetcher = AKShareFetcher("data")
 
 
 def _load_turtle_params(timing_strategy: str) -> dict:
-    """加载海龟类策略参数（海龟 / 低位海龟 / 海龟plus；各入口统一口径，避免参数漂移）
+    """加载海龟类策略参数（海龟 / 低位海龟 / 海龟plus；各入口统一口径 ✓）
 
-    取值来源：`config/strategy_params.yaml` 中对应策略的 `params`。
+    【2026-09-23 合并】改为委托**唯一读取入口**：
+        trading.timing_strategies.load_turtle_family_params
+      · yaml 只保留**一个**海龟类配置块（`TurtleStrategy.params` ✓），海龟与海龟plus 共用 ✓；
+      · 低位海龟保持自身口径（1/6/12、无 MA20 过滤 ✓）；
+      · 读取失败退回代码默认 **10/5/10** ✓。
 
-    背景（2026-09-13）：`/backtest/run`、`/api/strategy/run-batch`、定时流水线都会把
-    该参数注入回测 config，唯独 `/backtest/regime/run` 未注入，导致自适应回测的择时
-    策略回退到代码内默认预设 `short`（10/5）—— 唐奇安下线周期与配置（12/6）、普通
-    回测、实盘都不一致。
-    （2026-09-16）补齐「海龟plus」分支：此前该函数只认 turtle/low_turtle，海龟plus 在
-    各回测入口都回退默认预设（10/5/10），与配置（12/6/12）不一致。
+    历史问题（已消除 ✗→✓）：
+      · 本函数曾自行维护 turtle / low_turtle / turtle_plus 三个分支及各自的兜底值 ✗
+        （turtle 兜底 20/10/20、turtle_plus 兜底 12/6/12 ✗），
+        而 web_server / 定时流水线 / 批量回测又各自写了一份读取逻辑 ✗ →
+        四处漂移，最终出现"同一策略同一区间、不同入口收益差一倍"的严重不一致 ✗。
 
     Args:
         timing_strategy: 择时策略名（'turtle' / 'low_turtle' / 'turtle_plus' / 其它）
@@ -44,50 +49,8 @@ def _load_turtle_params(timing_strategy: str) -> dict:
     Returns:
         dict: 海龟类参数键值（非海龟类策略返回空字典）
     """
-    if timing_strategy == 'turtle':
-        try:
-            config_manager = StrategyConfigManager()
-            turtle_config = config_manager.get_strategy_config('TurtleStrategy')
-            turtle_params = turtle_config.get('params', {})
-            logger.info(f"从配置文件读取海龟策略参数: n_entry={turtle_params.get('n_entry')}, "
-                        f"n_exit={turtle_params.get('n_exit')}, atr_period={turtle_params.get('atr_period')}")
-            return turtle_params
-        except Exception as e:
-            logger.warning(f"读取海龟策略配置失败，使用默认值: {str(e)}")
-            return {
-                'n_entry': 20, 'n_exit': 10, 'atr_period': 20,
-                'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0, 'base_position_amount': 20000
-            }
-    if timing_strategy == 'low_turtle':
-        # 低位海龟默认参数：1/6/12（无MA20过滤）
-        logger.info("低位海龟策略参数: n_entry=1, n_exit=6, atr_period=12（去除MA20过滤）")
-        return {
-            'n_entry': 1, 'n_exit': 6, 'atr_period': 12,
-            'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0, 'base_position_amount': 20000
-        }
-    if timing_strategy == 'turtle_plus':
-        # 海龟plus（2026-09-16 新增）：配置在 strategy_params.yaml 的 TurtlePlusStrategy.params
-        # （含前溯窗口 lookback_days、加仓上限 max_additions、加仓盈利门槛 add_profit_min 等）
-        try:
-            config_manager = StrategyConfigManager()
-            plus_config = config_manager.get_strategy_config('TurtlePlusStrategy')
-            plus_params = plus_config.get('params', {})
-            logger.info(
-                f"从配置文件读取海龟plus策略参数: n_entry={plus_params.get('n_entry')}, "
-                f"n_exit={plus_params.get('n_exit')}, atr_period={plus_params.get('atr_period')}, "
-                f"lookback_days={plus_params.get('lookback_days')}, "
-                f"max_additions={plus_params.get('max_additions')}")
-            return plus_params
-        except Exception as e:
-            logger.warning(f"读取海龟plus策略配置失败，使用默认值: {str(e)}")
-            return {
-                'n_entry': 12, 'n_exit': 6, 'atr_period': 12,
-                'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0,
-                'base_position_amount': 20000, 'lookback_days': 5,
-                'max_additions': 4, 'add_profit_min': 0.02,
-                'require_add_atr': True, 'require_no_sell_between': True,
-            }
-    return {}
+    from trading.timing_strategies import load_turtle_family_params
+    return load_turtle_family_params(timing_strategy)
 
 
 def _attach_position_status(trades: list) -> list:
@@ -396,6 +359,25 @@ def get_batch_backtest_status():
 
         # 获取状态
         status = batch_queue.get_status()
+
+        # 【2026-09-20】补齐"实时交易日进度" ✓（本次问题根因）
+        #   批量队列只在**任务启停时**把 BACKTEST_PROGRESS 落盘 ✗
+        #   （backtest_batch_queue.py:258/288/294/303 ✓），而本接口读的是那份**文件** ✗
+        #   → 文件里的 done_days/total_days 会长期停在 0 ✗（实测 ✓）
+        #   → 前端因此显示不出 "(n/N 交易日)"、也估算不出剩余时间 ✗
+        #   现：用**实时**注册表覆盖 current_task 的进度字段 ✓（引擎逐日写入 ✓）
+        try:
+            from trading.backtest_engine import get_backtest_progress
+            _bp = get_backtest_progress() or {}
+            _ct = (status or {}).get('current_task')
+            if _ct and _bp.get('running'):
+                _ct['done_days'] = _bp.get('done_days', 0)
+                _ct['total_days'] = _bp.get('total_days', 0)
+                _ct['current_date'] = _bp.get('current_date') or _ct.get('current_date', '')
+                _ct['engine_started_at'] = _bp.get('started_at', '')
+                _ct['engine_percent'] = _bp.get('percent', 0.0)
+        except Exception as _e:
+            logger.warning(f'读取实时回测进度失败（忽略，不影响状态返回）: {_e}')
 
         return jsonify({
             'success': True,
@@ -962,16 +944,23 @@ def run_backtest():
             # 温度约束参数
             'enable_temp_limit': enable_temp_limit,
             'temp_limit_mode': temp_limit_mode,
-            # 海龟策略参数（从配置文件读取）
-            'n_entry': turtle_params.get('n_entry'),
-            'n_exit': turtle_params.get('n_exit'),
-            'atr_period': turtle_params.get('atr_period'),
-            'entry_atr': turtle_params.get('entry_atr'),
-            'add_atr': turtle_params.get('add_atr'),
-            'exit_atr': turtle_params.get('exit_atr'),
-            'base_position_amount': turtle_params.get('base_position_amount')
         }
-        
+
+        # 【2026-09-23】海龟类参数：统一由唯一入口读取，**只写配置里真实存在的键** ✓
+        #   原实现手写 7 个键 ✗，两个问题：
+        #     ① 海龟plus 的 lookback_days / max_additions / add_profit_min / preset
+        #        在单次回测里从未生效 ✗（只因恰好等于代码默认值才没暴露 ✗）；
+        #     ② 配置精简后 `turtle_params.get('entry_atr')` 会写字面 **None** ✗
+        #        （键存在、值为 None ✗ —— `.get(k, 默认值)` 的默认值只在**缺键**时生效 ✗），
+        #        虽被下游过滤 ✓，但日志/配置里出现 None 极易误读为"参数没读取成功" ✗。
+        if turtle_params:
+            from trading.timing_strategies import TURTLE_FAMILY_PARAM_KEYS
+            config.update({k: v for k, v in turtle_params.items()
+                           if v is not None and k in TURTLE_FAMILY_PARAM_KEYS})
+            # preset 的顶层键名为 turtle_preset（引擎/运行器按此读取 ✓）
+            if turtle_params.get('preset') is not None:
+                config['turtle_preset'] = turtle_params['preset']
+
         # 使用原有的回测引擎
         logger.info("使用原有回测引擎")
         engine = BacktestEngine()
@@ -1002,6 +991,9 @@ def run_backtest():
             'profit_loss_ratio': result.get('performance', {}).get('profit_loss_ratio', 0),
             'max_drawdown': result.get('performance', {}).get('max_drawdown', 0),
             'sharpe_ratio': result.get('performance', {}).get('sharpe_ratio', 0),
+            # 【2026-09-22 修复】补上 avg_hold_days：引擎早已算出该值 ✗，
+            #   但此处漏传 → 落库恒为默认 0 ✗（全库 521 行 avg_hold_days 全 0 的原因 ✓）
+            'avg_hold_days': result.get('performance', {}).get('avg_hold_days', 0),
             'initial_capital': config.get('initial_capital', 300000),
             'final_capital': final_capital
         }
@@ -2992,8 +2984,79 @@ def save_regime_config():
         return jsonify({'success': False, 'message': str(e), 'data': None}), 500
 
 
+# 【2026-09-20】自适应回测异步化状态：避免同步长请求被服务端超时掐断 ✗
+#   （原同步实现：长区间几十分钟~几小时 → 连接被切断 ✗ → 前端 "Failed to fetch" ✗、
+#     进度条停滞 ✗，而后台其实仍在跑 ✓）
+REGIME_RUN_LOCK = threading.Lock()
+REGIME_RUN_STATE = {
+    'running': False, 'task_id': None,
+    'started_at': None, 'finished_at': None,
+    'result': None, 'error': None,
+}
+
+
 @trading_bp.route('/backtest/regime/run', methods=['POST'])
 def run_regime_backtest():
+    """提交自适应回测（**异步** · 2026-09-20）
+
+    行为：立即返回 `{task_id}` ✓，真正计算在后台线程完成 ✓；
+    前端随后轮询 `/backtest/regime/progress` ✓，结束后调 `/backtest/regime/result` 取结果 ✓。
+    （同步长请求会被服务端超时掐断 ✗，导致前端"回测失败：Failed to fetch"、进度停滞 ✗）
+    """
+    import threading as _th
+    import uuid as _uuid
+    from datetime import datetime as _dtc          # 【2026-09-20】本地导入，避免依赖模块级 dt ✗
+
+    data = request.get_json() or {}
+    with REGIME_RUN_LOCK:
+        if REGIME_RUN_STATE.get('running'):
+            return jsonify({'success': False,
+                            'message': '已有自适应回测正在执行，请等待其完成',
+                            'data': None}), 409
+        REGIME_RUN_STATE.update({
+            'running': True,
+            'task_id': 'regime_' + _uuid.uuid4().hex[:12],
+            'started_at': _dtc.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'finished_at': None, 'result': None, 'error': None,
+        })
+        task_id = REGIME_RUN_STATE['task_id']
+    payload = dict(data)
+    # 【2026-09-20】worker 线程里需要自带请求上下文 → 先取 Flask app 实体 ✓
+    #   （本函数在请求上下文内 ✓，用 current_app 代理取实体最稳 ✓；拿不到则明确报错 ✓）
+    try:
+        from flask import current_app as _cur_app
+        _the_app = _cur_app._get_current_object()
+    except Exception:
+        _the_app = globals().get('app')
+
+    def _worker():
+        try:
+            if _the_app is None:
+                raise RuntimeError('无法获取 Flask app 实例，异步执行终止')
+            with _the_app.test_request_context(
+                    '/api/trading/backtest/regime/run', method='POST', json=payload):
+                resp = run_regime_backtest_sync()
+            body = (resp[0] if isinstance(resp, tuple) else resp)
+            body = body.get_json(silent=True) or {}
+            with REGIME_RUN_LOCK:
+                REGIME_RUN_STATE['result'] = body.get('data') if body.get('success') else None
+                REGIME_RUN_STATE['error'] = (None if body.get('success')
+                                             else (body.get('message') or '回测失败'))
+        except Exception as e:
+            logger.error(f'自适应回测后台执行失败: {e}')
+            with REGIME_RUN_LOCK:
+                REGIME_RUN_STATE['error'] = str(e)
+        finally:
+            with REGIME_RUN_LOCK:
+                REGIME_RUN_STATE['running'] = False
+                REGIME_RUN_STATE['finished_at'] = _dtc.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    _th.Thread(target=_worker, daemon=True).start()
+    return jsonify({'success': True, 'message': '已提交，后台执行中',
+                    'data': {'task_id': task_id, 'async': True}}), 200
+
+
+def run_regime_backtest_sync():
     """执行自适应回测（同步，与现有策略回测一致；结果入库）
 
     请求体：{start_date, end_date, confirm_days?, rules?}
@@ -3059,15 +3122,17 @@ def run_regime_backtest():
             'start_date': start_date,
             'end_date': end_date,
             'regime_router': router_cfg,
-            # 海龟策略参数（从 config/strategy_params.yaml 读取）
-            'n_entry': turtle_params.get('n_entry'),
-            'n_exit': turtle_params.get('n_exit'),
-            'atr_period': turtle_params.get('atr_period'),
-            'entry_atr': turtle_params.get('entry_atr'),
-            'add_atr': turtle_params.get('add_atr'),
-            'exit_atr': turtle_params.get('exit_atr'),
-            'base_position_amount': turtle_params.get('base_position_amount'),
         }
+
+        # 【2026-09-23】海龟类参数统一由唯一入口写入顶层 ✓（与 /backtest/run 同一口径 ✓）
+        #   原实现手写 7 键 ✗ → 海龟plus 的 lookback_days / max_additions / add_profit_min
+        #   在自适应回测里从未生效 ✗；且配置精简后会写入字面 None ✗（易误读为"没读到" ✗）。
+        if turtle_params:
+            from trading.timing_strategies import TURTLE_FAMILY_PARAM_KEYS
+            config.update({k: v for k, v in turtle_params.items()
+                           if v is not None and k in TURTLE_FAMILY_PARAM_KEYS})
+            if turtle_params.get('preset') is not None:
+                config['turtle_preset'] = turtle_params['preset']
 
         logger.info(f"[自适应回测] {start_date} ~ {end_date}, 参数: "
                     f"initial_capital={initial_capital}, max_daily_buys={max_daily_buys}, "
@@ -3125,6 +3190,8 @@ def run_regime_backtest():
                 'profit_loss_ratio': perf.get('profit_loss_ratio', 0),
                 'max_drawdown': perf.get('max_drawdown', 0),
                 'sharpe_ratio': perf.get('sharpe_ratio', 0),
+                # 【2026-09-22 修复】同上：补上漏传的 avg_hold_days（否则落库恒为 0 ✗）
+                'avg_hold_days': perf.get('avg_hold_days', 0),
                 'initial_capital': initial_capital,
                 'final_capital': result.get('final_capital', initial_capital),
                 # 各档位策略配置摘要（文本）→ 回测历史详情展示
@@ -3217,6 +3284,28 @@ def run_regime_backtest():
             'message': f'自适应回测失败: {str(e)}',
             'data': None
         }), 500
+
+
+@trading_bp.route('/backtest/regime/result', methods=['GET'])
+def get_regime_run_result():
+    """取回异步自适应回测的结果（2026-09-20 ✓）
+
+    返回：{running, task_id, result(与 /run 同步版的 data 同结构), error}
+    """
+    try:
+        with REGIME_RUN_LOCK:
+            st = dict(REGIME_RUN_STATE)
+        return jsonify({'success': True, 'data': {
+            'running': st.get('running'),
+            'task_id': st.get('task_id'),
+            'started_at': st.get('started_at'),
+            'finished_at': st.get('finished_at'),
+            'result': st.get('result'),
+            'error': st.get('error'),
+        }}), 200
+    except Exception as e:
+        logger.error(f'获取自适应回测结果失败: {str(e)}')
+        return jsonify({'success': False, 'message': str(e), 'data': None}), 500
 
 
 @trading_bp.route('/backtest/regime/progress', methods=['GET'])

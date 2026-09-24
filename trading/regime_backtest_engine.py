@@ -274,6 +274,21 @@ class RegimeBacktestEngine(BacktestEngine):
             self.stock_filtered_cache.clear()
             self.buy_candidate_pool.clear()
 
+            # 【2026-09-23 修复】双边成交滑点初始化 ✓
+            #   本类是**复制**父类 run_backtest（docstring："父类零改动 / 复制 + 6 处改造" ✗），
+            #   父类 :308-312 的滑点初始化**没被复制过来** ✗ → 两个后果：
+            #     ① 买入侧滑点代码（父类 :734-739）同样未复制 ✗ → 自适应回测买入**零滑点** ✗✓
+            #        （而卖出侧因继承父类 _process_sell ✓ 仍带 0.3% ✗ → 买卖不对称 ✗，
+            #          自适应回测系统性偏乐观 ✗，与普通回测口径不一致 ✗）
+            #     ② self._slippage 未设置 ✗ → 继承来的 _process_sell 只能靠
+            #        getattr 兜底取到**引擎硬编码默认** 0.003/0.003 ✓，
+            #        yaml / config['slippage'] 里的自定义值**不生效** ✗
+            #   故此处与父类同源取值（_slippage_rates ✓）+ 同口径日志 ✓，保证两条引擎口径一致 ✓
+            self._slippage = self._slippage_rates(config)
+            logger.info(f"成交滑点: 买入 {self._slippage['buy'] * 100:.3f}% / "
+                        f"卖出 {self._slippage['sell'] * 100:.3f}%"
+                        f"（对最终成交价双边调整 ✓；设为 0 即关闭 ✓）")
+
             # ===== 改造①：初始化自适应状态（回测级重置）=====
             self._decision_cache = {}
             self.regime_log = []
@@ -737,6 +752,14 @@ class RegimeBacktestEngine(BacktestEngine):
                     exec_result = self._resolve_buy_execution(
                         stock_code, current_date, config, df_to_date)
                     buy_price = exec_result['price']
+                    # 【2026-09-23 修复】买入滑点：与父类 BacktestEngine :734-739 逐字同口径 ✓
+                    #   本类复制父类买入循环时漏了这一段 ✗ → 自适应回测买入零滑点 ✗
+                    #   口径：成交价取不利方向（更贵 ✓）—— buy_price × (1 + buy) ✓
+                    #   例外：ma_limit 模式的委托价**自带** slippage ✗ → 该模式不叠加 ✓（避免双计 ✗）
+                    _slip = getattr(self, '_slippage', self.DEFAULT_SLIPPAGE)
+                    _buy_slip = 0.0 if exec_result.get('mode') == 'ma_limit' else _slip['buy']
+                    if buy_price and buy_price > 0 and _buy_slip:
+                        buy_price = round(buy_price * (1.0 + _buy_slip), 4)
                     if not exec_result['filled']:
                         logger.info(f"【未买入】{current_date} {stock_code} "
                                     f"{stock['stock_name']}: {exec_result['reason']}"

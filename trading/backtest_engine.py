@@ -195,6 +195,14 @@ def should_register_sell_cool_down(trade_type: str, return_rate: float,
     return return_rate < 0 and loss_over_threshold
 
 
+# 【2026-09-22 口径修正】盈利因子"无亏损"时的上限哨兵值 ✓
+#   盈利因子 = 总盈利金额 / 总亏损金额；若**一笔亏损都没有**，该比值数学上为 +∞ ✗ ——
+#   +∞ 无法入库（JSON 序列化会产出非标准 Infinity ✗ → 前端 NaN ✗），也无法在表格里阅读 ✗。
+#   故统一用该上限值表示"无亏损"✓（前端看到 99.99 即可理解为"极高"✓）。
+#   回填脚本 tools 侧同值复用（见 backfill_backtest_metrics.py）✓
+PROFIT_FACTOR_NO_LOSS_CAP = 99.99
+
+
 class BacktestEngine:
     """回测引擎核心类"""
 
@@ -297,6 +305,12 @@ class BacktestEngine:
             self.stock_filtered_cache.clear()
             self.buy_candidate_pool.clear()
             
+            # 【2026-09-23】双边成交滑点（默认买卖各 0.3% ✓）—— 本次回测全程生效 ✓
+            self._slippage = self._slippage_rates(config)
+            logger.info(f"成交滑点: 买入 {self._slippage['buy'] * 100:.3f}% / "
+                        f"卖出 {self._slippage['sell'] * 100:.3f}%"
+                        f"（对最终成交价双边调整 ✓；设为 0 即关闭 ✓）")
+
             # 初始化择时策略
             timing_strategy_name = config.get('timing_strategy', 'support')
             timing_params = config.get('timing_params', {})
@@ -316,17 +330,26 @@ class BacktestEngine:
             self.timing_strategy_name = timing_strategy_name
             self.timing_strategy_params = strategy_params
 
-            # 记录海龟类策略主要参数（含海龟plus 的前溯窗口/加仓上限）
+            # 记录海龟类策略**真正生效**的参数（含海龟plus 的前溯窗口/加仓上限）
+            # 【2026-09-23】改为打印**策略实例**上的取值 ✓：
+            #   原实现打印的是"合并后的参数字典" ✗ —— 配置里没显式写出的项会显示 None ✗
+            #   （如 entry_atr / add_atr / preset ✗），看起来像"参数没读取成功" ✗，
+            #   实际它们是走**策略代码默认值** ✓（entry_atr=0.02 / add_atr=0.5 / preset=short ✓）。
             if timing_strategy_name in TURTLE_FAMILY_STRATEGIES:
-                logger.info(f"{timing_strategy_name}参数: n_entry={strategy_params.get('n_entry')}, "
-                           f"n_exit={strategy_params.get('n_exit')}, "
-                           f"atr_period={strategy_params.get('atr_period')}, "
-                           f"entry_atr={strategy_params.get('entry_atr')}, "
-                           f"add_atr={strategy_params.get('add_atr')}, "
-                           f"exit_atr={strategy_params.get('exit_atr')}, "
-                           f"preset={strategy_params.get('preset')}, "
-                           f"lookback_days={strategy_params.get('lookback_days')}, "
-                           f"max_additions={strategy_params.get('max_additions')}")
+                _st = self.timing_strategy
+                logger.info(
+                    f"{timing_strategy_name}生效参数: "
+                    f"n_entry={getattr(_st, 'n_entry', None)}, "
+                    f"n_exit={getattr(_st, 'n_exit', None)}, "
+                    f"atr_period={getattr(_st, 'atr_period', None)}, "
+                    f"entry_atr={getattr(_st, 'entry_atr', None)}, "
+                    f"add_atr={getattr(_st, 'add_atr', None)}, "
+                    f"exit_atr={getattr(_st, 'exit_atr', None)}, "
+                    f"preset={getattr(_st, 'preset_name', None)}, "
+                    f"lookback_days={getattr(_st, 'lookback_days', None)}, "
+                    f"max_additions={getattr(_st, 'max_additions', None)}, "
+                    f"add_profit_min={getattr(_st, 'add_profit_min', None)} "
+                    f"（未出现在配置中的项 = 策略代码默认值 ✓，非读取失败 ✓）")
             
 
             
@@ -708,6 +731,12 @@ class BacktestEngine:
                     exec_result = self._resolve_buy_execution(
                         stock_code, current_date, config, df_to_date)
                     buy_price = exec_result['price']
+                    # 【2026-09-23】买入滑点：成交价取不利方向（更贵 ✓）
+                    #   ma_limit 模式的委托价已自带 slippage ✗ → 该模式不叠加 ✓（避免双计 ✗）
+                    _slip = getattr(self, '_slippage', self.DEFAULT_SLIPPAGE)
+                    _buy_slip = 0.0 if exec_result.get('mode') == 'ma_limit' else _slip['buy']
+                    if buy_price and buy_price > 0 and _buy_slip:
+                        buy_price = round(buy_price * (1.0 + _buy_slip), 4)
                     if not exec_result['filled']:
                         # 未成交（如当日最低价未触及委托价）：保留候选池，不记为交易
                         logger.info(f"【未买入】{current_date} {stock_code} "
@@ -2481,6 +2510,45 @@ class BacktestEngine:
         
         return True
 
+    # ==================== 双边成交滑点（2026-09-23 新增）====================
+    # 为什么需要：原实现 open 模式按 T 日开盘价**零滑点**成交 ✗，且
+    #   calculate_backtest_cost 明确"不含滑点" ✗ → 回测系统性偏乐观 ✗。
+    # 口径（对**最终成交价**双边调整 ✓，费用仍按原口径另计 ✓）：
+    #   买入成交价 = 基准成交价 × (1 + buy)
+    #   卖出成交价 = 基准成交价 × (1 - sell)
+    # 读取优先级：run_backtest 的 config['slippage'] > config/backtest_engine_config.yaml
+    #             的 slippage 节 > 本默认值（各 0.3% ✓）
+    # 设为 0 可关闭（用于复现历史回测结果 ✓）。
+    # 注意：ma_limit 买入模式的委托价**自带** slippage ✗ → 该模式不再叠加本滑点 ✓（避免双计 ✗）
+    DEFAULT_SLIPPAGE = {'buy': 0.003, 'sell': 0.003}
+
+    def _slippage_rates(self, config: Dict) -> Dict[str, float]:
+        """解析双边滑点比例（买入/卖出 ✓）"""
+        rates = dict(self.DEFAULT_SLIPPAGE)
+        # 1) 引擎配置文件 config/backtest_engine_config.yaml 的 slippage 节
+        try:
+            file_cfg = (self._load_engine_config() or {}).get('slippage')
+            if isinstance(file_cfg, dict):
+                for k in ('buy', 'sell'):
+                    if file_cfg.get(k) is not None:
+                        rates[k] = max(0.0, float(file_cfg[k]))
+        except (TypeError, ValueError):
+            pass
+        # 2) run_backtest 传入的 config['slippage']（最高优先级 ✓）
+        raw = (config or {}).get('slippage')
+        if raw is not None:
+            try:
+                if isinstance(raw, dict):
+                    for k in ('buy', 'sell'):
+                        if raw.get(k) is not None:
+                            rates[k] = max(0.0, float(raw[k]))
+                else:
+                    v = max(0.0, float(raw))      # 标量写法：买卖同值 ✓
+                    rates['buy'] = rates['sell'] = v
+            except (TypeError, ValueError):
+                pass
+        return rates
+
     # 买入执行方式默认配置
     # mode 默认 'open'，保证不配置时行为与改造前完全一致（后向兼容）
     DEFAULT_BUY_EXECUTION = {
@@ -2936,6 +3004,10 @@ class BacktestEngine:
             if sell_price is None or sell_price <= 0:
                 # 当日无开盘数据时回退到当日收盘价，避免无法成交
                 sell_price = self._get_stock_price(stock_code, current_date, 'close')
+            # 【2026-09-23】卖出滑点：成交价取不利方向（更便宜 ✓）
+            _slip = getattr(self, '_slippage', self.DEFAULT_SLIPPAGE)
+            if sell_price and sell_price > 0 and _slip['sell']:
+                sell_price = round(sell_price * (1.0 - _slip['sell']), 4)
             
             # 停牌/退市检查：当日无行情数据时不可卖出，保留持仓
             if not self._has_trading_data_on_date(stock_code, current_date):
@@ -3334,13 +3406,25 @@ class BacktestEngine:
             }
         
         # 计算基本指标
+        # 【2026-09-22 口径修正】空值安全 ✓
+        #   `t.get('return_rate', 0)` 在"**键存在但值为 None**"时返回 None ✗（默认值只在缺键时生效 ✗）
+        #   → `None > 0` 直接抛 TypeError ✗，整张回测报表会算不出来 ✗（冒烟测试已复现 ✓）
+        def _ret(t):
+            v = t.get('return_rate')
+            return float(v) if v is not None else 0.0
+
         total_trades = len(completed_trades)
-        win_trades = sum(1 for t in completed_trades if t.get('return_rate', 0) > 0)
-        loss_trades = sum(1 for t in completed_trades if t.get('return_rate', 0) < 0)
+        win_trades = sum(1 for t in completed_trades if _ret(t) > 0)
+        loss_trades = sum(1 for t in completed_trades if _ret(t) < 0)
         win_rate = (win_trades / total_trades) * 100 if total_trades > 0 else 0
         
-        returns = [t['return_rate'] for t in completed_trades]
-        avg_return = np.mean(returns) if returns else 0
+        # 【2026-09-22 口径修正】单笔收益率序列：**只取有效数值** ✓
+        #   原实现 `t['return_rate']` 直接取值 ✗ —— 已完成交易若缺该键会抛 KeyError ✗，
+        #   若为 None 则污染 mean ✗（avg_return / max_return / min_return 同源 ✓）
+        #   口径：已完成交易（含期末虚拟平仓）的**单笔收益率算术平均**，单位 % ✓
+        returns = [float(t['return_rate']) for t in completed_trades
+                   if t.get('return_rate') is not None]
+        avg_return = float(np.mean(returns)) if returns else 0.0
         total_return = ((final_capital / initial_capital) - 1) * 100
         total_return = round(total_return, 2)
         
@@ -3348,16 +3432,28 @@ class BacktestEngine:
         max_return = max(returns) if returns else 0
         min_return = min(returns) if returns else 0
         
-        # 计算盈利因子
-        winning_returns = [t['return_rate'] for t in completed_trades if t.get('return_rate', 0) > 0]
-        losing_returns = [abs(t['return_rate']) for t in completed_trades if t.get('return_rate', 0) < 0]
-        total_win = sum(winning_returns) if winning_returns else 0
-        total_loss = sum(losing_returns) if losing_returns else 1
-        profit_factor = total_win / total_loss if total_loss > 0 else 0
+        # 【2026-09-22 口径修正】计算盈利因子 → 改为**金额口径** ✓
+        #   行业标准定义：盈利因子 = 总盈利金额 / 总亏损金额（Gross Profit / Gross Loss）✓
+        #   原实现用**单笔收益率(%)** 求和 ✗ → 每笔等权、完全无视仓位大小 ✗
+        #   （实测样本 #185：旧值 1.77 ✗ vs 金额口径 2.45 ✓，偏差 38% ✗）
+        #   同时修掉"无亏损时把分母兜底为 1" ✗ → 旧实现会算出"总盈利百分比"这种
+        #   无意义数值（如 250.3）✗；现：无亏损但有盈利 → 取上限哨兵 99.99 ✓，无盈利 → 0 ✓
+        amounts = [float(t.get('profit_loss') or 0) for t in completed_trades]
+        gross_profit = sum(a for a in amounts if a > 0)
+        gross_loss = abs(sum(a for a in amounts if a < 0))
+        if gross_loss > 0:
+            profit_factor = gross_profit / gross_loss
+        else:
+            profit_factor = PROFIT_FACTOR_NO_LOSS_CAP if gross_profit > 0 else 0.0
         
         # 计算盈亏比（基于金额）
-        winning_profits = [t['profit_loss'] for t in completed_trades if t.get('profit_loss', 0) > 0]
-        losing_losses = [abs(t['profit_loss']) for t in completed_trades if t.get('profit_loss', 0) < 0]
+        # 【2026-09-22】同为空值问题：`t.get('profit_loss', 0)` 遇到值为 None 会抛 TypeError ✗
+        #   （金额取值的兜底一并做掉 ✓；注意下方 `else 1` 的分母兜底属另一处口径问题 ✗，
+        #     本次**未改**以免在未回填的情况下静默改动"盈亏比"数值 ✗，已在报告中列出 ✓）
+        winning_profits = [float(t.get('profit_loss') or 0) for t in completed_trades
+                           if (t.get('profit_loss') or 0) > 0]
+        losing_losses = [abs(float(t.get('profit_loss') or 0)) for t in completed_trades
+                         if (t.get('profit_loss') or 0) < 0]
         avg_win = sum(winning_profits) / len(winning_profits) if winning_profits else 0
         avg_loss = sum(losing_losses) / len(losing_losses) if losing_losses else 1
         profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
@@ -3384,9 +3480,13 @@ class BacktestEngine:
         downside_volatility = np.std(downside_returns, ddof=1) if len(downside_returns) > 1 else 0
         sortino_ratio = np.mean(excess_returns) / downside_volatility * np.sqrt(252) if downside_volatility > 0 else 0.0
         
-        # 计算平均持有天数
-        hold_days_list = [t['hold_days'] for t in completed_trades if 'hold_days' in t]
-        avg_hold_days = np.mean(hold_days_list) if hold_days_list else 0.0
+        # 【2026-09-22 口径修正】计算平均持有天数 ✓
+        #   口径：已平仓交易的**平均持有交易日**数（买入当日记 0 天 ✓，与 positions 展示同口径 ✓）
+        #   原实现 `if 'hold_days' in t` ✗ —— 键存在但值为 None 时仍会进均值 ✗ → 均值变 nan ✗，
+        #   落库后前端显示 nan/异常 ✗（与 avg_return 同类问题 ✓）
+        hold_days_list = [float(t['hold_days']) for t in completed_trades
+                          if t.get('hold_days') is not None]
+        avg_hold_days = float(np.mean(hold_days_list)) if hold_days_list else 0.0
         
         return {
             'total_trades': total_trades,
