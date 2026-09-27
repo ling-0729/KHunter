@@ -1,0 +1,4 @@
+  File "<string>", line 1
+    from
+        ^
+SyntaxError: invalid syntax

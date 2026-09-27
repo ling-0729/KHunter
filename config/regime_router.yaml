@@ -4,14 +4,12 @@ regime_router:
   init_immediate: true
   index_code: 000985.CSI
   period: 14
+  enable_adx_falloff: true
   manual_override:
     enabled: false
     selector: null
     timing: null
     position: null
-  direction_filter:
-    enabled: false
-    block_open_when_bear: true
   rules:
     明确:
       selector: 金三角策略
@@ -20,7 +18,7 @@ regime_router:
       buy_execution: open
     萌芽:
       selector: 空仓
-      timing: uptrend_pullback
+      timing: turtle_plus
       position: 0
       buy_execution: open
     震荡:

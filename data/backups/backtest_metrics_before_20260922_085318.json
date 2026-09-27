@@ -1,0 +1,2532 @@
+{
+  "185": {
+    "avg_return": 1.928444672417503,
+    "profit_factor": 1.7672894959266436,
+    "avg_hold_days": 0
+  },
+  "186": {
+    "avg_return": 0.9098224021893371,
+    "profit_factor": 1.3474768068662497,
+    "avg_hold_days": 0
+  },
+  "187": {
+    "avg_return": -2.7369314798914592,
+    "profit_factor": 0.26082975643771467,
+    "avg_hold_days": 0
+  },
+  "188": {
+    "avg_return": 1.894449573999437,
+    "profit_factor": 2.7107055645902696,
+    "avg_hold_days": 0
+  },
+  "189": {
+    "avg_return": -2.1209846005710555,
+    "profit_factor": 0.056349770125195785,
+    "avg_hold_days": 0
+  },
+  "190": {
+    "avg_return": 0.788182315484642,
+    "profit_factor": 1.30983828500912,
+    "avg_hold_days": 0
+  },
+  "191": {
+    "avg_return": -1.483834919281276,
+    "profit_factor": 0.48577812101262435,
+    "avg_hold_days": 0
+  },
+  "192": {
+    "avg_return": -4.862189138631586,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "199": {
+    "avg_return": 1.6134890329313332,
+    "profit_factor": 1.6256855299421353,
+    "avg_hold_days": 0
+  },
+  "200": {
+    "avg_return": -2.4296188196810315,
+    "profit_factor": 0.23959079328278388,
+    "avg_hold_days": 0
+  },
+  "201": {
+    "avg_return": 4.819649190496723,
+    "profit_factor": 6.077552658654832,
+    "avg_hold_days": 0
+  },
+  "202": {
+    "avg_return": 2.1703135926750745,
+    "profit_factor": 2.0106596812172697,
+    "avg_hold_days": 0
+  },
+  "203": {
+    "avg_return": 1.3104629677249962,
+    "profit_factor": 1.5501267855464882,
+    "avg_hold_days": 0
+  },
+  "204": {
+    "avg_return": -0.29402225406526106,
+    "profit_factor": 0.6385590838040361,
+    "avg_hold_days": 0
+  },
+  "205": {
+    "avg_return": -1.936347805817,
+    "profit_factor": 0.12587227139706697,
+    "avg_hold_days": 0
+  },
+  "207": {
+    "avg_return": -5.089714117629328,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "209": {
+    "avg_return": -2.73257787416278,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "210": {
+    "avg_return": 1.8286546765193739,
+    "profit_factor": 1.6443558880606026,
+    "avg_hold_days": 0
+  },
+  "211": {
+    "avg_return": 1.4384682368852848,
+    "profit_factor": 1.5179961491808391,
+    "avg_hold_days": 0
+  },
+  "212": {
+    "avg_return": -0.06075152991195839,
+    "profit_factor": 0.9827821811776208,
+    "avg_hold_days": 0
+  },
+  "213": {
+    "avg_return": 0.569236565957855,
+    "profit_factor": 1.2107364858018785,
+    "avg_hold_days": 0
+  },
+  "214": {
+    "avg_return": 1.3861148115607715,
+    "profit_factor": 1.6747669757732009,
+    "avg_hold_days": 0
+  },
+  "215": {
+    "avg_return": 0.7375671846624999,
+    "profit_factor": 1.2417386396571028,
+    "avg_hold_days": 0
+  },
+  "216": {
+    "avg_return": 0.4601504626091581,
+    "profit_factor": 1.149563258488368,
+    "avg_hold_days": 0
+  },
+  "217": {
+    "avg_return": 0.45536042042392083,
+    "profit_factor": 1.1585895939299025,
+    "avg_hold_days": 0
+  },
+  "218": {
+    "avg_return": 1.861608366072541,
+    "profit_factor": 1.6627202415970124,
+    "avg_hold_days": 0
+  },
+  "219": {
+    "avg_return": 1.5588052692474927,
+    "profit_factor": 1.565784825793184,
+    "avg_hold_days": 0
+  },
+  "220": {
+    "avg_return": -0.11581024423159818,
+    "profit_factor": 0.9672526096804756,
+    "avg_hold_days": 0
+  },
+  "221": {
+    "avg_return": 0.6431932217579011,
+    "profit_factor": 1.241469784515683,
+    "avg_hold_days": 0
+  },
+  "223": {
+    "avg_return": 3.7786571496405177,
+    "profit_factor": 7.52849130731836,
+    "avg_hold_days": 0
+  },
+  "224": {
+    "avg_return": 4.87627310605372,
+    "profit_factor": 3.6656841506702484,
+    "avg_hold_days": 0
+  },
+  "225": {
+    "avg_return": 3.899694892809053,
+    "profit_factor": 2.8764968935061956,
+    "avg_hold_days": 0
+  },
+  "226": {
+    "avg_return": 3.39079769421511,
+    "profit_factor": 3.3116894034956066,
+    "avg_hold_days": 0
+  },
+  "227": {
+    "avg_return": 3.975082363164836,
+    "profit_factor": 3.2074199198210205,
+    "avg_hold_days": 0
+  },
+  "228": {
+    "avg_return": 4.555354279506014,
+    "profit_factor": 4.9133248326920205,
+    "avg_hold_days": 0
+  },
+  "229": {
+    "avg_return": 4.544494904562012,
+    "profit_factor": 3.3574606507491516,
+    "avg_hold_days": 0
+  },
+  "230": {
+    "avg_return": 4.029020016368859,
+    "profit_factor": 2.904351384517813,
+    "avg_hold_days": 0
+  },
+  "231": {
+    "avg_return": 4.734678727089966,
+    "profit_factor": 3.6669154036180682,
+    "avg_hold_days": 0
+  },
+  "232": {
+    "avg_return": 3.8580284780015055,
+    "profit_factor": 2.8521514351220625,
+    "avg_hold_days": 0
+  },
+  "233": {
+    "avg_return": 3.3931394488211484,
+    "profit_factor": 3.6973053099407696,
+    "avg_hold_days": 0
+  },
+  "234": {
+    "avg_return": 2.3250174371284555,
+    "profit_factor": 2.0665543037950176,
+    "avg_hold_days": 0
+  },
+  "235": {
+    "avg_return": 1.6448778450792605,
+    "profit_factor": 1.852552878953171,
+    "avg_hold_days": 0
+  },
+  "237": {
+    "avg_return": 3.1918620607869426,
+    "profit_factor": 2.6550884228041047,
+    "avg_hold_days": 0
+  },
+  "238": {
+    "avg_return": 3.889485841584226,
+    "profit_factor": 3.184750894139568,
+    "avg_hold_days": 0
+  },
+  "240": {
+    "avg_return": 1.9366743501996444,
+    "profit_factor": 1.897868848062324,
+    "avg_hold_days": 0
+  },
+  "241": {
+    "avg_return": 4.667419575403627,
+    "profit_factor": 3.5590388236878168,
+    "avg_hold_days": 0
+  },
+  "242": {
+    "avg_return": 4.089934138884366,
+    "profit_factor": 3.0572031090259673,
+    "avg_hold_days": 0
+  },
+  "243": {
+    "avg_return": 3.311258027699454,
+    "profit_factor": 3.4845113168336828,
+    "avg_hold_days": 0
+  },
+  "244": {
+    "avg_return": 1.186546179795157,
+    "profit_factor": 1.6894033755521145,
+    "avg_hold_days": 0
+  },
+  "246": {
+    "avg_return": 4.7511460802736725,
+    "profit_factor": 3.6398947480175803,
+    "avg_hold_days": 0
+  },
+  "247": {
+    "avg_return": 4.758644465443543,
+    "profit_factor": 3.7070712314060903,
+    "avg_hold_days": 0
+  },
+  "248": {
+    "avg_return": 3.621376365430515,
+    "profit_factor": 2.795069337934183,
+    "avg_hold_days": 0
+  },
+  "249": {
+    "avg_return": 2.5612964979796615,
+    "profit_factor": 2.1971903148989185,
+    "avg_hold_days": 0
+  },
+  "250": {
+    "avg_return": 4.477681133155298,
+    "profit_factor": 3.860156521965221,
+    "avg_hold_days": 0
+  },
+  "251": {
+    "avg_return": 3.9161679694932445,
+    "profit_factor": 3.3775974074331385,
+    "avg_hold_days": 0
+  },
+  "252": {
+    "avg_return": 5.019089956232381,
+    "profit_factor": 8.44508090038244,
+    "avg_hold_days": 0
+  },
+  "253": {
+    "avg_return": 3.0486423592741105,
+    "profit_factor": 3.4080114210233416,
+    "avg_hold_days": 0
+  },
+  "254": {
+    "avg_return": 3.4033189980104486,
+    "profit_factor": 2.5573283741858734,
+    "avg_hold_days": 0
+  },
+  "255": {
+    "avg_return": 1.806884985404387,
+    "profit_factor": 1.8649605628225507,
+    "avg_hold_days": 0
+  },
+  "256": {
+    "avg_return": 2.5406353412669986,
+    "profit_factor": 2.1770943795288322,
+    "avg_hold_days": 0
+  },
+  "258": {
+    "avg_return": 1.9327814624888624,
+    "profit_factor": 2.011410354571931,
+    "avg_hold_days": 0
+  },
+  "259": {
+    "avg_return": -0.3202801234223551,
+    "profit_factor": 0.9027299463771683,
+    "avg_hold_days": 0
+  },
+  "260": {
+    "avg_return": 2.068470106249474,
+    "profit_factor": 2.106477445926555,
+    "avg_hold_days": 0
+  },
+  "261": {
+    "avg_return": 3.1832240554078624,
+    "profit_factor": 2.8432757533442112,
+    "avg_hold_days": 0
+  },
+  "262": {
+    "avg_return": 5.029992118077365,
+    "profit_factor": 4.401391550531153,
+    "avg_hold_days": 0
+  },
+  "263": {
+    "avg_return": 2.089025956998756,
+    "profit_factor": 1.8260374064364084,
+    "avg_hold_days": 0
+  },
+  "264": {
+    "avg_return": -1.9321408159550009,
+    "profit_factor": 0.4333198498717942,
+    "avg_hold_days": 0
+  },
+  "265": {
+    "avg_return": -0.8794572215058747,
+    "profit_factor": 0.5009376624528248,
+    "avg_hold_days": 0
+  },
+  "266": {
+    "avg_return": 1.5480279642491002,
+    "profit_factor": 3.901299485790575,
+    "avg_hold_days": 0
+  },
+  "267": {
+    "avg_return": -3.1247592443522936,
+    "profit_factor": 0.14677653665198753,
+    "avg_hold_days": 0
+  },
+  "268": {
+    "avg_return": 2.260549129641382,
+    "profit_factor": 4.784811274095991,
+    "avg_hold_days": 0
+  },
+  "269": {
+    "avg_return": -0.5418948915464623,
+    "profit_factor": 0.4516168922486765,
+    "avg_hold_days": 0
+  },
+  "270": {
+    "avg_return": 2.550485972547605,
+    "profit_factor": 5.498889132850054,
+    "avg_hold_days": 0
+  },
+  "271": {
+    "avg_return": -2.9062719037925824,
+    "profit_factor": 0.1162487319615792,
+    "avg_hold_days": 0
+  },
+  "272": {
+    "avg_return": 2.253745727434149,
+    "profit_factor": 2.003253664680128,
+    "avg_hold_days": 0
+  },
+  "273": {
+    "avg_return": 2.647498514871225,
+    "profit_factor": 2.4321344928701527,
+    "avg_hold_days": 0
+  },
+  "274": {
+    "avg_return": 1.97946850610091,
+    "profit_factor": 2.029011000670129,
+    "avg_hold_days": 0
+  },
+  "275": {
+    "avg_return": 4.05867811475028,
+    "profit_factor": 3.1056423764086536,
+    "avg_hold_days": 0
+  },
+  "276": {
+    "avg_return": 3.213938987122916,
+    "profit_factor": 3.3136931303823842,
+    "avg_hold_days": 0
+  },
+  "277": {
+    "avg_return": 4.757935456365576,
+    "profit_factor": 3.750204752229324,
+    "avg_hold_days": 0
+  },
+  "278": {
+    "avg_return": 2.4604506384449243,
+    "profit_factor": 2.403463481573857,
+    "avg_hold_days": 0
+  },
+  "279": {
+    "avg_return": 2.7533838057750044,
+    "profit_factor": 2.177969950115242,
+    "avg_hold_days": 0
+  },
+  "280": {
+    "avg_return": 5.253155972905736,
+    "profit_factor": 3.98083142474322,
+    "avg_hold_days": 0
+  },
+  "281": {
+    "avg_return": 2.1956864566318988,
+    "profit_factor": 2.24815792376554,
+    "avg_hold_days": 0
+  },
+  "282": {
+    "avg_return": 1.2497251339846736,
+    "profit_factor": 1.500902243091312,
+    "avg_hold_days": 0
+  },
+  "283": {
+    "avg_return": 1.3201003459017044,
+    "profit_factor": 1.6355175058889104,
+    "avg_hold_days": 0
+  },
+  "284": {
+    "avg_return": 0.3761207083054519,
+    "profit_factor": 1.1139882963431702,
+    "avg_hold_days": 0
+  },
+  "285": {
+    "avg_return": -2.8893519043983416,
+    "profit_factor": 0.15149538525156664,
+    "avg_hold_days": 0
+  },
+  "286": {
+    "avg_return": -1.631056309786255,
+    "profit_factor": 0.3246890619757792,
+    "avg_hold_days": 0
+  },
+  "287": {
+    "avg_return": -1.6978121144067635,
+    "profit_factor": 0.4450474091600496,
+    "avg_hold_days": 0
+  },
+  "288": {
+    "avg_return": 1.3212469982708757,
+    "profit_factor": 2.3799790015834366,
+    "avg_hold_days": 0
+  },
+  "289": {
+    "avg_return": 1.2088262516676966,
+    "profit_factor": 1.415144649826039,
+    "avg_hold_days": 0
+  },
+  "290": {
+    "avg_return": 0.15182182383775827,
+    "profit_factor": 1.1219042199969933,
+    "avg_hold_days": 0
+  },
+  "291": {
+    "avg_return": 1.4852253009218672,
+    "profit_factor": 1.6369125114265655,
+    "avg_hold_days": 0
+  },
+  "292": {
+    "avg_return": -2.884189578320128,
+    "profit_factor": 0.1517254009601118,
+    "avg_hold_days": 0
+  },
+  "293": {
+    "avg_return": -1.3553607738529847,
+    "profit_factor": 0.6658800124711752,
+    "avg_hold_days": 0
+  },
+  "294": {
+    "avg_return": -5.448131320744834,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "295": {
+    "avg_return": -0.610277742034234,
+    "profit_factor": 0.8491119683401726,
+    "avg_hold_days": 0
+  },
+  "296": {
+    "avg_return": -1.1379049894597504,
+    "profit_factor": 0.7316896890195125,
+    "avg_hold_days": 0
+  },
+  "297": {
+    "avg_return": 1.1477404751536862,
+    "profit_factor": 1.401886267709873,
+    "avg_hold_days": 0
+  },
+  "298": {
+    "avg_return": 0.9159043511292758,
+    "profit_factor": 1.2575622672909192,
+    "avg_hold_days": 0
+  },
+  "299": {
+    "avg_return": -1.5935310706928745,
+    "profit_factor": 0.6091562800626316,
+    "avg_hold_days": 0
+  },
+  "300": {
+    "avg_return": 0.8301361749078073,
+    "profit_factor": 1.326618962481297,
+    "avg_hold_days": 0
+  },
+  "301": {
+    "avg_return": 0.7540137119357754,
+    "profit_factor": 1.313063752514036,
+    "avg_hold_days": 0
+  },
+  "302": {
+    "avg_return": -0.23878812157919238,
+    "profit_factor": 0.9307238865664449,
+    "avg_hold_days": 0
+  },
+  "304": {
+    "avg_return": 5.379120467218166,
+    "profit_factor": 2.8451877671067125,
+    "avg_hold_days": 0
+  },
+  "305": {
+    "avg_return": 2.5560494295901197,
+    "profit_factor": 1.8699915605645476,
+    "avg_hold_days": 0
+  },
+  "306": {
+    "avg_return": 1.4276514773028135,
+    "profit_factor": 1.5139288762474583,
+    "avg_hold_days": 0
+  },
+  "307": {
+    "avg_return": 2.210973903873788,
+    "profit_factor": 1.687701815525762,
+    "avg_hold_days": 0
+  },
+  "308": {
+    "avg_return": -0.7229682623033886,
+    "profit_factor": 0.8464148364458255,
+    "avg_hold_days": 0
+  },
+  "309": {
+    "avg_return": -0.7349426744011556,
+    "profit_factor": 0.8377470233353325,
+    "avg_hold_days": 0
+  },
+  "310": {
+    "avg_return": -8.858409226545179,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "311": {
+    "avg_return": 1.660559829789588,
+    "profit_factor": 1.4744443346569995,
+    "avg_hold_days": 0
+  },
+  "312": {
+    "avg_return": 0.9811379869540245,
+    "profit_factor": 1.269422324566858,
+    "avg_hold_days": 0
+  },
+  "313": {
+    "avg_return": 1.9426027453543175,
+    "profit_factor": 1.58911280216249,
+    "avg_hold_days": 0
+  },
+  "314": {
+    "avg_return": 0.4418303517946302,
+    "profit_factor": 1.136872998040779,
+    "avg_hold_days": 0
+  },
+  "315": {
+    "avg_return": 1.8632946648286597,
+    "profit_factor": 1.6492622766612224,
+    "avg_hold_days": 0
+  },
+  "316": {
+    "avg_return": 0.22387033285093377,
+    "profit_factor": 1.0652279846801551,
+    "avg_hold_days": 0
+  },
+  "318": {
+    "avg_return": 2.479010538701965,
+    "profit_factor": 1.6624551133906769,
+    "avg_hold_days": 0
+  },
+  "319": {
+    "avg_return": 2.3492586582502977,
+    "profit_factor": 1.7644299244831014,
+    "avg_hold_days": 0
+  },
+  "320": {
+    "avg_return": -0.500714875905939,
+    "profit_factor": 0.8140178038957803,
+    "avg_hold_days": 0
+  },
+  "321": {
+    "avg_return": -0.8981819499832983,
+    "profit_factor": 0.7340857807952347,
+    "avg_hold_days": 0
+  },
+  "322": {
+    "avg_return": -0.9398800922196059,
+    "profit_factor": 0.782073193024009,
+    "avg_hold_days": 0
+  },
+  "323": {
+    "avg_return": 5.169340906456472,
+    "profit_factor": 2.638071876796048,
+    "avg_hold_days": 0
+  },
+  "324": {
+    "avg_return": 5.169340906456472,
+    "profit_factor": 2.638071876796048,
+    "avg_hold_days": 0
+  },
+  "325": {
+    "avg_return": 5.656034723790242,
+    "profit_factor": 2.7104414918345507,
+    "avg_hold_days": 0
+  },
+  "326": {
+    "avg_return": 2.1598895800845694,
+    "profit_factor": 1.5967376144957666,
+    "avg_hold_days": 0
+  },
+  "327": {
+    "avg_return": 5.597934574471502,
+    "profit_factor": 2.7013834935099337,
+    "avg_hold_days": 0
+  },
+  "328": {
+    "avg_return": 1.3352173152396485,
+    "profit_factor": 1.4832734494236564,
+    "avg_hold_days": 0
+  },
+  "329": {
+    "avg_return": 0.8861735201998562,
+    "profit_factor": 1.3076202566769424,
+    "avg_hold_days": 0
+  },
+  "330": {
+    "avg_return": 5.029746250545721,
+    "profit_factor": 2.748863685520838,
+    "avg_hold_days": 0
+  },
+  "331": {
+    "avg_return": 2.057983814668893,
+    "profit_factor": 1.6891717962114718,
+    "avg_hold_days": 0
+  },
+  "332": {
+    "avg_return": 2.1915434785108214,
+    "profit_factor": 1.7034621301641508,
+    "avg_hold_days": 0
+  },
+  "333": {
+    "avg_return": 1.1768133314483626,
+    "profit_factor": 1.4165814783095272,
+    "avg_hold_days": 0
+  },
+  "334": {
+    "avg_return": 0.4329627602079143,
+    "profit_factor": 1.1570701589944707,
+    "avg_hold_days": 0
+  },
+  "335": {
+    "avg_return": 0.7376644135709146,
+    "profit_factor": 1.3358595982941168,
+    "avg_hold_days": 0
+  },
+  "336": {
+    "avg_return": 7.227778682483117,
+    "profit_factor": 3.4636431774369063,
+    "avg_hold_days": 0
+  },
+  "337": {
+    "avg_return": 0.10338979559347874,
+    "profit_factor": 1.033933523779983,
+    "avg_hold_days": 0
+  },
+  "338": {
+    "avg_return": 4.186801215698416,
+    "profit_factor": 3.1719381863119267,
+    "avg_hold_days": 0
+  },
+  "339": {
+    "avg_return": 5.424201531847764,
+    "profit_factor": 3.123262502713665,
+    "avg_hold_days": 0
+  },
+  "340": {
+    "avg_return": 5.424201531847764,
+    "profit_factor": 3.123262502713665,
+    "avg_hold_days": 0
+  },
+  "341": {
+    "avg_return": 5.04716798374216,
+    "profit_factor": 2.82374173751989,
+    "avg_hold_days": 0
+  },
+  "342": {
+    "avg_return": 2.0891085914704397,
+    "profit_factor": 1.7149098200647328,
+    "avg_hold_days": 0
+  },
+  "343": {
+    "avg_return": 5.5434903554388555,
+    "profit_factor": 3.0053857742289174,
+    "avg_hold_days": 0
+  },
+  "344": {
+    "avg_return": 5.424201531847764,
+    "profit_factor": 3.123262502713665,
+    "avg_hold_days": 0
+  },
+  "345": {
+    "avg_return": 2.0886360770357086,
+    "profit_factor": 1.7146325669741624,
+    "avg_hold_days": 0
+  },
+  "346": {
+    "avg_return": -1.7874591892583591,
+    "profit_factor": 0.5654318073618737,
+    "avg_hold_days": 0
+  },
+  "347": {
+    "avg_return": 2.1454786014988816,
+    "profit_factor": 1.735500789666841,
+    "avg_hold_days": 0
+  },
+  "348": {
+    "avg_return": 3.1864982785067957,
+    "profit_factor": 2.0209799468737324,
+    "avg_hold_days": 0
+  },
+  "349": {
+    "avg_return": 0.4582542983503182,
+    "profit_factor": 1.1461646427731842,
+    "avg_hold_days": 0
+  },
+  "350": {
+    "avg_return": 2.0499009876811454,
+    "profit_factor": 1.709724565630675,
+    "avg_hold_days": 0
+  },
+  "351": {
+    "avg_return": 7.428040606403465,
+    "profit_factor": 3.4438504248537214,
+    "avg_hold_days": 0
+  },
+  "352": {
+    "avg_return": 1.5589562528906822,
+    "profit_factor": 1.4799180673445105,
+    "avg_hold_days": 0
+  },
+  "353": {
+    "avg_return": 4.812157506171053,
+    "profit_factor": 2.7165850205493802,
+    "avg_hold_days": 0
+  },
+  "354": {
+    "avg_return": 1.7433986923934615,
+    "profit_factor": 1.6202571485626058,
+    "avg_hold_days": 0
+  },
+  "355": {
+    "avg_return": -1.2352894626596473,
+    "profit_factor": 0.6607009522250125,
+    "avg_hold_days": 0
+  },
+  "356": {
+    "avg_return": -1.0409659849681794,
+    "profit_factor": 0.7361645889336884,
+    "avg_hold_days": 0
+  },
+  "357": {
+    "avg_return": -3.6139864772928423,
+    "profit_factor": 0.17894682444329232,
+    "avg_hold_days": 0
+  },
+  "358": {
+    "avg_return": -0.9123685952329895,
+    "profit_factor": 0.7188667481808519,
+    "avg_hold_days": 0
+  },
+  "359": {
+    "avg_return": 4.841583919923756,
+    "profit_factor": 2.6121093992104303,
+    "avg_hold_days": 0
+  },
+  "360": {
+    "avg_return": 0.7869646498080957,
+    "profit_factor": 1.2347577517184847,
+    "avg_hold_days": 0
+  },
+  "361": {
+    "avg_return": 2.7003715245373128,
+    "profit_factor": 1.8633338071157313,
+    "avg_hold_days": 0
+  },
+  "362": {
+    "avg_return": 0.9957156471593994,
+    "profit_factor": 1.4158195599417878,
+    "avg_hold_days": 0
+  },
+  "363": {
+    "avg_return": 3.849651193465514,
+    "profit_factor": 4.466927075630843,
+    "avg_hold_days": 0
+  },
+  "364": {
+    "avg_return": 4.8121171448324995,
+    "profit_factor": 2.7165459087231802,
+    "avg_hold_days": 0
+  },
+  "365": {
+    "avg_return": -1.0433817427863685,
+    "profit_factor": 0.8097239969482374,
+    "avg_hold_days": 0
+  },
+  "366": {
+    "avg_return": 2.7003715245373128,
+    "profit_factor": 1.8633338071157313,
+    "avg_hold_days": 0
+  },
+  "367": {
+    "avg_return": 3.3048776734646337,
+    "profit_factor": 1.9107419951654492,
+    "avg_hold_days": 0
+  },
+  "368": {
+    "avg_return": -0.5020196294127027,
+    "profit_factor": 0.8591645210466976,
+    "avg_hold_days": 0
+  },
+  "369": {
+    "avg_return": 4.8121171448324995,
+    "profit_factor": 2.7165459087231802,
+    "avg_hold_days": 0
+  },
+  "370": {
+    "avg_return": 1.6942394883927356,
+    "profit_factor": 1.5904024877232408,
+    "avg_hold_days": 0
+  },
+  "371": {
+    "avg_return": 7.110891970095107,
+    "profit_factor": 3.3822070890911844,
+    "avg_hold_days": 0
+  },
+  "372": {
+    "avg_return": 7.110891970095107,
+    "profit_factor": 3.3822070890911844,
+    "avg_hold_days": 0
+  },
+  "373": {
+    "avg_return": -1.6695866321155024,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "374": {
+    "avg_return": 0.7388821969949471,
+    "profit_factor": 1.2850537705338276,
+    "avg_hold_days": 0
+  },
+  "375": {
+    "avg_return": -2.465198859538599,
+    "profit_factor": 0.22985174747231532,
+    "avg_hold_days": 0
+  },
+  "376": {
+    "avg_return": 6.510447919356496,
+    "profit_factor": 3.347672885994401,
+    "avg_hold_days": 0
+  },
+  "377": {
+    "avg_return": 3.0030984981054836,
+    "profit_factor": 9.00929549431645,
+    "avg_hold_days": 0
+  },
+  "378": {
+    "avg_return": 7.0675589411712965,
+    "profit_factor": 3.281894611942338,
+    "avg_hold_days": 0
+  },
+  "379": {
+    "avg_return": 7.0675589411712965,
+    "profit_factor": 3.281894611942338,
+    "avg_hold_days": 0
+  },
+  "380": {
+    "avg_return": 3.271432052259564,
+    "profit_factor": 2.046778282826486,
+    "avg_hold_days": 0
+  },
+  "381": {
+    "avg_return": -1.9258983525465596,
+    "profit_factor": 0.5155985812516584,
+    "avg_hold_days": 0
+  },
+  "382": {
+    "avg_return": 5.017528565982498,
+    "profit_factor": 2.8127611089328104,
+    "avg_hold_days": 0
+  },
+  "383": {
+    "avg_return": 0.21023091697584229,
+    "profit_factor": 1.0618059514942622,
+    "avg_hold_days": 0
+  },
+  "384": {
+    "avg_return": 6.631935228340605,
+    "profit_factor": 3.2644011005921705,
+    "avg_hold_days": 0
+  },
+  "385": {
+    "avg_return": 1.0266583285951265,
+    "profit_factor": 1.2978390402089337,
+    "avg_hold_days": 0
+  },
+  "386": {
+    "avg_return": 1.7040271669094056,
+    "profit_factor": 1.6276407866548803,
+    "avg_hold_days": 0
+  },
+  "387": {
+    "avg_return": 2.9082880670150657,
+    "profit_factor": 1.9855326052797833,
+    "avg_hold_days": 0
+  },
+  "388": {
+    "avg_return": 4.325209310261108,
+    "profit_factor": 2.6371361581131425,
+    "avg_hold_days": 0
+  },
+  "389": {
+    "avg_return": 0.7011269514655343,
+    "profit_factor": 1.2052219065503567,
+    "avg_hold_days": 0
+  },
+  "390": {
+    "avg_return": -0.6278199857112582,
+    "profit_factor": 0.8101685137926246,
+    "avg_hold_days": 0
+  },
+  "391": {
+    "avg_return": 6.7167342339039555,
+    "profit_factor": 3.367769289361151,
+    "avg_hold_days": 0
+  },
+  "392": {
+    "avg_return": 0.7632925824644273,
+    "profit_factor": 1.2109832456367244,
+    "avg_hold_days": 0
+  },
+  "393": {
+    "avg_return": 0.534631326907749,
+    "profit_factor": 1.1299776733947768,
+    "avg_hold_days": 0
+  },
+  "394": {
+    "avg_return": 6.303279615376909,
+    "profit_factor": 3.176278165108395,
+    "avg_hold_days": 0
+  },
+  "395": {
+    "avg_return": 2.6610447602960137,
+    "profit_factor": 1.9372491585251195,
+    "avg_hold_days": 0
+  },
+  "396": {
+    "avg_return": 1.1765542231022428,
+    "profit_factor": 1.3770457819633668,
+    "avg_hold_days": 0
+  },
+  "397": {
+    "avg_return": 6.890274257940419,
+    "profit_factor": 3.4921138152268467,
+    "avg_hold_days": 0
+  },
+  "398": {
+    "avg_return": 3.475300946054022,
+    "profit_factor": 2.22276171085094,
+    "avg_hold_days": 0
+  },
+  "400": {
+    "avg_return": 0.7337967376749859,
+    "profit_factor": 1.2522972552944156,
+    "avg_hold_days": 0
+  },
+  "401": {
+    "avg_return": 0.9399529714475614,
+    "profit_factor": 1.3335766183504365,
+    "avg_hold_days": 0
+  },
+  "402": {
+    "avg_return": 0.8790455639172509,
+    "profit_factor": 1.305320072811555,
+    "avg_hold_days": 0
+  },
+  "403": {
+    "avg_return": 1.0678677721121737,
+    "profit_factor": 1.413898233990012,
+    "avg_hold_days": 0
+  },
+  "404": {
+    "avg_return": 1.662385503152884,
+    "profit_factor": 1.5310705724799683,
+    "avg_hold_days": 0
+  },
+  "405": {
+    "avg_return": 1.2178510357084222,
+    "profit_factor": 1.4181795083555109,
+    "avg_hold_days": 0
+  },
+  "406": {
+    "avg_return": -0.6047995741165311,
+    "profit_factor": 0.8286330085652107,
+    "avg_hold_days": 0
+  },
+  "407": {
+    "avg_return": -0.5293365740815364,
+    "profit_factor": 0.808827900737293,
+    "avg_hold_days": 0
+  },
+  "408": {
+    "avg_return": 0.545269036691366,
+    "profit_factor": 1.1372310993169028,
+    "avg_hold_days": 0
+  },
+  "409": {
+    "avg_return": 1.350848939108052,
+    "profit_factor": 1.3194060603963709,
+    "avg_hold_days": 0
+  },
+  "410": {
+    "avg_return": -2.92449756471377,
+    "profit_factor": 0.4479676629843417,
+    "avg_hold_days": 0
+  },
+  "411": {
+    "avg_return": -0.42370616990985716,
+    "profit_factor": 0.8672927997454796,
+    "avg_hold_days": 0
+  },
+  "412": {
+    "avg_return": 0.8239923567424037,
+    "profit_factor": 1.2599928361013155,
+    "avg_hold_days": 0
+  },
+  "413": {
+    "avg_return": -2.40523038911169,
+    "profit_factor": 0.41467973910101846,
+    "avg_hold_days": 0
+  },
+  "414": {
+    "avg_return": 0.7498757093058297,
+    "profit_factor": 1.2015888300499962,
+    "avg_hold_days": 0
+  },
+  "415": {
+    "avg_return": 5.388697797201162,
+    "profit_factor": 4.100364293194679,
+    "avg_hold_days": 0
+  },
+  "416": {
+    "avg_return": -7.846203140019223,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "417": {
+    "avg_return": 0.7160477423160518,
+    "profit_factor": 1.3685449906319225,
+    "avg_hold_days": 0
+  },
+  "418": {
+    "avg_return": 6.44697896578888,
+    "profit_factor": 3.31625009455615,
+    "avg_hold_days": 0
+  },
+  "419": {
+    "avg_return": -0.4087200876272568,
+    "profit_factor": 0.8714841967096119,
+    "avg_hold_days": 0
+  },
+  "420": {
+    "avg_return": 0.7143616740179468,
+    "profit_factor": 1.382997065145622,
+    "avg_hold_days": 0
+  },
+  "421": {
+    "avg_return": 1.1820342914358468,
+    "profit_factor": 1.593552858098955,
+    "avg_hold_days": 0
+  },
+  "422": {
+    "avg_return": 2.797241900226919,
+    "profit_factor": 1.8455424170489179,
+    "avg_hold_days": 0
+  },
+  "423": {
+    "avg_return": 1.2878953143173748,
+    "profit_factor": 1.3447044690916354,
+    "avg_hold_days": 0
+  },
+  "424": {
+    "avg_return": -0.10339103608985326,
+    "profit_factor": 0.9674393700854628,
+    "avg_hold_days": 0
+  },
+  "425": {
+    "avg_return": 0.15667039219293316,
+    "profit_factor": 1.0466565876101153,
+    "avg_hold_days": 0
+  },
+  "426": {
+    "avg_return": 1.262417061624968,
+    "profit_factor": 1.3880551600481736,
+    "avg_hold_days": 0
+  },
+  "427": {
+    "avg_return": 5.886825770024881,
+    "profit_factor": 3.060725194741646,
+    "avg_hold_days": 0
+  },
+  "428": {
+    "avg_return": 1.1444329605774026,
+    "profit_factor": 1.4001130073513097,
+    "avg_hold_days": 0
+  },
+  "429": {
+    "avg_return": 0.44876234430586553,
+    "profit_factor": 1.1510821696703768,
+    "avg_hold_days": 0
+  },
+  "430": {
+    "avg_return": 0.4614209112801001,
+    "profit_factor": 1.2023456932396874,
+    "avg_hold_days": 0
+  },
+  "431": {
+    "avg_return": -0.46124292039625,
+    "profit_factor": 0.9014634377315335,
+    "avg_hold_days": 0
+  },
+  "432": {
+    "avg_return": 0.6618394582208937,
+    "profit_factor": 1.139095118418359,
+    "avg_hold_days": 0
+  },
+  "433": {
+    "avg_return": 4.1733322153825005,
+    "profit_factor": 2.5443069721657103,
+    "avg_hold_days": 0
+  },
+  "434": {
+    "avg_return": 2.5665486989640107,
+    "profit_factor": 1.9901249081976915,
+    "avg_hold_days": 0
+  },
+  "435": {
+    "avg_return": 4.968433590919693,
+    "profit_factor": 2.828768850657433,
+    "avg_hold_days": 0
+  },
+  "436": {
+    "avg_return": 1.7207265231805724,
+    "profit_factor": 1.5244967792425055,
+    "avg_hold_days": 0
+  },
+  "437": {
+    "avg_return": 3.5143123585023996,
+    "profit_factor": 2.0006225033173974,
+    "avg_hold_days": 0
+  },
+  "438": {
+    "avg_return": 0.691192531995458,
+    "profit_factor": 1.2370163299386132,
+    "avg_hold_days": 0
+  },
+  "439": {
+    "avg_return": 2.2661051934213945,
+    "profit_factor": 1.8158260979734264,
+    "avg_hold_days": 0
+  },
+  "440": {
+    "avg_return": 1.8389658859285036,
+    "profit_factor": 1.7229076438269122,
+    "avg_hold_days": 0
+  },
+  "441": {
+    "avg_return": 0.9257208487347913,
+    "profit_factor": 1.3006631021838986,
+    "avg_hold_days": 0
+  },
+  "442": {
+    "avg_return": 1.8145085478618728,
+    "profit_factor": 1.582011702863708,
+    "avg_hold_days": 0
+  },
+  "443": {
+    "avg_return": 0.10857097119662118,
+    "profit_factor": 1.0418047757534765,
+    "avg_hold_days": 0
+  },
+  "444": {
+    "avg_return": 1.151037826160038,
+    "profit_factor": 1.3649743703545147,
+    "avg_hold_days": 0
+  },
+  "445": {
+    "avg_return": 1.041736945789479,
+    "profit_factor": 1.3758823381004555,
+    "avg_hold_days": 0
+  },
+  "446": {
+    "avg_return": 1.3564900532944104,
+    "profit_factor": 1.5333391892182893,
+    "avg_hold_days": 0
+  },
+  "447": {
+    "avg_return": 0.47899209171461854,
+    "profit_factor": 1.1493319776996627,
+    "avg_hold_days": 0
+  },
+  "448": {
+    "avg_return": 3.332105442534142,
+    "profit_factor": 2.1917651997405416,
+    "avg_hold_days": 0
+  },
+  "449": {
+    "avg_return": 0.5660728694645513,
+    "profit_factor": 1.2011243482621818,
+    "avg_hold_days": 0
+  },
+  "450": {
+    "avg_return": 2.9830210734357085,
+    "profit_factor": 2.021684082625571,
+    "avg_hold_days": 0
+  },
+  "451": {
+    "avg_return": 1.409242426554443,
+    "profit_factor": 1.5428123526760338,
+    "avg_hold_days": 0
+  },
+  "452": {
+    "avg_return": 1.8145085478618728,
+    "profit_factor": 1.582011702863708,
+    "avg_hold_days": 0
+  },
+  "453": {
+    "avg_return": 1.7325021681267074,
+    "profit_factor": 1.708025046004929,
+    "avg_hold_days": 0
+  },
+  "454": {
+    "avg_return": 1.3414817558331478,
+    "profit_factor": 1.527582617357103,
+    "avg_hold_days": 0
+  },
+  "455": {
+    "avg_return": 2.185512068632962,
+    "profit_factor": 1.7556650352714507,
+    "avg_hold_days": 0
+  },
+  "456": {
+    "avg_return": 2.091044652500779,
+    "profit_factor": 1.7954865456759284,
+    "avg_hold_days": 0
+  },
+  "457": {
+    "avg_return": 2.2113782036728877,
+    "profit_factor": 1.7435531587292101,
+    "avg_hold_days": 0
+  },
+  "458": {
+    "avg_return": 1.4726883106894433,
+    "profit_factor": 1.5383449389332289,
+    "avg_hold_days": 0
+  },
+  "459": {
+    "avg_return": 1.4596263311351714,
+    "profit_factor": 1.484886765275317,
+    "avg_hold_days": 0
+  },
+  "460": {
+    "avg_return": 2.606957935154908,
+    "profit_factor": 1.8711174866854818,
+    "avg_hold_days": 0
+  },
+  "461": {
+    "avg_return": 0.4177784123017367,
+    "profit_factor": 1.1317952672579015,
+    "avg_hold_days": 0
+  },
+  "462": {
+    "avg_return": 3.026112716494967,
+    "profit_factor": 2.0664079712725685,
+    "avg_hold_days": 0
+  },
+  "463": {
+    "avg_return": 0.4648513385180852,
+    "profit_factor": 1.162358770580325,
+    "avg_hold_days": 0
+  },
+  "464": {
+    "avg_return": 1.265739918499287,
+    "profit_factor": 1.5052785625649103,
+    "avg_hold_days": 0
+  },
+  "465": {
+    "avg_return": -0.14599952111279965,
+    "profit_factor": 0.9503837299714244,
+    "avg_hold_days": 0
+  },
+  "466": {
+    "avg_return": 0.559163553647301,
+    "profit_factor": 1.2596217554226468,
+    "avg_hold_days": 0
+  },
+  "467": {
+    "avg_return": 0.5947899105417379,
+    "profit_factor": 1.2034326827490938,
+    "avg_hold_days": 0
+  },
+  "468": {
+    "avg_return": 1.2566642820305245,
+    "profit_factor": 1.4998496545256244,
+    "avg_hold_days": 0
+  },
+  "469": {
+    "avg_return": 1.0031442862449518,
+    "profit_factor": 1.3652015224173943,
+    "avg_hold_days": 0
+  },
+  "470": {
+    "avg_return": 1.2575168800047463,
+    "profit_factor": 1.5003538938800753,
+    "avg_hold_days": 0
+  },
+  "471": {
+    "avg_return": 3.18402001860072,
+    "profit_factor": 2.1664513252791555,
+    "avg_hold_days": 0
+  },
+  "472": {
+    "avg_return": -0.6400391350496091,
+    "profit_factor": 0.8072054216275113,
+    "avg_hold_days": 0
+  },
+  "473": {
+    "avg_return": -0.7218760386548335,
+    "profit_factor": 0.8221660871747163,
+    "avg_hold_days": 0
+  },
+  "474": {
+    "avg_return": 1.8970389929104723,
+    "profit_factor": 1.5397096497140215,
+    "avg_hold_days": 0
+  },
+  "475": {
+    "avg_return": 0.04375043122537178,
+    "profit_factor": 1.0096117472265458,
+    "avg_hold_days": 0
+  },
+  "476": {
+    "avg_return": 1.6069854315786252,
+    "profit_factor": 1.483220140391718,
+    "avg_hold_days": 0
+  },
+  "477": {
+    "avg_return": -3.147189093760379,
+    "profit_factor": 0.06073068500091322,
+    "avg_hold_days": 0
+  },
+  "478": {
+    "avg_return": -4.07439606462721,
+    "profit_factor": 0.020891765632752586,
+    "avg_hold_days": 0
+  },
+  "479": {
+    "avg_return": -1.9861777938585674,
+    "profit_factor": 0.5148263469092896,
+    "avg_hold_days": 0
+  },
+  "480": {
+    "avg_return": -0.6400391350496091,
+    "profit_factor": 0.8072054216275113,
+    "avg_hold_days": 0
+  },
+  "483": {
+    "avg_return": 1.8990212147700485,
+    "profit_factor": 1.6753331231259698,
+    "avg_hold_days": 0
+  },
+  "484": {
+    "avg_return": 1.2085094355143662,
+    "profit_factor": 1.4973620879414222,
+    "avg_hold_days": 0
+  },
+  "485": {
+    "avg_return": 2.2686356992270853,
+    "profit_factor": 1.7620305106613379,
+    "avg_hold_days": 0
+  },
+  "486": {
+    "avg_return": 1.347731653667555,
+    "profit_factor": 1.459866705491375,
+    "avg_hold_days": 0
+  },
+  "487": {
+    "avg_return": 2.152973171962626,
+    "profit_factor": 1.6684599283080197,
+    "avg_hold_days": 0
+  },
+  "488": {
+    "avg_return": 2.25037266648261,
+    "profit_factor": 1.8499327431400774,
+    "avg_hold_days": 0
+  },
+  "489": {
+    "avg_return": 1.6660393674619054,
+    "profit_factor": 1.6741472874075587,
+    "avg_hold_days": 0
+  },
+  "490": {
+    "avg_return": -0.18000408383546967,
+    "profit_factor": 0.9442855030272038,
+    "avg_hold_days": 0
+  },
+  "491": {
+    "avg_return": 1.7501287812131732,
+    "profit_factor": 1.5863759168737435,
+    "avg_hold_days": 0
+  },
+  "492": {
+    "avg_return": 1.2237573800700003,
+    "profit_factor": 1.4451534926113612,
+    "avg_hold_days": 0
+  },
+  "493": {
+    "avg_return": 1.1141442136301463,
+    "profit_factor": 1.396401338883143,
+    "avg_hold_days": 0
+  },
+  "494": {
+    "avg_return": 1.7156612162351284,
+    "profit_factor": 1.7008610013492511,
+    "avg_hold_days": 0
+  },
+  "495": {
+    "avg_return": 1.6445147504128872,
+    "profit_factor": 1.5423294095746145,
+    "avg_hold_days": 0
+  },
+  "496": {
+    "avg_return": 2.266175248520847,
+    "profit_factor": 1.862536039160806,
+    "avg_hold_days": 0
+  },
+  "497": {
+    "avg_return": 3.2985526214444136,
+    "profit_factor": 2.21138253654898,
+    "avg_hold_days": 0
+  },
+  "498": {
+    "avg_return": 2.268683895833239,
+    "profit_factor": 1.7620590368999924,
+    "avg_hold_days": 0
+  },
+  "499": {
+    "avg_return": 2.047819887049007,
+    "profit_factor": 1.7383320812123804,
+    "avg_hold_days": 0
+  },
+  "500": {
+    "avg_return": 1.2063742054376363,
+    "profit_factor": 1.506478390545497,
+    "avg_hold_days": 0
+  },
+  "501": {
+    "avg_return": 0.9763236389717969,
+    "profit_factor": 1.3421861264861452,
+    "avg_hold_days": 0
+  },
+  "502": {
+    "avg_return": 0.4442996949907633,
+    "profit_factor": 1.1799876201450856,
+    "avg_hold_days": 0
+  },
+  "503": {
+    "avg_return": 1.764100878828332,
+    "profit_factor": 1.8019578469100634,
+    "avg_hold_days": 0
+  },
+  "504": {
+    "avg_return": 1.7527602355526315,
+    "profit_factor": 1.6081546030276141,
+    "avg_hold_days": 0
+  },
+  "505": {
+    "avg_return": 2.266175248520847,
+    "profit_factor": 1.862536039160806,
+    "avg_hold_days": 0
+  },
+  "506": {
+    "avg_return": 2.268683895833239,
+    "profit_factor": 1.7620590368999924,
+    "avg_hold_days": 0
+  },
+  "507": {
+    "avg_return": 1.2349195263202994,
+    "profit_factor": 1.4154069056127103,
+    "avg_hold_days": 0
+  },
+  "508": {
+    "avg_return": 1.7527568141524141,
+    "profit_factor": 1.608152693954122,
+    "avg_hold_days": 0
+  },
+  "509": {
+    "avg_return": 2.1164337105682423,
+    "profit_factor": 1.803285592054187,
+    "avg_hold_days": 0
+  },
+  "510": {
+    "avg_return": 1.9329937428806565,
+    "profit_factor": 1.6759609102285675,
+    "avg_hold_days": 0
+  },
+  "511": {
+    "avg_return": 1.9187595506340704,
+    "profit_factor": 1.7111498080031735,
+    "avg_hold_days": 0
+  },
+  "512": {
+    "avg_return": 2.0550026023312205,
+    "profit_factor": 1.6793747012353917,
+    "avg_hold_days": 0
+  },
+  "513": {
+    "avg_return": 1.147542457280429,
+    "profit_factor": 1.3835684749501824,
+    "avg_hold_days": 0
+  },
+  "514": {
+    "avg_return": -3.792743377777484,
+    "profit_factor": 0.38865447221053595,
+    "avg_hold_days": 0
+  },
+  "515": {
+    "avg_return": 1.6966862169148107,
+    "profit_factor": 1.704721319228779,
+    "avg_hold_days": 0
+  },
+  "516": {
+    "avg_return": 0.9528313769975584,
+    "profit_factor": 1.3324190176501967,
+    "avg_hold_days": 0
+  },
+  "517": {
+    "avg_return": 3.175823657678691,
+    "profit_factor": 2.143438943056357,
+    "avg_hold_days": 0
+  },
+  "518": {
+    "avg_return": 1.642697513183294,
+    "profit_factor": 1.544154178679442,
+    "avg_hold_days": 0
+  },
+  "519": {
+    "avg_return": 2.15521960421696,
+    "profit_factor": 1.8571829068587433,
+    "avg_hold_days": 0
+  },
+  "520": {
+    "avg_return": 2.055002510054589,
+    "profit_factor": 1.6793746500039801,
+    "avg_hold_days": 0
+  },
+  "521": {
+    "avg_return": 1.147542457280429,
+    "profit_factor": 1.3835684749501824,
+    "avg_hold_days": 0
+  },
+  "522": {
+    "avg_return": 2.09157631332354,
+    "profit_factor": 1.763792108452723,
+    "avg_hold_days": 0
+  },
+  "524": {
+    "avg_return": 1.6556261071043359,
+    "profit_factor": 1.630788814464844,
+    "avg_hold_days": 0
+  },
+  "525": {
+    "avg_return": -3.792743377777484,
+    "profit_factor": 0.38865447221053595,
+    "avg_hold_days": 0
+  },
+  "526": {
+    "avg_return": -3.792743377777484,
+    "profit_factor": 0.38865447221053595,
+    "avg_hold_days": 0
+  },
+  "527": {
+    "avg_return": -0.9086927708554752,
+    "profit_factor": 0.5938495115274809,
+    "avg_hold_days": 0
+  },
+  "528": {
+    "avg_return": 0.7940700530349064,
+    "profit_factor": 1.290748532879257,
+    "avg_hold_days": 0
+  },
+  "531": {
+    "avg_return": -14.707039528480752,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "532": {
+    "avg_return": -0.34208607604424757,
+    "profit_factor": 0.7377912619602957,
+    "avg_hold_days": 0
+  },
+  "533": {
+    "avg_return": -8.130142124161102,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "534": {
+    "avg_return": -2.0906204379311357,
+    "profit_factor": 0.48612580168335057,
+    "avg_hold_days": 0
+  },
+  "535": {
+    "avg_return": -2.0718945596946314,
+    "profit_factor": 0.2828778167678143,
+    "avg_hold_days": 0
+  },
+  "536": {
+    "avg_return": -0.09468754420861296,
+    "profit_factor": 0.9236103565338116,
+    "avg_hold_days": 0
+  },
+  "537": {
+    "avg_return": -1.306752187102394,
+    "profit_factor": 0.3636052929326312,
+    "avg_hold_days": 0
+  },
+  "538": {
+    "avg_return": -0.09468754420861296,
+    "profit_factor": 0.9236103565338116,
+    "avg_hold_days": 0
+  },
+  "539": {
+    "avg_return": 2.2581697237486407,
+    "profit_factor": 1.9537942883877235,
+    "avg_hold_days": 0
+  },
+  "540": {
+    "avg_return": 1.1775507916199808,
+    "profit_factor": 1.5243735292544298,
+    "avg_hold_days": 0
+  },
+  "541": {
+    "avg_return": -1.6301706738819117,
+    "profit_factor": 0.26969671176067983,
+    "avg_hold_days": 0
+  },
+  "542": {
+    "avg_return": 1.0962553214758493,
+    "profit_factor": 1.4197223718043148,
+    "avg_hold_days": 0
+  },
+  "543": {
+    "avg_return": -1.2605857565506844,
+    "profit_factor": 0.36248291338230926,
+    "avg_hold_days": 0
+  },
+  "544": {
+    "avg_return": -2.2636290911737493,
+    "profit_factor": 0.1704914549592266,
+    "avg_hold_days": 0
+  },
+  "545": {
+    "avg_return": 0.3655921154666559,
+    "profit_factor": 1.1523094836773486,
+    "avg_hold_days": 0
+  },
+  "546": {
+    "avg_return": 1.3171024146586048,
+    "profit_factor": 1.5371378523442556,
+    "avg_hold_days": 0
+  },
+  "547": {
+    "avg_return": 0.6159011847388313,
+    "profit_factor": 1.2530706259953104,
+    "avg_hold_days": 0
+  },
+  "548": {
+    "avg_return": 1.5083236341319453,
+    "profit_factor": 1.7478375038111624,
+    "avg_hold_days": 0
+  },
+  "549": {
+    "avg_return": 1.7172019378441252,
+    "profit_factor": 1.7598526833273145,
+    "avg_hold_days": 0
+  },
+  "550": {
+    "avg_return": 1.3728293395301723,
+    "profit_factor": 1.6648549677168432,
+    "avg_hold_days": 0
+  },
+  "551": {
+    "avg_return": 7.770564454028882,
+    "profit_factor": 3.57340756165591,
+    "avg_hold_days": 0
+  },
+  "557": {
+    "avg_return": 19.805286746602075,
+    "profit_factor": 7.261926001307366,
+    "avg_hold_days": 0
+  },
+  "558": {
+    "avg_return": 0.3408750429589683,
+    "profit_factor": 1.115562864689815,
+    "avg_hold_days": 0
+  },
+  "559": {
+    "avg_return": -4.88320447327153,
+    "profit_factor": 0.06018716441696529,
+    "avg_hold_days": 0
+  },
+  "560": {
+    "avg_return": -2.027070709726934,
+    "profit_factor": 0.24332977656126023,
+    "avg_hold_days": 0
+  },
+  "561": {
+    "avg_return": -4.88320447327153,
+    "profit_factor": 0.06018716441696529,
+    "avg_hold_days": 0
+  },
+  "562": {
+    "avg_return": -3.8398498025157233,
+    "profit_factor": 0.062290810189606166,
+    "avg_hold_days": 0
+  },
+  "563": {
+    "avg_return": -2.1100393629114826,
+    "profit_factor": 0.13410958541996754,
+    "avg_hold_days": 0
+  },
+  "564": {
+    "avg_return": -0.25423005959369516,
+    "profit_factor": 0.8458958971561176,
+    "avg_hold_days": 0
+  },
+  "565": {
+    "avg_return": 3.417887891914347,
+    "profit_factor": 3.5643109581658488,
+    "avg_hold_days": 0
+  },
+  "566": {
+    "avg_return": 2.294596669884256,
+    "profit_factor": 2.52159326193884,
+    "avg_hold_days": 0
+  },
+  "567": {
+    "avg_return": -0.8605700414031434,
+    "profit_factor": 0.7488474088368553,
+    "avg_hold_days": 0
+  },
+  "568": {
+    "avg_return": 1.2552091542803983,
+    "profit_factor": 1.4407312642768704,
+    "avg_hold_days": 0
+  },
+  "569": {
+    "avg_return": 0.028442550464387824,
+    "profit_factor": 1.007068590222601,
+    "avg_hold_days": 0
+  },
+  "570": {
+    "avg_return": -2.479647388371568,
+    "profit_factor": 0.4047884270419301,
+    "avg_hold_days": 0
+  },
+  "571": {
+    "avg_return": 0.4629107471705564,
+    "profit_factor": 1.1869201229003972,
+    "avg_hold_days": 0
+  },
+  "572": {
+    "avg_return": 3.294968406092244,
+    "profit_factor": 2.3748980058836997,
+    "avg_hold_days": 0
+  },
+  "573": {
+    "avg_return": 0.6800698173211527,
+    "profit_factor": 1.2045336008773866,
+    "avg_hold_days": 0
+  },
+  "574": {
+    "avg_return": 5.551446924762764,
+    "profit_factor": 2.984926011766769,
+    "avg_hold_days": 0
+  },
+  "575": {
+    "avg_return": 0.3214984177509745,
+    "profit_factor": 1.058674967827951,
+    "avg_hold_days": 0
+  },
+  "576": {
+    "avg_return": -5.583453179347039,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "577": {
+    "avg_return": -1.5521088139198702,
+    "profit_factor": 0.2863745990700813,
+    "avg_hold_days": 0
+  },
+  "578": {
+    "avg_return": -1.1165402392952435,
+    "profit_factor": 0.026221528919166105,
+    "avg_hold_days": 0
+  },
+  "579": {
+    "avg_return": -3.3912267494083976,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "581": {
+    "avg_return": 6.197203264772091,
+    "profit_factor": 6.083860364623308,
+    "avg_hold_days": 0
+  },
+  "582": {
+    "avg_return": 0.5624354747251349,
+    "profit_factor": 1.1582527689533013,
+    "avg_hold_days": 0
+  },
+  "583": {
+    "avg_return": 1.155825090498388,
+    "profit_factor": 1.387853228926648,
+    "avg_hold_days": 0
+  },
+  "584": {
+    "avg_return": -0.16871741469865706,
+    "profit_factor": 0.9502015173794653,
+    "avg_hold_days": 0
+  },
+  "585": {
+    "avg_return": 2.428637328380074,
+    "profit_factor": 1.6966090239204745,
+    "avg_hold_days": 0
+  },
+  "586": {
+    "avg_return": 2.0304345367513967,
+    "profit_factor": 1.604252273795676,
+    "avg_hold_days": 0
+  },
+  "587": {
+    "avg_return": 1.0366776141055631,
+    "profit_factor": 1.3608893865378158,
+    "avg_hold_days": 0
+  },
+  "588": {
+    "avg_return": 3.1799957271085026,
+    "profit_factor": 2.019123366173402,
+    "avg_hold_days": 0
+  },
+  "589": {
+    "avg_return": 1.380799116953145,
+    "profit_factor": 1.3062614973910724,
+    "avg_hold_days": 0
+  },
+  "590": {
+    "avg_return": 1.7488280239238994,
+    "profit_factor": 1.5052120816883454,
+    "avg_hold_days": 0
+  },
+  "591": {
+    "avg_return": 0.529490451076825,
+    "profit_factor": 1.1524583339990926,
+    "avg_hold_days": 0
+  },
+  "592": {
+    "avg_return": 2.3106983592998267,
+    "profit_factor": 1.6581311183565446,
+    "avg_hold_days": 0
+  },
+  "593": {
+    "avg_return": -1.6841391987988403,
+    "profit_factor": 0.5207197620006955,
+    "avg_hold_days": 0
+  },
+  "594": {
+    "avg_return": -0.6971244745307463,
+    "profit_factor": 0.7509667015926763,
+    "avg_hold_days": 0
+  },
+  "595": {
+    "avg_return": -1.3966845210563767,
+    "profit_factor": 0.5483872265233485,
+    "avg_hold_days": 0
+  },
+  "596": {
+    "avg_return": 0.38169324397222976,
+    "profit_factor": 1.117818820144075,
+    "avg_hold_days": 0
+  },
+  "597": {
+    "avg_return": -0.15651982411127538,
+    "profit_factor": 0.9525304326210631,
+    "avg_hold_days": 0
+  },
+  "598": {
+    "avg_return": 0.07630933358262781,
+    "profit_factor": 1.0217140103769073,
+    "avg_hold_days": 0
+  },
+  "599": {
+    "avg_return": -0.021833252085426753,
+    "profit_factor": 0.993797385090436,
+    "avg_hold_days": 0
+  },
+  "600": {
+    "avg_return": -0.6891475026787438,
+    "profit_factor": 0.8090003491769248,
+    "avg_hold_days": 0
+  },
+  "601": {
+    "avg_return": -0.8543645871277583,
+    "profit_factor": 0.7725560795291657,
+    "avg_hold_days": 0
+  },
+  "602": {
+    "avg_return": 0.3594986871091101,
+    "profit_factor": 1.109047184982077,
+    "avg_hold_days": 0
+  },
+  "603": {
+    "avg_return": 2.3076341828695863,
+    "profit_factor": 1.6663284108140481,
+    "avg_hold_days": 0
+  },
+  "604": {
+    "avg_return": -0.25680516728018654,
+    "profit_factor": 0.9248245271901208,
+    "avg_hold_days": 0
+  },
+  "605": {
+    "avg_return": 0.4387961669748188,
+    "profit_factor": 1.1380573630505815,
+    "avg_hold_days": 0
+  },
+  "606": {
+    "avg_return": 1.9362992581868665,
+    "profit_factor": 1.561262506728588,
+    "avg_hold_days": 0
+  },
+  "607": {
+    "avg_return": 0.08554416968356295,
+    "profit_factor": 1.0218906195825637,
+    "avg_hold_days": 0
+  },
+  "608": {
+    "avg_return": 0.16625187369463582,
+    "profit_factor": 1.0498903351502897,
+    "avg_hold_days": 0
+  },
+  "609": {
+    "avg_return": 0.8820376076804908,
+    "profit_factor": 1.3773412467806831,
+    "avg_hold_days": 0
+  },
+  "610": {
+    "avg_return": 0.03075804912193674,
+    "profit_factor": 1.008497701334707,
+    "avg_hold_days": 0
+  },
+  "611": {
+    "avg_return": 2.473472462627693,
+    "profit_factor": 1.6245027577460764,
+    "avg_hold_days": 0
+  },
+  "612": {
+    "avg_return": -0.4216960610352096,
+    "profit_factor": 0.9060695557238346,
+    "avg_hold_days": 0
+  },
+  "613": {
+    "avg_return": -0.7159513516971664,
+    "profit_factor": 0.8260740116238157,
+    "avg_hold_days": 0
+  },
+  "614": {
+    "avg_return": -1.8948573315703114,
+    "profit_factor": 0.6275132081691513,
+    "avg_hold_days": 0
+  },
+  "615": {
+    "avg_return": 1.9430605331511484,
+    "profit_factor": 1.5073347489247237,
+    "avg_hold_days": 0
+  },
+  "618": {
+    "avg_return": 0.11792073277275206,
+    "profit_factor": 1.0241411341973468,
+    "avg_hold_days": 0
+  },
+  "619": {
+    "avg_return": 1.679324777768978,
+    "profit_factor": 1.7378437128318962,
+    "avg_hold_days": 0
+  },
+  "620": {
+    "avg_return": -2.5153869699743243,
+    "profit_factor": 0.3993668030515769,
+    "avg_hold_days": 0
+  },
+  "621": {
+    "avg_return": -0.4216960610352096,
+    "profit_factor": 0.9060695557238346,
+    "avg_hold_days": 0
+  },
+  "622": {
+    "avg_return": -3.005230113117143,
+    "profit_factor": 0.2889596183097522,
+    "avg_hold_days": 0
+  },
+  "623": {
+    "avg_return": -3.0502078586474246,
+    "profit_factor": 0.3982775678648434,
+    "avg_hold_days": 0
+  },
+  "624": {
+    "avg_return": 1.824221927328104,
+    "profit_factor": 1.2884494571310088,
+    "avg_hold_days": 0
+  },
+  "625": {
+    "avg_return": 1.6263046198399835,
+    "profit_factor": 1.4141030313850598,
+    "avg_hold_days": 0
+  },
+  "626": {
+    "avg_return": -1.1946370187448718,
+    "profit_factor": 0.7281411596379354,
+    "avg_hold_days": 0
+  },
+  "627": {
+    "avg_return": 2.0007506703336038,
+    "profit_factor": 1.5681760081889353,
+    "avg_hold_days": 0
+  },
+  "628": {
+    "avg_return": -0.8108296116793116,
+    "profit_factor": 0.8181011070854213,
+    "avg_hold_days": 0
+  },
+  "629": {
+    "avg_return": -1.824137646745294,
+    "profit_factor": 0.45031391568292345,
+    "avg_hold_days": 0
+  },
+  "630": {
+    "avg_return": 0.11792073277275206,
+    "profit_factor": 1.0241411341973468,
+    "avg_hold_days": 0
+  },
+  "631": {
+    "avg_return": -4.671308397241365,
+    "profit_factor": 0.010393266919891843,
+    "avg_hold_days": 0
+  },
+  "632": {
+    "avg_return": 1.604268686297477,
+    "profit_factor": 1.7582790855693577,
+    "avg_hold_days": 0
+  },
+  "633": {
+    "avg_return": -0.07845165386570001,
+    "profit_factor": 0.9888923401099003,
+    "avg_hold_days": 0
+  },
+  "634": {
+    "avg_return": -0.6541697015083087,
+    "profit_factor": 0.8125928962093487,
+    "avg_hold_days": 0
+  },
+  "635": {
+    "avg_return": -1.0762812934277812,
+    "profit_factor": 0.7919305340592874,
+    "avg_hold_days": 0
+  },
+  "636": {
+    "avg_return": -1.3179345197360695,
+    "profit_factor": 0.2621644998332574,
+    "avg_hold_days": 0
+  },
+  "637": {
+    "avg_return": -4.593181594153726,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "638": {
+    "avg_return": -2.8220969036016843,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "639": {
+    "avg_return": -4.442880907523035,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "640": {
+    "avg_return": 0.8223320073557983,
+    "profit_factor": 1.2447824184723864,
+    "avg_hold_days": 0
+  },
+  "641": {
+    "avg_return": -0.9361795593258873,
+    "profit_factor": 0.7275765809997423,
+    "avg_hold_days": 0
+  },
+  "642": {
+    "avg_return": -0.5116309638993705,
+    "profit_factor": 0.8522530371398593,
+    "avg_hold_days": 0
+  },
+  "643": {
+    "avg_return": -5.871797097869614,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "644": {
+    "avg_return": -0.1257760575738823,
+    "profit_factor": 0.952696365675557,
+    "avg_hold_days": 0
+  },
+  "645": {
+    "avg_return": 3.404946126336817,
+    "profit_factor": 2.303795639877463,
+    "avg_hold_days": 0
+  },
+  "646": {
+    "avg_return": 3.2619575429724215,
+    "profit_factor": 2.2718411444108546,
+    "avg_hold_days": 0
+  },
+  "647": {
+    "avg_return": 1.4110545274627255,
+    "profit_factor": 1.5401322688697927,
+    "avg_hold_days": 0
+  },
+  "648": {
+    "avg_return": 2.3563530848149186,
+    "profit_factor": 1.8721380029167711,
+    "avg_hold_days": 0
+  },
+  "649": {
+    "avg_return": 3.271584901571331,
+    "profit_factor": 2.275704407674229,
+    "avg_hold_days": 0
+  },
+  "650": {
+    "avg_return": 2.092815387558637,
+    "profit_factor": 1.7439777258010465,
+    "avg_hold_days": 0
+  },
+  "651": {
+    "avg_return": 1.952768070707051,
+    "profit_factor": 1.7450779124203033,
+    "avg_hold_days": 0
+  },
+  "652": {
+    "avg_return": -1.0915585959209704,
+    "profit_factor": 0.6850267916809988,
+    "avg_hold_days": 0
+  },
+  "656": {
+    "avg_return": -2.844160025446311,
+    "profit_factor": 0.139918801090367,
+    "avg_hold_days": 0
+  },
+  "657": {
+    "avg_return": -0.7576829621818068,
+    "profit_factor": 0.8248772256108542,
+    "avg_hold_days": 0
+  },
+  "658": {
+    "avg_return": -0.8779762486499786,
+    "profit_factor": 0.769400776048367,
+    "avg_hold_days": 0
+  },
+  "659": {
+    "avg_return": 1.023358011052735,
+    "profit_factor": 1.3110471674787538,
+    "avg_hold_days": 0
+  },
+  "661": {
+    "avg_return": 0.5359738727114011,
+    "profit_factor": 1.1738613467774839,
+    "avg_hold_days": 0
+  },
+  "662": {
+    "avg_return": 0.01417516663393149,
+    "profit_factor": 1.0042402229959004,
+    "avg_hold_days": 0
+  },
+  "663": {
+    "avg_return": 0.17142145236476874,
+    "profit_factor": 1.05325192664806,
+    "avg_hold_days": 0
+  },
+  "664": {
+    "avg_return": 0.1350332320216381,
+    "profit_factor": 1.042462387038137,
+    "avg_hold_days": 0
+  },
+  "665": {
+    "avg_return": -4.2312665619625704,
+    "profit_factor": 0.08773004261599217,
+    "avg_hold_days": 0
+  },
+  "666": {
+    "avg_return": -3.658344686532172,
+    "profit_factor": 0.21435721150593706,
+    "avg_hold_days": 0
+  },
+  "667": {
+    "avg_return": -1.8992952878193898,
+    "profit_factor": 0.4666618588446012,
+    "avg_hold_days": 0
+  },
+  "668": {
+    "avg_return": -0.47982927821205695,
+    "profit_factor": 0.8527741424339043,
+    "avg_hold_days": 0
+  },
+  "669": {
+    "avg_return": -0.15114125267503625,
+    "profit_factor": 0.9553300571278763,
+    "avg_hold_days": 0
+  },
+  "670": {
+    "avg_return": 0.5734348618301306,
+    "profit_factor": 1.1642965928962585,
+    "avg_hold_days": 0
+  },
+  "671": {
+    "avg_return": -0.28262034692179255,
+    "profit_factor": 0.914697989535927,
+    "avg_hold_days": 0
+  },
+  "672": {
+    "avg_return": 0.01210359409408296,
+    "profit_factor": 1.0033143648247114,
+    "avg_hold_days": 0
+  },
+  "673": {
+    "avg_return": -2.8374917244876,
+    "profit_factor": 0.5397221959210071,
+    "avg_hold_days": 0
+  },
+  "674": {
+    "avg_return": -4.93291837715277,
+    "profit_factor": 0.13211800090562587,
+    "avg_hold_days": 0
+  },
+  "675": {
+    "avg_return": -3.026553009932005,
+    "profit_factor": 0.2796692896530655,
+    "avg_hold_days": 0
+  },
+  "676": {
+    "avg_return": -2.9306756964561056,
+    "profit_factor": 0.36512910526633524,
+    "avg_hold_days": 0
+  },
+  "677": {
+    "avg_return": -2.2485921945703984,
+    "profit_factor": 0.4978027206360524,
+    "avg_hold_days": 0
+  },
+  "678": {
+    "avg_return": -5.663294507889302,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "679": {
+    "avg_return": -0.9666228312594198,
+    "profit_factor": 0.7627501560403953,
+    "avg_hold_days": 0
+  },
+  "680": {
+    "avg_return": -4.560083208087122,
+    "profit_factor": 0.11410494379633801,
+    "avg_hold_days": 0
+  },
+  "681": {
+    "avg_return": -3.4221222316134408,
+    "profit_factor": 0.3396494877406985,
+    "avg_hold_days": 0
+  },
+  "682": {
+    "avg_return": -3.303458851314075,
+    "profit_factor": 0.18621716387054968,
+    "avg_hold_days": 0
+  },
+  "683": {
+    "avg_return": -4.506438214252014,
+    "profit_factor": 0.04586365551671293,
+    "avg_hold_days": 0
+  },
+  "684": {
+    "avg_return": -4.098124616661494,
+    "profit_factor": 0.16317992124507022,
+    "avg_hold_days": 0
+  },
+  "685": {
+    "avg_return": -2.1667929407687585,
+    "profit_factor": 0.2691571504274445,
+    "avg_hold_days": 0
+  },
+  "686": {
+    "avg_return": 0.7793353631915283,
+    "profit_factor": 1.2418331948184433,
+    "avg_hold_days": 0
+  },
+  "687": {
+    "avg_return": -5.7688261824947835,
+    "profit_factor": 0,
+    "avg_hold_days": 0
+  },
+  "688": {
+    "avg_return": -6.748677068910644,
+    "profit_factor": 0.13739808414067203,
+    "avg_hold_days": 0
+  },
+  "689": {
+    "avg_return": -3.003894663832232,
+    "profit_factor": 0.029164746043887777,
+    "avg_hold_days": 0
+  },
+  "690": {
+    "avg_return": -2.551663063935329,
+    "profit_factor": 0.34588501324846105,
+    "avg_hold_days": 0
+  },
+  "691": {
+    "avg_return": 0.7793353631915283,
+    "profit_factor": 1.2418331948184433,
+    "avg_hold_days": 0
+  },
+  "692": {
+    "avg_return": 0.7029620272388702,
+    "profit_factor": 1.2190846291536825,
+    "avg_hold_days": 0
+  },
+  "693": {
+    "avg_return": 1.516602973923864,
+    "profit_factor": 1.4777114585155606,
+    "avg_hold_days": 0
+  },
+  "694": {
+    "avg_return": -0.9572095599609521,
+    "profit_factor": 0.7206129347226143,
+    "avg_hold_days": 0
+  },
+  "695": {
+    "avg_return": 0.056898226531441755,
+    "profit_factor": 1.0175720573480813,
+    "avg_hold_days": 0
+  },
+  "696": {
+    "avg_return": 0.5650370983888678,
+    "profit_factor": 1.168079190941335,
+    "avg_hold_days": 0
+  },
+  "697": {
+    "avg_return": 1.282341914808663,
+    "profit_factor": 1.417833808417343,
+    "avg_hold_days": 0
+  },
+  "698": {
+    "avg_return": 0.3296865560427831,
+    "profit_factor": 1.105646007876813,
+    "avg_hold_days": 0
+  },
+  "699": {
+    "avg_return": -0.07990849699685235,
+    "profit_factor": 0.9756985347722459,
+    "avg_hold_days": 0
+  },
+  "700": {
+    "avg_return": -0.954728608663552,
+    "profit_factor": 0.7399384731102473,
+    "avg_hold_days": 0
+  },
+  "701": {
+    "avg_return": -1.1030859782506846,
+    "profit_factor": 0.7013282568747033,
+    "avg_hold_days": 0
+  },
+  "702": {
+    "avg_return": -0.025205467841845453,
+    "profit_factor": 0.9923596664566675,
+    "avg_hold_days": 0
+  },
+  "703": {
+    "avg_return": -1.7247805161796,
+    "profit_factor": 0.5547116648565108,
+    "avg_hold_days": 0
+  },
+  "704": {
+    "avg_return": -1.2291783903130966,
+    "profit_factor": 0.6728759178767508,
+    "avg_hold_days": 0
+  },
+  "705": {
+    "avg_return": -2.4287403436048485,
+    "profit_factor": 0.45566870328633763,
+    "avg_hold_days": 0
+  },
+  "706": {
+    "avg_return": 0.4715989291228112,
+    "profit_factor": 1.1438804638431026,
+    "avg_hold_days": 0
+  },
+  "707": {
+    "avg_return": -1.1030859782506846,
+    "profit_factor": 0.7013282568747033,
+    "avg_hold_days": 0
+  },
+  "708": {
+    "avg_return": -0.025205467841845453,
+    "profit_factor": 0.9923596664566675,
+    "avg_hold_days": 0
+  },
+  "709": {
+    "avg_return": -1.3708705875262326,
+    "profit_factor": 0.6402714984584629,
+    "avg_hold_days": 0
+  },
+  "710": {
+    "avg_return": -1.0958115321721857,
+    "profit_factor": 0.7075387654108698,
+    "avg_hold_days": 0
+  },
+  "711": {
+    "avg_return": -3.21478303113523,
+    "profit_factor": 0.19628030487472076,
+    "avg_hold_days": 0
+  },
+  "712": {
+    "avg_return": 0.36649160300772776,
+    "profit_factor": 1.108832282466183,
+    "avg_hold_days": 0
+  },
+  "713": {
+    "avg_return": 0.3259333028311841,
+    "profit_factor": 1.1252632173845891,
+    "avg_hold_days": 0
+  },
+  "714": {
+    "avg_return": 0.49509016596139044,
+    "profit_factor": 1.1552590185241778,
+    "avg_hold_days": 0
+  },
+  "715": {
+    "avg_return": 1.0664139662445664,
+    "profit_factor": 1.3505143809223676,
+    "avg_hold_days": 0
+  },
+  "716": {
+    "avg_return": -0.02266360393031799,
+    "profit_factor": 0.9936217290970928,
+    "avg_hold_days": 0
+  },
+  "717": {
+    "avg_return": -0.02266360393031799,
+    "profit_factor": 0.9936217290970928,
+    "avg_hold_days": 0
+  },
+  "718": {
+    "avg_return": -1.4528701083440296,
+    "profit_factor": 0.6032121070760182,
+    "avg_hold_days": 0
+  },
+  "719": {
+    "avg_return": 0.226893340406104,
+    "profit_factor": 1.0876572516518013,
+    "avg_hold_days": 0
+  },
+  "720": {
+    "avg_return": -1.4150518505146934,
+    "profit_factor": 0.6070191493269144,
+    "avg_hold_days": 0
+  },
+  "721": {
+    "avg_return": -1.5529913253115057,
+    "profit_factor": 0.6038287331574897,
+    "avg_hold_days": 0
+  },
+  "722": {
+    "avg_return": -1.4465851451040392,
+    "profit_factor": 0.6220897249454004,
+    "avg_hold_days": 0
+  },
+  "723": {
+    "avg_return": -0.23678181732925035,
+    "profit_factor": 0.9281818341833028,
+    "avg_hold_days": 0
+  }
+}

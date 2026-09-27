@@ -166,35 +166,68 @@ class FundFlowUpdater:
             }
     
     def _get_latest_fund_flow_date(self) -> str:
-        """
-        查询最新资金流向日期（取三个表的最小值）
-        
-        返回：
-            最新资金流向日期 (YYYY-MM-DD)
+        """查询**规范表**的最新资金流日期 ✓（YYYY-MM-DD ✓）
+
+        【2026-09-25 修复 ✗→✓】原实现取"stock / industry / sector 三表最新日期的**最小值**"✗：
+          · `industry_fund_flow` / `sector_fund_flow` 已停用 ✗（0 行 ✓）⇒ 实际只剩 `stock_fund_flow` ✗
+          · 而该表 `flow_date` 存的是 **`'20260924'`（YYYYMMDD ✗）**，与"取最小值"所依赖的
+            `YYYY-MM-DD` 语义**混用** ✗ ⇒ 字符串比较下 `'20260924' < '2026-09-24'` ✗，
+            且返回值格式与下游期望不符 ✗ → 下游解析失败 → **静默退回"30 天前"** ✗✓
+            （更新窗口因此可能偏大/异常 ✗）
+        现改为**只读规范表** `stock_moneyflow_daily.trade_date` ✓（主源 `moneyflow_dc` ✓、
+        4,276,029 行 ✓、格式统一 ✓、由 `moneyflow_dc_collector` 维护 ✓）。
+        旧三表方法保留 ✓ 但**不再参与窗口计算** ✗（仅供诊断 ✓）。
+
+        Returns:
+            str: YYYY-MM-DD（规范表为空/异常 → 30 天前 ✓，与原兜底一致 ✓）
         """
         try:
-            # 查询三个表的最新日期
-            stock_date = self._get_latest_stock_fund_flow_date()
-            industry_date = self._get_latest_industry_fund_flow_date()
-            sector_date = self._get_latest_sector_fund_flow_date()
-            
-            # 取最小值（最早的日期）
-            dates = [d for d in [stock_date, industry_date, sector_date] if d]
-            
-            if not dates:
-                # 如果没有数据，返回30天前的日期
-                return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-            
-            latest_date = min(dates)
-            logger.debug(f"最新资金流向日期: {latest_date}")
-            
-            return latest_date
-        
+            row = self.db_manager.query_one(
+                "SELECT MAX(trade_date) AS d FROM stock_moneyflow_daily")
+            d = None
+            if row is not None:
+                if isinstance(row, dict):
+                    d = row.get('d')
+                else:
+                    try:
+                        d = row[0]
+                    except Exception:
+                        d = None
+            if d and str(d)[:10] not in ('None', 'null', ''):
+                latest = str(d)[:10]
+                logger.debug(f"最新资金流日期（规范表 ✓）: {latest}")
+                return latest
+            logger.warning("规范表 stock_moneyflow_daily 无数据 ⇒ 更新窗口回退"
+                           "为 30 天前（请先运行资金流初始化 ✓）")
         except Exception as e:
-            logger.error(f"查询最新资金流向日期失败: {str(e)}")
-            # 默认返回30天前的日期
-            return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            logger.error(f"查询规范表最新资金流日期失败（回退 30 天前）: {e}")
+        return (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
     
+    def _legacy_stock_ff_enabled(self) -> bool:
+        """旧表 `stock_fund_flow` 是否继续写入 ✓（默认 **False = 已停用** ✗，2026-09-25 决策 ✓）
+
+        规则读取 `config/config.yaml → update.legacy_stock_fund_flow.enabled` ✓；
+        读不到/非法 → **False** ✓（默认不再写 ✗，避免继续产生空值垃圾行 ✗）。
+        """
+        cached = getattr(FundFlowUpdater, '_LEGACY_STOCK_FF_ENABLED', None)
+        if cached is not None:
+            return cached
+        val = False
+        try:
+            import yaml
+            from pathlib import Path
+            cfg = Path(__file__).resolve().parent.parent / 'config' / 'config.yaml'
+            if cfg.exists():
+                with open(cfg, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f) or {}
+                raw = ((data.get('update') or {}).get('legacy_stock_fund_flow') or {}).get('enabled')
+                if raw is not None:
+                    val = str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+        except Exception as e:
+            logger.warning(f"读取 update.legacy_stock_fund_flow.enabled 失败（按 false 处理）: {e}")
+        FundFlowUpdater._LEGACY_STOCK_FF_ENABLED = val
+        return val
+
     def _get_latest_stock_fund_flow_date(self) -> Optional[str]:
         """查询个股资金流向的最新日期"""
         try:
@@ -276,7 +309,7 @@ class FundFlowUpdater:
             # 默认获取30天
             return 30
     
-    def _update_stock_fund_flow(self, days: int) -> Dict:
+    def _update_stock_fund_flow(self, days: int, enabled=None) -> Dict:
         """
         更新个股资金流向
         
@@ -297,6 +330,24 @@ class FundFlowUpdater:
         failed = 0
         
         try:
+            # 【2026-09-25 **停用** ✗】个股资金流的**规范表**是 `stock_moneyflow_daily` ✓
+            #   （主源 `moneyflow_dc` ✓、4,276,029 行 ✓、日频 ✓、日期格式 YYYY-MM-DD ✓，
+            #    由 `moneyflow_dc_collector` 维护 ✓）。
+            #   本方法维护的旧表 `stock_fund_flow` 实测**93 行全部为空值** ✗✓：
+            #     · `stock_code` 恒为空串 ✗ —— 源返回的字段名是 `ts_code` ✗，代码却取 `code` ✗
+            #     · 6 个金额字段恒为 0 ✗ —— 源字段名为 `net_amount/net_buy_amount` ✗，
+            #       代码却取 `main_net_flow/super_large_net_flow/...` ✗
+            #     · `period` 硬编码 `'5d'` ✗、`flow_date` 存 **YYYYMMDD** ✗（与全库格式不一致 ✗）
+            #     · 且 `saved += 1` 会**假装成功** ✗（值全空也计入"已保存" ✗）
+            #   全仓**无任何读取方** ✓ ⇒ 唯一效果是持续产生垃圾行并污染更新窗口计算 ✗
+            #   → 默认**停用** ✗；如需恢复旧表回填，置 true ✓（但请注意上述字段名错位 ✗）
+            if enabled is None:
+                enabled = self._legacy_stock_ff_enabled()
+            if not enabled:
+                logger.info("个股资金流**旧表 stock_fund_flow 已停用** ✓ "
+                            "（规范表 = stock_moneyflow_daily ✓）→ 跳过；"
+                            "如需回填旧表请置 update.legacy_stock_fund_flow.enabled=true ✓")
+                return {'added': 0, 'updated': 0, 'failed': 0, 'skipped': True}
             logger.info(f"更新个股资金流向: 获取最近 {days} 天的数据...")
             
             # 计算时间范围
@@ -339,7 +390,61 @@ class FundFlowUpdater:
                 'failed': 1
             }
     
-    def _update_industry_fund_flow(self, days: int) -> Dict:
+    def _industry_sector_enabled(self) -> bool:
+        """行业/板块资金流是否处理 ✓（默认 **False = 暂不处理** ✗，2026-09-25 决策 ✓）
+
+        读取 `config/config.yaml → update.industry_sector_fund_flow.enabled` ✓；
+        读不到/非法 → **False** ✓（默认不写 ✗ —— 避免"缺陷修好后突然开始产数据"的行为突变 ✗）。
+        """
+        cached = getattr(FundFlowUpdater, '_INDUSTRY_SECTOR_ENABLED', None)
+        if cached is not None:
+            return cached
+        val = False
+        try:
+            import yaml
+            from pathlib import Path
+            cfg = Path(__file__).resolve().parent.parent / 'config' / 'config.yaml'
+            if cfg.exists():
+                with open(cfg, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f) or {}
+                raw = ((data.get('update') or {}).get('industry_sector_fund_flow') or {}).get('enabled')
+                if raw is not None:
+                    val = str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+        except Exception as e:
+            logger.warning(f"读取 update.industry_sector_fund_flow.enabled 失败（按 false 处理）: {e}")
+        FundFlowUpdater._INDUSTRY_SECTOR_ENABLED = val
+        return val
+
+    def _assert_table_columns(self, table: str, *required: str) -> None:
+        """写入前**硬校验**表结构 ✓（缺列 → 显式抛错 ✗，不再靠 except 静默 ✗）
+
+        【2026-09-25 新增】起因（实证 ✗）：本类的行业/板块 INSERT 列名
+        （`trade_date/buy_vol/buy_amount/...` ✗）与真实表结构
+        （`flow_date/period/main_net_flow/...` ✓）**完全不同** ✗ →
+        每次更新都会抛错 ✗，而异常被外层 `except` 吞掉 ✗ → 表现为
+        "表长期 0 行 + 只有一句 warning" ✗✓（典型的静默失败 ✗）。
+
+        现改为写入前校验 ✓：缺列即 `RuntimeError` ✗（日志带**具体列名与建表语句** ✓），
+        由调用方记为 `failed` ✓ —— **失败可见** ✓，不再无声 ✗。
+        """
+        try:
+            row = self.db_manager.query_one(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        except Exception as e:
+            logger.warning(f"校验 {table} 表结构失败（跳过校验）: {e}")
+            return
+        if not row:
+            raise RuntimeError(f"表 {table} 不存在 ✗ → 拒绝写入（避免静默失败 ✗）")
+        sql = row[0] if not isinstance(row, dict) else (row.get('sql') or '')
+        sql = sql or ''
+        missing = [c for c in required if c not in sql]
+        if missing:
+            raise RuntimeError(
+                f"表 {table} 结构缺少列 {missing} ✗ → 拒绝写入（此前正是因此静默失败 ✗）；"
+                f"实际建表语句: {sql[:200]}")
+        logger.debug(f"{table} 表结构校验通过 ✓ ({len(required)} 列)")
+
+    def _update_industry_fund_flow(self, days: int, enabled=None) -> Dict:
         """
         更新行业资金流向
         
@@ -360,6 +465,18 @@ class FundFlowUpdater:
         failed = 0
         
         try:
+            # 【2026-09-25 范围决策 ✓】行业/板块资金流**暂不处理** ✗
+            #   决策依据（用户 2026-09-25）：这两张表**不在回测复现依赖范围内** ✓
+            #   （回测四类数据 = 交易日历 / 个股资金流 / 个股基本面 / 个股事件 ✓）。
+            #   注：本轮同时修掉了它的"列名冲突"静默失败 ✗ —— 若不加此闸门，
+            #   原"永远失败 ✗→修好后真写入 ✗"会造成**行为突变** ✗（突然开始产数据 ✓）。
+            #   故默认 `enabled=false` ✓ 显式跳过并留痕 ✓；日后需要时置 true 即启用 ✓。
+            if enabled is None:
+                enabled = self._industry_sector_enabled()
+            if not enabled:
+                logger.info("行业资金流**暂不处理** ✓（update.industry_sector_fund_flow."
+                            "enabled=false）→ 跳过；需要时置 true 启用 ✓")
+                return {'added': 0, 'updated': 0, 'failed': 0, 'skipped': True}
             logger.info(f"更新行业资金流向: 获取最近 {days} 天的数据...")
             
             # 计算时间范围
@@ -382,7 +499,19 @@ class FundFlowUpdater:
             if df_fund_flow is not None and len(df_fund_flow) > 0:
                 # 插入新数据
                 logger.debug(f"插入 {len(df_fund_flow)} 条行业资金流向数据...")
-                added = self._save_industry_fund_flow_records(df_fund_flow)
+                # 【2026-09-25 修复·列名冲突 ✗→✓】统一写入者 ✓
+                #   原实现 `_save_industry_fund_flow_records` 的 INSERT 列名为
+                #   (industry_name, trade_date, buy_vol, buy_amount, sell_vol, sell_amount,
+                #    net_vol, net_amount) ✗ —— 而真实表结构为
+                #   (industry_code, industry_name, flow_date, period, main_net_flow,
+                #    super_large_net_flow, large_net_flow, medium_net_flow, small_net_flow,
+                #    net_flow_rate, created_date) ✓ ⇒ **列名全部不存在** ✗ → 每次都抛错 ✗，
+                #   且异常被外层 `except` 吞掉 ✗ → 长期"表 0 行 + 静默失败" ✗✓
+                #   现统一委托 `fund_flow_fetcher._save_industry_fund_flow` ✓
+                #   （列名与表一致 ✓、写入 period='daily' ✓、含存在性检查走 UPDATE ✓）
+                self._assert_table_columns('industry_fund_flow', 'industry_code', 'industry_name',
+                                           'flow_date', 'period', 'main_net_flow', 'net_flow_rate')
+                added = self.fund_flow_fetcher._save_industry_fund_flow(df_fund_flow, end_date_fmt)
                 logger.info(f"行业资金流向更新完成: 新增 {added} 条")
             else:
                 logger.warning(f"获取行业资金流向数据失败或无数据")
@@ -402,7 +531,7 @@ class FundFlowUpdater:
                 'failed': 1
             }
     
-    def _update_sector_fund_flow(self, days: int) -> Dict:
+    def _update_sector_fund_flow(self, days: int, enabled=None) -> Dict:
         """
         更新板块资金流向
         
@@ -423,6 +552,13 @@ class FundFlowUpdater:
         failed = 0
         
         try:
+            # 【2026-09-25 范围决策 ✓】同行业口径：**暂不处理** ✗（默认跳过 ✓，可配置启用 ✓）
+            if enabled is None:
+                enabled = self._industry_sector_enabled()
+            if not enabled:
+                logger.info("板块资金流**暂不处理** ✓（update.industry_sector_fund_flow."
+                            "enabled=false）→ 跳过；需要时置 true 启用 ✓")
+                return {'added': 0, 'updated': 0, 'failed': 0, 'skipped': True}
             logger.info(f"更新板块资金流向: 获取最近 {days} 天的数据...")
             
             # 计算时间范围
@@ -445,7 +581,10 @@ class FundFlowUpdater:
             if df_fund_flow is not None and len(df_fund_flow) > 0:
                 # 插入新数据
                 logger.debug(f"插入 {len(df_fund_flow)} 条板块资金流向数据...")
-                added = self._save_sector_fund_flow_records(df_fund_flow)
+                # 【2026-09-25 修复·列名冲突 ✗→✓】同行业口径：统一委托 fetcher ✓
+                self._assert_table_columns('sector_fund_flow', 'sector_code', 'sector_name',
+                                           'flow_date', 'period', 'main_net_flow', 'net_flow_rate')
+                added = self.fund_flow_fetcher._save_sector_fund_flow(df_fund_flow, end_date_fmt)
                 logger.info(f"板块资金流向更新完成: 新增 {added} 条")
             else:
                 logger.warning(f"获取板块资金流向数据失败或无数据")
@@ -466,6 +605,14 @@ class FundFlowUpdater:
             }
     
     def _save_stock_fund_flow_records(self, df_fund_flow: pd.DataFrame) -> int:
+        # 【2026-09-25 起**废弃** ✗】字段名与**源返回**不一致 ✗✓：
+        #   源为 `ts_code` / `net_amount` / `net_buy_amount` ✓（见 fund_flow_fetcher ✓），
+        #   本方法却取 `code` / `main_net_flow` / `super_large_net_flow` … ✗
+        #   ⇒ `stock_code` 恒为空串 ✗、金额恒为 0 ✗（实测 93 行全空 ✓），
+        #   还会 `saved += 1` **假装成功** ✗。
+        #   ⇒ 请改用规范表 `stock_moneyflow_daily` ✓（`moneyflow_dc_collector` 维护 ✓）
+        logger.error("_save_stock_fund_flow_records 已废弃 ✗（字段名与源不符 ⇒ 写入全空值 ✗）；"
+                     "个股资金流请使用规范表 stock_moneyflow_daily ✓")
         """
         保存个股资金流向记录到数据库
         
@@ -519,6 +666,13 @@ class FundFlowUpdater:
             return 0
     
     def _save_industry_fund_flow_records(self, df_fund_flow: pd.DataFrame) -> int:
+        # 【2026-09-25 起**废弃** ✗】此方法的 INSERT 列名（trade_date/buy_vol/buy_amount/
+        #   sell_vol/sell_amount/net_vol/net_amount ✗）在真实表结构中**不存在** ✗ →
+        #   必然抛错且被上层 except 吞掉 ✗。请改用
+        #   `fund_flow_fetcher._save_industry_fund_flow` ✓（列名与表一致 ✓）
+        logger.error("_save_industry_fund_flow_records 已废弃 ✗（列名与 industry_fund_flow "
+                     "表结构不符，调用必然失败 ✗）→ 请改用 fund_flow_fetcher."
+                     "_save_industry_fund_flow ✓")
         """
         保存行业资金流向记录到数据库
         
@@ -570,6 +724,12 @@ class FundFlowUpdater:
             return 0
     
     def _save_sector_fund_flow_records(self, df_fund_flow: pd.DataFrame) -> int:
+        # 【2026-09-25 起**废弃** ✗】同 `_save_industry_fund_flow_records`：列名与
+        #   `sector_fund_flow` 真实表结构不符 ✗ → 必然失败 ✗。请改用
+        #   `fund_flow_fetcher._save_sector_fund_flow` ✓
+        logger.error("_save_sector_fund_flow_records 已废弃 ✗（列名与 sector_fund_flow "
+                     "表结构不符，调用必然失败 ✗）→ 请改用 fund_flow_fetcher."
+                     "_save_sector_fund_flow ✓")
         """
         保存板块资金流向记录到数据库
         

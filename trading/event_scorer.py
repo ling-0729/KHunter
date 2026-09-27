@@ -71,7 +71,10 @@ logger = logging.getLogger(__name__)
 # 一票否决得分
 VETO_SCORE = -100
 
-# 事件有效期配置（天）
+# 事件有效期配置（自然日）
+#   ⚠️【2026-09-27 起**不再是生效口径** ✗】实际窗口统一由
+#   `EVENT_WINDOW_TRADING_DAYS = 5`（**5 个交易日** ✓）决定 ✓；
+#   本表仅作**历史参照/文档**保留 ✗（勿再据此判断行为 ✗）
 EVENT_VALIDITY = {
     "forecast": 20,         # 业绩预告有效期
     "holdertrade": 50,      # 股东增减持有效期
@@ -123,6 +126,18 @@ CACHE_TTL = 300  # 5分钟
 BLOCK_TRADE_DISCOUNT_THRESHOLD = 5
 # 业绩暴雷阈值（预减幅度 > 80%）
 FORECAST_CRASH_THRESHOLD = -80
+
+#: ★【2026-09-27 用户口径】**事件窗口统一 = 最近 5 个交易日** ✓（打分 ✓ 与 否决 ✓ **同口径**）
+#:   · 原来各条用 `EVENT_VALIDITY` 的**自然日**：预告 20 ✓ / 减持 50 ✓ / 回购 50 ✓ /
+#:     大宗 5 ✓ / 龙虎榜 5 ✓ / 异常波动 10 ✓；减持计划另为 180 天 ✗
+#:   · 判据 ✓：以**交易日历**回溯 ✓（`utils.local_calendar.recent_trade_dates_local` ✓，**纯本地** ✓ 不联网 ✗）
+#:   · 日历不可用 ⇒ 回退**自然日**（按 5 交易日 ≈ 7 自然日**等比换算** ✓）+ WARNING ✓
+EVENT_WINDOW_TRADING_DAYS = 5      # 打分窗口 ✓（`_collect_all_events` 各 `_check_*` ✓）
+VETO_WINDOW_TRADING_DAYS = 5       # 否决窗口 ✓（`check_veto` 三条 ✓）
+#: 自然日兜底基准 ✓：`trading_days` 个交易日 ≈ `trading_days * 7 / 5` 自然日 ✓
+WINDOW_FALLBACK_CALENDAR_DAYS = 7
+#: 兼容别名 ✓（旧名保留 ✗，避免外部/测试引用失效 ✓）
+VETO_WINDOW_FALLBACK_CALENDAR_DAYS = WINDOW_FALLBACK_CALENDAR_DAYS
 
 
 class MemoryCache:
@@ -289,6 +304,47 @@ class EventScorer:
         start_dt = end_dt - timedelta(days=days)
         return start_dt.strftime("%Y%m%d")
 
+    # ------------------------------------------------------------------
+    # ★【2026-09-27 用户口径】一票否决窗口 = **最近 5 个交易日** ✓
+    # ------------------------------------------------------------------
+    def _get_local_conn(self):
+        """取本地库连接（**离线** ✓；与 `MoneyflowScorer._get_local_conn` **同一口径** ✓）"""
+        try:
+            if getattr(self, 'db_manager', None) is not None:
+                return self.db_manager.connect()
+        except Exception:
+            pass
+        from utils.global_db import get_global_db
+        return get_global_db().connect()
+
+    def _window_start(self, score_date: str, trading_days: int) -> str:
+        """事件窗口**起点** ✓ = 最近 `trading_days` 个交易日的**首日** ✓（打分 ✓/否决 ✓ 共用）
+
+        · 主路径 ✓：`recent_trade_dates_local` ✓（**纯本地** ✓：`trade_calendar` 表 →
+          `data/trading_calendar_cache.json` → `stock_kline` ✓，**不联网** ✗）
+        · 兜底 ✓：本地日历不可用（或不足 N 天 ✗）⇒ 回退**自然日** ✓
+          （`trading_days × 7 / 5` ✓，例 5 交易日 ⇒ 7 自然日 ✓）+ WARNING ✓
+          （宁可略宽也不漏判 ✗✓）
+
+        ⚠️ 入参/返回均为 `YYYYMMDD` ✓；`recent_trade_dates_local` 用 **ISO** 日期 ✓ ⇒ 在此转换 ✓。
+        """
+        iso = f'{score_date[:4]}-{score_date[4:6]}-{score_date[6:]}'
+        try:
+            from utils.local_calendar import recent_trade_dates_local
+            dates = recent_trade_dates_local(self._get_local_conn(), iso,
+                                             window=int(trading_days))
+            return str(dates[0]).replace('-', '')[:8]
+        except Exception as e:
+            fallback = max(1, round(int(trading_days) * WINDOW_FALLBACK_CALENDAR_DAYS / 5))
+            logger.warning(
+                f'事件窗口：本地交易日历不可用（{e}）⇒ 回退自然日 {fallback} 天 ✓'
+                f'（{trading_days} 个交易日 ≈ {fallback} 自然日；不联网 ✗）')
+            return self._get_start_date(score_date, fallback)
+
+    def _veto_window_start(self, score_date: str) -> str:
+        """**否决**窗口起点 ✓（= 最近 `VETO_WINDOW_TRADING_DAYS` 个交易日 ✓）"""
+        return self._window_start(score_date, VETO_WINDOW_TRADING_DAYS)
+
     def _call_tushare_with_retry(self, func, **kwargs):
         """
         带重试机制的 Tushare API 调用（指数退避策略 + 限流）
@@ -360,8 +416,8 @@ class EventScorer:
         if cached is not None:
             return cached
 
-        # 计算有效期起始日期（20天）
-        start_date = self._get_start_date(score_date, EVENT_VALIDITY["forecast"])
+        # 计算窗口起始日期（★ 5 个交易日 ✓，原 20 自然日 ✗）
+        start_date = self._window_start(score_date, EVENT_WINDOW_TRADING_DAYS)
         # 转换为 Tushare 格式代码
         ts_code = self._convert_ts_code(stock_code)
         events = []
@@ -472,8 +528,8 @@ class EventScorer:
         if cached is not None:
             return cached
 
-        # 计算有效期起始日期（50天）
-        start_date = self._get_start_date(score_date, EVENT_VALIDITY["holdertrade"])
+        # 计算窗口起始日期（★ 5 个交易日 ✓，原 50 自然日 ✗）
+        start_date = self._window_start(score_date, EVENT_WINDOW_TRADING_DAYS)
         # 转换为 Tushare 格式代码
         ts_code = self._convert_ts_code(stock_code)
         events = []
@@ -563,8 +619,8 @@ class EventScorer:
         if cached is not None:
             return cached
 
-        # 计算有效期起始日期（50天）
-        start_date = self._get_start_date(score_date, EVENT_VALIDITY["repurchase"])
+        # 计算窗口起始日期（★ 5 个交易日 ✓，原 50 自然日 ✗）
+        start_date = self._window_start(score_date, EVENT_WINDOW_TRADING_DAYS)
         # 转换为 Tushare 格式代码
         ts_code = self._convert_ts_code(stock_code)
         events = []
@@ -619,8 +675,8 @@ class EventScorer:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
-        # 计算有效期起始日期（5天）
-        start_date = self._get_start_date(score_date, EVENT_VALIDITY["block_trade"])
+        # 计算窗口起始日期（★ 5 个交易日 ✓，原 5 自然日 ✗）
+        start_date = self._window_start(score_date, EVENT_WINDOW_TRADING_DAYS)
         ts_code = self._convert_ts_code(stock_code)
         events = []
         try:
@@ -663,8 +719,8 @@ class EventScorer:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
-        # 计算有效期起始日期（5天）
-        start_date = self._get_start_date(score_date, EVENT_VALIDITY["top_list"])
+        # 计算窗口起始日期（★ 5 个交易日 ✓，原 5 自然日 ✗）
+        start_date = self._window_start(score_date, EVENT_WINDOW_TRADING_DAYS)
         ts_code = self._convert_ts_code(stock_code)
         events = []
         try:
@@ -711,7 +767,8 @@ class EventScorer:
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
-        start_date = self._get_start_date(score_date, EVENT_VALIDITY["shock"])
+        # 计算窗口起始日期（★ 5 个交易日 ✓，原 10 自然日 ✗）
+        start_date = self._window_start(score_date, EVENT_WINDOW_TRADING_DAYS)
         ts_code = self._convert_ts_code(stock_code)
         events = []
         try:
@@ -888,8 +945,9 @@ class EventScorer:
             )
             if df is None or df.empty:
                 return False, ""
-            # 过滤有效期内的记录（20天）
-            start_date = self._get_start_date(score_date, EVENT_VALIDITY["forecast"])
+            # 过滤有效期内的记录
+            #   ★【2026-09-27 用户口径】否决只看**最近 5 个交易日** ✓（原：20 自然日 ✗）
+            start_date = self._veto_window_start(score_date)
             df = self._filter_by_date(df, "ann_date", start_date, score_date)
             if df.empty:
                 return False, ""
@@ -919,12 +977,24 @@ class EventScorer:
         返回:
             Tuple[bool, str]: (是否大股东减持, 原因)
         """
+        # ★【2026-09-27 用户口径】否决只看**最近 5 个交易日**内的公告 ✓
+        #   · `_check_holdertrade` 仍按 50 自然日取数 ✓ —— 它是**打分维度共用**的 ✗，
+        #     口径**不动** ✗；此处**只过滤否决** ✓（单一改动点 ✓，评分行为零变化 ✓）
+        window_start = self._veto_window_start(score_date)
         holdertrade_events = self._check_holdertrade(stock_code, score_date)
         for event in holdertrade_events:
             if event.get("type") == "股东减持":
+                _d = str(event.get("date") or "").replace("-", "")[:8]
+                if not _d:
+                    logger.debug(f"{stock_code} 减持事件缺日期 ⇒ 窗口外，不否决 ✓")
+                    continue
+                if _d < window_start:
+                    logger.debug(f"{stock_code} 减持 {_d} < 窗口起点 {window_start} "
+                                 f"⇒ 超 5 个交易日，不否决 ✓")
+                    continue
                 holder_type = event.get("holder_type", "")
                 if any(kw in holder_type for kw in ["大股东", "控股股东", "实际控制人", "5%以上"]):
-                    return True, f"大股东减持（{holder_type}）"
+                    return True, f"大股东减持（{holder_type}，公告 {_d}）"
         return False, ""
 
     def _is_reduce_plan(self, title: str) -> bool:
@@ -954,7 +1024,10 @@ class EventScorer:
             Tuple[bool, str]: (是否命中减持计划, 原因描述)
         """
         # 计算有效期起始日期（用于过滤缓存中仍有效的计划）
-        start_date = self._get_start_date(score_date, REDUCE_PLAN_VALIDITY)
+        #   ★【2026-09-27 用户口径】否决只看**最近 5 个交易日** ✓（原：180 自然日 ✗）
+        #   · 数据层 `rpc.fetch_reduce_plans` 仍按 180 天**取数/缓存** ✓（缓存是共享的 ✓，
+        #     缩短取数范围会让缓存反复失效 ✗）⇒ 此处**只收窄判据** ✓
+        start_date = self._veto_window_start(score_date)
 
         def _match(plans):
             # 在计划列表中找到有效期内命中的减持计划

@@ -18,13 +18,14 @@
 """
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 
 from trading import backtest_engine as _be
 from trading.backtest_engine import BacktestEngine
-from trading.regime_router import RegimeRouter, RouteDecision
+from trading.regime_router import RegimeRouter, RouteDecision, NO_SELECTION_LABEL
+from utils.online_guard import backtest_offline
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class RegimeBacktestEngine(BacktestEngine):
         self.regime_log = []
         self.strategy_switches = []
         self._current_strategy = None
+        self._current_state = None      # 【2026-09-24】切换计数的"状态键"（含「空仓」✓）
         self._regime_ratio = 1.0
 
     # ------------------------------------------------------------------
@@ -162,6 +164,82 @@ class RegimeBacktestEngine(BacktestEngine):
         return d
 
     # ------------------------------------------------------------------
+    # ★【2026-09-27】**路由器预热** ✓ —— 消除"**档位依赖回测起点**"✗
+    # ------------------------------------------------------------------
+    def _warmup_router(self, start_date, dates: Optional[List] = None) -> int:
+        """把路由器状态机**从 ADX 表首日**推进到 `start_date` 之前 ✓
+
+        背景 ✗✓（**实测** ✓，用户报 `2025-05-06` ✗）：
+          `RegimeRouter.decide()` 是**逐日推进** ✓ —— 降温与迟滞都是**路径依赖** ✗；
+          而本引擎此前只对 `[start_date, end_date]` 调 `decide` ✗
+          ⇒ **回测起点一变，同一天的档位就变** ✗✗（实测同一日 `2025-05-06`）：
+
+            · 起点 ≤ `2025-04-18` ✓（含峰值 `adx=40.02` ✓）⇒ **震荡** ✓（仓位 0.0 ✓）
+            · 起点 ≥ `2025-04-22` ✗（错过峰值 ✗）⇒ **明确** ✗（满仓 1.0 ✗）
+
+          ⇒ 根因 ✗：`fell_from_high`（"曾见 40+ "✓）与 `cooled` 都是**历史标志** ✓，
+            错过峰值日 ⇒ 整条「高位回落」链**永不触发** ✗。
+
+        做法 ✓：`reset_state()` 清零 ✓ → 从 ADX 表**首日**起 ✓，对 `start_date` **之前**的
+        每个 ADX 日调 `self._router.decide(d, persist=True)` ✓
+        （`persist=True` 是**必须**的 ✗：状态逐日累积 ✓；不落状态则次日 `prev_adx` 丢失 ✗
+         ⇒ 连升/连降判定永不触发 ✗）。
+
+        ⚠️ 直接调 `self._router` ✓、**不走** `self._decide` ✗ ⇒ 预热**不写**
+        `regime_log` / `_decision_cache` ✗（不进回测统计 ✓）。
+
+        ⚠️ 必在**主循环之前** ✓（首日 `_decide` 就要用到已对齐的状态 ✓）；
+        路由器为 `in_memory=True` ✓（见 `__init__` ✓）⇒ 预热**不碰**实盘状态文件 ✓。
+
+        Args:
+            start_date: 回测开始日 ✓（`YYYYMMDD` / `YYYY-MM-DD` 均可 ✓）
+            dates: 预热日期序列 ✓（**测试注入** ✓）；`None` ⇒ 从 ADX 表取 ✓
+
+        Returns:
+            预热天数 ✓（0 = 未预热 ✗；**任何异常也返回 0** ✓ —— 绝不阻断回测 ✓）
+        """
+        def _norm(x) -> str:
+            return str(x or '').replace('-', '')[:8]
+
+        try:
+            self._router.reset_state()
+            if not getattr(self._router, 'enabled', False):
+                return 0
+            start = _norm(start_date)
+            if dates is None:
+                prev = ''
+                try:
+                    prev = _norm(self._get_previous_trading_day(start_date))
+                except Exception:
+                    prev = ''
+                from trading.market_index_adx_dao import MarketIndexADXDAO
+                # ⚠️ 取库方式**必须**与 `RegimeRouter._read_adx` 一致 ✓：
+                #   父类 `BacktestEngine` **不暴露** `self.db` ✗（实测 `AttributeError` ✗
+                #   ⇒ 被本函数兜底吃掉 ⇒ **静默"零预热"** ✗✗）⇒ 用 `getattr` 兜底到全局库 ✓。
+                _db = getattr(self, 'db', None)
+                rows = MarketIndexADXDAO(_db).query_range(
+                    '19000101', prev or start, self._router.index_code)
+                dates = [r.get('trade_date') for r in (rows or [])]
+            seq = [d for d in (_norm(x) for x in (dates or [])) if d and d < start]
+            marks = 0
+            for d in seq:
+                # ★ 预热**关掉**逐日「判定依据」✗（上千日会刷屏 ✗）⇒ 只留**结论性事件** ✓
+                self._router.decide(d, persist=True, log_basis=False)
+                _why = getattr(self._router._adx_falloff_state, 'reason', '') or ''
+                if '降温进入' in _why or '降温解除' in _why:
+                    marks += 1
+                    logger.info(f'[RegimeEngine] 预热·状态变更 ✓ {d}：{_why}')
+            if seq:
+                logger.info(f'[RegimeEngine] 路由器预热 ✓ {len(seq)} 日 '
+                            f'（{seq[0]} ~ {seq[-1]}）⇒ 起点 {start} 状态已对齐 ✓'
+                            f'（降温/迟滞路径依赖 ✗：不预热会与全历史重放不一致 ✗；'
+                            f'逐日「判定依据」预热期已关 ✗，仅留 {marks} 条状态变更 ✓）')
+            return len(seq)
+        except Exception as e:
+            logger.warning(f'[RegimeEngine] 路由器预热失败（按不预热继续 ✓）: {e}')
+            return 0
+
+    # ------------------------------------------------------------------
     # 内部：选股策略同一性判断（用于决定风格切换时是否清池）
     # ------------------------------------------------------------------
     @staticmethod
@@ -182,6 +260,24 @@ class RegimeBacktestEngine(BacktestEngine):
             return get_english_name(name_a) == get_english_name(name_b)
         except Exception:
             return False
+
+    @staticmethod
+    def _is_state_switch(prev_state, day_state) -> bool:
+        """当日"选股状态"是否发生变化（2026-09-24 新增 ✓）
+
+        口径（2026-09-24 定稿）：
+          · **「空仓」也是一种选股策略**（只是选股结果为 0 只 ✓）——
+            故「其他策略 → 空仓」与「空仓 → 其他策略」**都算一次切换** ✓，
+            且**同样要清池** ✓（调用方按本次返回 True 即清池 ✓）。
+          · 两边都是具名策略时，用 `_same_selector` 做**中/英/别名归一化** ✓
+            （避免 `金三角策略` 与 `GoldenTriangleStrategy` 这种同义写法被误计 ✗）。
+          · 起始日（`prev_state` 为空）→ False ✓（只登记状态、不计数 ✓）。
+        """
+        if not prev_state or not day_state:
+            return False
+        if day_state == NO_SELECTION_LABEL or prev_state == NO_SELECTION_LABEL:
+            return day_state != prev_state
+        return not RegimeBacktestEngine._same_selector(day_state, prev_state)
 
     # ------------------------------------------------------------------
     # 内部：择时策略切换（含海龟参数合并，与父类初始化口径一致）
@@ -248,6 +344,7 @@ class RegimeBacktestEngine(BacktestEngine):
     # ------------------------------------------------------------------
     # 主流程（复制父类 run_backtest + 6 处改造）
     # ------------------------------------------------------------------
+    @backtest_offline          # 【2026-09-25 契约 ✓】子类入口**单独**加保护 ✗（覆盖父类实现 ✓）
     def run_backtest(self, strategy_name: str, config: Dict) -> Dict:
         """运行自适应回测
 
@@ -258,6 +355,19 @@ class RegimeBacktestEngine(BacktestEngine):
         Returns:
             回测结果字典（父类结构 + regime_stats / strategy_switches / regime_timeline）
         """
+        # 【2026-09-27】与父类**同一口径** ✓：yaml `backtest:` 节作为**默认值**并入 ✓（只补缺 ✗✓）
+        from utils.backtest_mode import merge_backtest_defaults
+        config = merge_backtest_defaults(config)
+
+        # ★【2026-09-27】启动参数快照 ✓ + **路由器开关本体** ✓（用户要求 ✓：
+        #   此前只能"看日志猜"✗ `enable_adx_falloff` 开没开 ✗）
+        self.log_backtest_params(config, tag='自适应引擎', extra={
+            'router.enabled': self._router.enabled,
+            '大盘降温(enable_adx_falloff)': self._router.enable_adx_falloff,
+            'confirm_days': self._router.confirm_days,
+            'index_code': self._router.index_code,
+            'in_memory': self._router.in_memory})
+
         if not _be._backtest_lock.acquire(blocking=False):
             logger.warning(f"回测任务正在执行中，策略 {strategy_name} 等待...")
             _be._backtest_lock.acquire(blocking=True)
@@ -294,6 +404,7 @@ class RegimeBacktestEngine(BacktestEngine):
             self.regime_log = []
             self.strategy_switches = []
             self._current_strategy = None
+            self._current_state = None      # 【2026-09-24】切换计数的"状态键"（含「空仓」✓）
             self._regime_ratio = 1.0
 
             # 初始化择时策略（入口值；实际每日由 regime 决定）
@@ -333,6 +444,13 @@ class RegimeBacktestEngine(BacktestEngine):
             date_range = self._get_trading_dates(start_date, end_date)
             if not date_range:
                 raise ValueError(f"回测期间 {start_date} ~ {end_date} 没有交易日")
+
+            # 4.5 ★【2026-09-27】**路由器预热** ✓ —— 让同一天档位**与回测起点无关** ✓
+            #   实测反例 ✗✓（用户报 `2025-05-06` ✗）：起点在 `2025-04-22` 之后 ⇒
+            #   错过 `04-18` 的峰值 `40.02` ✗ ⇒ 该日由「震荡/空仓」✗ 变「明确/满仓」✗。
+            #   必须在此处 ✓（主循环前 ✓）、且在交易日历就绪后 ✓（要取 `start_date` 前一日 ✓），
+            #   详见 `_warmup_router` docstring ✓。
+            self._warmup_router(start_date)
 
             # 5. 预加载（改造：按候选策略预加载，保证各 regime 策略数据充足）
             self._preload_stock_data(start_date, end_date,
@@ -379,6 +497,13 @@ class RegimeBacktestEngine(BacktestEngine):
                 # 选股「空值」（空仓）不改变 day_strategy 的解析口径：选股与评分**照常执行**，
                 # 仅把结果置 0（见下方“选股”段），保证流程/日志/统计与普通档位一致
                 day_strategy = _dec.selector_strategy or strategy_name
+                # 【2026-09-24】切换计数的**状态键** ✓：
+                #   空仓档的 `selector_strategy` 为空 ✗ → 上面会退回 `strategy_name`
+                #   （名字没变 ✗），若直接拿它比较，"空仓 ↔ 其他策略"永远不算切换 ✗✓。
+                #   故把「空仓」显式记成一个**独立状态** ✓
+                #   （选股**执行口径不变** ✓：空仓档仍照常选股/评分、只是结果置 0 ✓；
+                #     该键仅用于**切换计数与状态比较** ✓）
+                day_state = NO_SELECTION_LABEL if _dec.no_selection else day_strategy
                 self._regime_ratio = float(_dec.position_ratio) if _dec.is_active() else 1.0
 
                 # ===== 改造⑦：按 regime 方向决定买入执行方式 =====
@@ -398,44 +523,61 @@ class RegimeBacktestEngine(BacktestEngine):
                 elif not day_strategy:
                     logger.warning(f"【自适应】{current_date} 无可用选股策略"
                                    f"（regime={_dec.regime}, source={_dec.source}），跳过当日选股")
-                if day_strategy and self._current_strategy is None:
-                    self._current_strategy = day_strategy
+                if day_state and self._current_state is None:
+                    # 起始：只登记状态，**不计**切换 ✓
+                    self._current_state = day_state
+                    if day_strategy:
+                        self._current_strategy = day_strategy
                     logger.info(f"【自适应】{current_date} 起始 regime={_dec.regime} "
-                                f"策略={day_strategy} 仓位={self._regime_ratio:.0%}")
-                elif day_strategy and not self._same_selector(
-                        day_strategy, self._current_strategy):
-                    # 切换选股策略：只清掉**由其它选股策略选出**的候选
-                    # ⚠️ 三条保留规则（2026-09-13 补充第 2 条；2026-09-16 确认保留）：
-                    #   1. 持仓股一律保留（2026-09-11）：持仓与 regime 无关，
-                    #      不论切到哪一档都留在池中，保证加仓链路不中断。
-                    #   2. **同一选股策略选出的候选也保留**：风格档位切换 ≠ 选股策略切换
-                    #      （如 震荡→萌芽 两档 selector 都是"主升低吸策略"），
-                    #      此时清池纯属浪费；比较用 _same_selector 做中/英文名归一化。
-                    #   3. 只有"由其它选股策略选出"的候选才剔除（已失效）。
-                    prev_pool = len(self.buy_candidate_pool)
-                    _held_codes = {pos.get('stock_code') for pos in positions
-                                   if pos.get('stock_code')}
+                                f"状态={day_state} 策略={day_strategy or '—'} "
+                                f"仓位={self._regime_ratio:.0%}")
+                elif day_state:
+                    # 【2026-09-24】选股状态变化 = 一次切换 ✓，且**必须清池** ✓
+                    #   口径：**「空仓」也是一种选股策略**（选股结果为 0 只 ✓）——
+                    #   其他策略 → 空仓、空仓 → 其他策略，同样要清池 ✓
+                    if self._is_state_switch(self._current_state, day_state):
+                        _prev_state = self._current_state
+                        _no_selection = (day_state == NO_SELECTION_LABEL)
+                        # ⚠️ 三条保留规则（2026-09-13 补充第 2 条；2026-09-16 确认保留）：
+                        #   1. 持仓股一律保留（2026-09-11）：持仓与 regime 无关，
+                        #      不论切到哪一档都留在池中，保证加仓链路不中断。
+                        #   2. **同一选股策略选出的候选也保留**：风格档位切换 ≠ 选股策略切换
+                        #      （如 震荡→萌芽 两档 selector 都是"主升低吸策略"），
+                        #      此时不清池纯属浪费；比较用 _same_selector 做中/英文名归一化。
+                        #   3. 只有"由其它选股策略选出"的候选才剔除（已失效）。
+                        #   4. 【2026-09-24】切到**空仓档**：其"选股结果为 0 只" ✓
+                        #      → 除持仓股外一律清掉 ✓（与"空仓也是一种选股策略"一致 ✓）
+                        prev_pool = len(self.buy_candidate_pool)
+                        _held_codes = {pos.get('stock_code') for pos in positions
+                                       if pos.get('stock_code')}
 
-                    def _keep(c):
-                        code = c.get('stock', {}).get('stock_code')
-                        if code in _held_codes:
-                            return True
-                        return self._same_selector(c.get('strategy_name'), day_strategy)
+                        def _keep(c):
+                            code = c.get('stock', {}).get('stock_code')
+                            if code in _held_codes:
+                                return True
+                            if _no_selection:
+                                return False
+                            return self._same_selector(c.get('strategy_name'), day_strategy)
 
-                    self.buy_candidate_pool = [c for c in self.buy_candidate_pool
-                                               if _keep(c)]
-                    _kept = len(self.buy_candidate_pool)
-                    self.strategy_switches.append({
-                        'date': str(current_date),
-                        'from': self._current_strategy,
-                        'to': day_strategy,
-                        'regime': _dec.regime,
-                    })
-                    logger.info(f"【自适应】{current_date} 选股策略切换 "
-                                f"{self._current_strategy} → {day_strategy}"
-                                f"（regime={_dec.regime}），清池 {prev_pool} 只"
-                                f" → 保留 {_kept} 只（同选股策略候选 + 持仓）")
-                    self._current_strategy = day_strategy
+                        self.buy_candidate_pool = [c for c in self.buy_candidate_pool
+                                                   if _keep(c)]
+                        _kept = len(self.buy_candidate_pool)
+
+                        self.strategy_switches.append({
+                            'date': str(current_date),
+                            'from': _prev_state,
+                            'to': day_state,
+                            'regime': _dec.regime,
+                            'cleared_pool': True,
+                        })
+                        logger.info(f"【自适应】{current_date} 选股策略切换 "
+                                    f"{_prev_state} → {day_state}"
+                                    f"（regime={_dec.regime}），清池 {prev_pool} 只"
+                                    f" → 保留 {_kept} 只"
+                                    f"（{'空仓档：仅保留持仓股 ✓' if _no_selection else '同选股策略候选 + 持仓'}）")
+                        self._current_state = day_state
+                        if day_strategy:
+                            self._current_strategy = day_strategy
 
                 # 择时策略按 regime 切换（须在卖出之前，保证当日卖出用新实例）
                 if _dec.timing_strategy and _dec.timing_strategy != self.timing_strategy_name:
@@ -741,6 +883,22 @@ class RegimeBacktestEngine(BacktestEngine):
                             {'enable_limit_up_check': limit_up_enabled})
                         if not filter_result['passed']:
                             logger.info(f"【未买入】{stock_code} {stock['stock_name']}: K线过滤未通过 - {filter_result['reason']}")
+                            remaining_candidates.append(candidate)
+                            continue
+
+                    # ---------- 【2026-09-26 §5.6】个股 ADX 闸门 ✓（**首仓 + 加仓 均生效** ✗✓）----------
+                    #   与 `BacktestEngine` 口径一致 ✓（`_should_apply_adx_filter` 由其**继承** ✓）
+                    if self._should_apply_adx_filter(result, existing_pos):
+                        from trading.stock_adx_filter import (add_entry_gate,
+                                                              adx_entry_gate)
+                        adx_gate = (add_entry_gate(df_to_date, stock_code, config,
+                                                   signal_date=current_date)
+                                    if existing_pos is not None
+                                    else adx_entry_gate(df_to_date, stock_code, config,
+                                                        signal_date=current_date))
+                        if not adx_gate['passed']:
+                            logger.info(f"【未买入】{stock_code} {stock['stock_name']}: "
+                                        f"ADX 闸门未通过 - {adx_gate['reason']}")
                             remaining_candidates.append(candidate)
                             continue
 

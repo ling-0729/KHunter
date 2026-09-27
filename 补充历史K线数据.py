@@ -174,6 +174,22 @@ def save_kline_data(df, conn):
                 logger.debug(f"保存单条数据失败: {str(e)}")
         
         conn.commit()
+
+        # ---------- 【2026-09-27 §5.3 覆盖矩阵】写入后**补算 ADX** ✗✓ ----------
+        #   本函数用 **UPSERT** ✓（只更新行情列 ✓）⇒ ① **新行** `adx` 天然为 NULL ✗；
+        #   ② OHLC 被更正时 `adx` 已过期 ✗（A4「价格变了就必须重算」✓）
+        #   ⇒ 就本批代码重算 ✓（幂等 ✓；失败只告警 ✓，不影响 K 线写入 ✓）
+        try:
+            from utils.stock_adx import update_codes
+            _codes = ([str(c) for c in df['code'].unique().tolist()]
+                      if ('code' in getattr(df, 'columns', [])) else [])
+            if _codes:
+                _adx = update_codes(conn, _codes)
+                logger.info(f"已补算 ADX ✓ {_adx['updated_rows']} 行 / {_adx['codes']} 只"
+                            + (f"（失败 ✗: {_adx['failed']}）" if _adx['failed'] else ""))
+        except Exception as _e:
+            logger.warning(f"ADX 补算失败 ✗（K 线已写入 ✓；请稍后全量补算 ✓）: {_e}")
+
         return (added_count, updated_count)
         
     except Exception as e:

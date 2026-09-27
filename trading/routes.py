@@ -156,7 +156,19 @@ def get_backtest_configs():
     try:
         # 调用DAO获取所有配置
         configs = backtest_dao.get_all_configs()
-        
+
+        # 【2026-09-27】**yaml 为源** ✓（`utils/backtest_config_store` ✓ 单一存储层 ✓）：
+        #   用 yaml `backtest:` 节的值**覆盖** DB 值 ✓ ⇒ 前端显示的就是 yaml 里的真值 ✓✓
+        #   （DB 仅作**兼容镜像** ✗，不再是最新来源 ✓）
+        try:
+            from utils.backtest_config_store import load as _load_bt_cfg
+            _y = _load_bt_cfg()
+            if configs and _y:
+                for _c in configs:
+                    _c.update(_y)
+        except Exception as _e:
+            logger.debug(f'yaml 回测配置覆盖失败（继续用 DB 值 ✓）: {_e}')
+
         return jsonify({
             'success': True,
             'message': '获取回测配置列表成功',
@@ -662,6 +674,16 @@ def create_backtest_config():
                 'data': None
             }), 400
         
+        # 【2026-09-27】先写 **yaml** ✓（**单一存储层** ✓：yaml 为源 ✓ + DB 镜像 ✗ 兼容 ✓）
+        _store_info = {}
+        try:
+            from utils.backtest_config_store import save as _save_bt_cfg
+            _store_info = _save_bt_cfg(data)
+            logger.info(f'回测配置已写入 yaml ✓ changed={_store_info.get("changed")} '
+                        f'（DB 镜像={_store_info.get("db_ok")} ✓）')
+        except Exception as _e:
+            logger.warning(f'写入 yaml 失败 ✗（DB 仍会写 ✓）: {_e}')
+
         # 调用DAO保存配置
         config_id = backtest_dao.save_config(data)
         
@@ -693,6 +715,9 @@ def create_backtest_config():
 def update_backtest_config(config_id):
     """
     更新回测配置接口
+
+    ⚠️ 【2026-09-27】与 `POST /backtest/configs` **口径一致** ✓：先写 yaml `backtest:` 节 ✓
+       （7 项基础参数 ✓，注释保留 ✓），再写 DB ✓ ⇒ **不会再出现"改了 DB 被 yaml 覆盖"** ✗✓
     
     参数:
         config_id: 配置ID (路径参数)
@@ -727,7 +752,21 @@ def update_backtest_config(config_id):
     try:
         # 获取请求数据
         data = request.get_json() or {}
-        
+
+        # 【2026-09-27】**与 POST 对称** ✓：先写 **yaml** ✓（同一存储层 `utils/backtest_config_store` ✓）
+        #   动机 ✗✓（**同步盲区**）：本端点原先**只写 DB** ✗ ⇒ 而**所有读取侧都是 yaml 优先** ✗ ⇒
+        #            DB 的改动会被 yaml **静默覆盖** ✗ ⇒ 调用方误以为"改了没生效" ✗✓
+        #   行为 ✓：`save()` **只认 7 项基础参数** ✓（`config_name`/`buy_point_*`/日期等**自动忽略** ✗）
+        #            并把同样 7 项**镜像回 DB** ✓ ⇒ 与下方 `dao.update_config()` 写的是**同值** ✓（幂等 ✓）
+        _store_info = {}
+        try:
+            from utils.backtest_config_store import save as _save_bt_cfg
+            _store_info = _save_bt_cfg(data)
+            logger.info(f'回测配置(PUT)已写入 yaml ✓ changed={_store_info.get("changed")} '
+                        f'（DB 镜像={_store_info.get("db_ok")} ✓）')
+        except Exception as _e:
+            logger.warning(f'写入 yaml 失败 ✗（DB 仍会写 ✓）: {_e}')
+
         # 调用DAO更新配置
         success = backtest_dao.update_config(config_id, data)
         

@@ -23,9 +23,42 @@ import time
 
 logger = logging.getLogger(__name__)
 
+#: `stock_kline` 的**行情列**（UPSERT 只更新这些列 ✓）
+KLINE_DATA_COLS = ('code', 'date', 'open', 'high', 'low', 'close', 'volume')
+#: 冲突时允许被覆盖的列（其余列如 market_cap / K / D / J / created_date **必须保留** ✓）
+KLINE_UPDATABLE_COLS = ('open', 'high', 'low', 'close', 'volume')
+
+
+def kline_upsert_sql(table: str = 'stock_kline') -> str:
+    """K 线幂等写入 SQL（**只更新行情列，保留派生列** ✓）
+
+    【2026-09-25 修复】原实现为 `INSERT OR REPLACE` ✗ —— REPLACE 语义是"删+插"，
+    且语句只列出 7 列 ⇒ 会把 `market_cap / K / D / J / created_date` 等
+    **未列出列静默重置为空** ✗（派生数据被抹掉）。
+    现改为 UPSERT：冲突时**仅更新 OHLCV** ✓，其余列原样保留 ✓。
+    SQLite < 3.24 时退回"全列 REPLACE"（列全写 ⇒ 仍不会重置未列出列 ✓）。
+
+    Args:
+        table: 目标表名（默认 stock_kline）
+
+    Returns:
+        str: 可直接交给 executemany 的 SQL
+    """
+    import sqlite3
+    cols = ', '.join(KLINE_DATA_COLS)
+    placeholders = ', '.join('?' for _ in KLINE_DATA_COLS)
+    if sqlite3.sqlite_version_info >= (3, 24, 0):
+        sets = ', '.join(f'{c}=excluded.{c}' for c in KLINE_UPDATABLE_COLS)
+        return (f'INSERT INTO {table} ({cols}) VALUES ({placeholders}) '
+                f'ON CONFLICT(code, date) DO UPDATE SET {sets}')
+    return f'INSERT OR REPLACE INTO {table} ({cols}) VALUES ({placeholders})'
+
 
 class KlineUpdater:
     """K线数据增量更新器"""
+
+    #: `update.lookback_days` 进程内缓存 ✓（None = 尚未加载 ✓）
+    _CONFIG_LOOKBACK_CACHE = None
 
     def __init__(self, db_manager, stock_data_fetcher):
         """
@@ -368,6 +401,36 @@ class KlineUpdater:
         result = boards['主板'] + boards['创业板'] + boards['科创板']
         return result
 
+    def _get_configured_lookback_days(self) -> int:
+        """读取 `config/config.yaml → update.lookback_days` ✓（默认 0 = 不干预 ✓）
+
+        【2026-09-25 修复】该配置此前**从未被引用** ✗（"配置失联"✗）。
+        现作为 K 线取数窗口的**下界** ✓：仅当它大于"按日期差推导"的值时才抬升 ✓，
+        因此**不改变**正常增量的行为 ✓，只在需要人为扩大回看时生效 ✓。
+
+        Returns:
+            int: 配置的回看天数（读不到/非法 → 0 ✓，调用方跳过 ✓）
+        """
+        if KlineUpdater._CONFIG_LOOKBACK_CACHE is not None:
+            return KlineUpdater._CONFIG_LOOKBACK_CACHE
+        val = 0
+        try:
+            import yaml
+            from pathlib import Path
+            cfg_path = Path(__file__).resolve().parent.parent / 'config' / 'config.yaml'
+            if cfg_path.exists():
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f) or {}
+                raw = (data.get('update') or {}).get('lookback_days')
+                if raw is not None:
+                    val = max(0, int(raw))
+        except Exception as e:
+            logger.warning(f"读取 update.lookback_days 失败（按 0 处理，不影响主流程）: {e}")
+        KlineUpdater._CONFIG_LOOKBACK_CACHE = val
+        if val:
+            logger.debug(f"update.lookback_days = {val} 个交易日（窗口下界 ✓）")
+        return val
+
     def _calculate_days_to_fetch(self, last_update_date: str, target_date: str) -> int:
         """
         计算需要获取的K线天数（按交易日计算，非自然日）
@@ -390,6 +453,18 @@ class KlineUpdater:
 
             # +2 个交易日缓冲，最少 3 个交易日
             days_to_fetch = max(trading_days_diff + 2, 3)
+
+            # 【2026-09-25 修复】接入 `update.lookback_days` ✓（此前该配置**从未被读取** ✗）
+            #   语义：作为**下界（地板值）** ✓ —— 与"按日期差推导"取 max ✓：
+            #     · 正常增量：日期差推导值通常更大 ✓（配置不影响 ✓，行为不变 ✓）
+            #     · 需要**故意回看重采**（如补缺口/核对数据 ✓）：调大该值即可 ✓
+            #   同时统一"滚动重采最近 N 个交易日"的口径（与资金流/事件窗口一致 ✓）
+            configured = self._get_configured_lookback_days()
+            if configured and configured > days_to_fetch:
+                logger.info(
+                    f"K线窗口按下界配置抬升: {days_to_fetch} → {configured} 个交易日 "
+                    f"(update.lookback_days)")
+                days_to_fetch = configured
 
             logger.debug(
                 f"上次更新日期: {last_update_date}, 目标日期: {target_date}, "
@@ -569,11 +644,9 @@ class KlineUpdater:
         
         try:
             # UPSERT SQL 语句
-            upsert_sql = """
-            INSERT OR REPLACE INTO stock_kline 
-            (code, date, open, high, low, close, volume)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """
+            # 【2026-09-25 修复】改为"仅更新行情列"的 UPSERT ✓ —— 原 INSERT OR REPLACE
+            #   会把 market_cap / K / D / J / created_date 等未列出列静默重置为空 ✗
+            upsert_sql = kline_upsert_sql('stock_kline')
             
             # 确定成交量列名：优先使用volume，其次使用vol
             volume_col = 'volume' if 'volume' in df_kline.columns else 'vol'
@@ -750,6 +823,19 @@ class KlineUpdater:
 
             added, updated = self._save_kline_records_batch(stock_code, df_history)
             logger.info(f"【历史重建】{stock_code} 保存新数据：新增 {added} 条，更新 {updated} 条")
+
+            # ---------- 【2026-09-27 §5.3 覆盖矩阵】重建后**必须补算 ADX** ✗✓ ----------
+            #   上面 `DELETE FROM stock_kline WHERE code=?`(L812 ✓) + 重写 ✗ ⇒ 该股 `adx` **全丢** ✗
+            #   ⚠️ **不能**指望"日更第 5.5 步兜底"✗ —— 本函数在**除权检测**流程里跑 ✓，
+            #      其调用方**未必**随后跑日更 ✗ ⇒ 必须**就地**补算 ✓（幂等 ✓；失败只告警 ✓）
+            try:
+                from utils.stock_adx import update_codes
+                _adx = update_codes(self.db_manager.connect(), [stock_code])
+                logger.info(f"【历史重建】{stock_code} 已补算 ADX：{_adx['updated_rows']} 行"
+                            + (f"（失败 ✗: {_adx['failed']}）" if _adx['failed'] else ""))
+            except Exception as _e:
+                logger.warning(f"【历史重建】{stock_code} ADX 补算失败 ✗"
+                               f"（请稍后全量补算 ✓）: {_e}")
             return True
 
         except Exception as e:

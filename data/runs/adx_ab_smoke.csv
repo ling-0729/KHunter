@@ -1,0 +1,4 @@
+﻿segment,family,group,total_trades,win_rate,total_return,max_drawdown,sharpe_ratio,profit_factor,avg_return,avg_hold_days,final_capital,seconds,error
+2025H1,A,G0_基线,,,,,,,,,,,【回测数据闸门】数据校验未通过 ✗（1 项）
+  · 个股基本面(stock_finance_indicator)：最新公告日 2026-09-02 **晚于**回测终点 2025-06-30 ✗ ⇒ 疑似"未来数据"（时点规则被破坏 ✗，请检查采集/落库的时点口径 ✓）
+  处理：请先运行"数据更新/初始化"补齐本地数据（回测不联网 ✗）

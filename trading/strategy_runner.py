@@ -1610,20 +1610,33 @@ class StrategyRunner:
         try:
             backtest_dao = BacktestDAO()
             configs = backtest_dao.get_all_configs()
-            
+
+            # 【2026-09-27】**yaml 为源** ✓（单一存储层 ✓）：先取 yaml `backtest:` 节 ✓
+            #   优先级 ✓：yaml 节 > DB > 内置默认（`_DEFAULT_CONFIG` ✓）
+            _yaml_vals = {}
+            try:
+                from utils.backtest_config_store import load as _load_bt_cfg
+                _yaml_vals = _load_bt_cfg()
+            except Exception as _e:
+                logger.debug(f'读取 yaml 回测配置失败（用 DB/默认 ✓）: {_e}')
+
+            result = self._DEFAULT_CONFIG.copy()
             if configs and len(configs) > 0:
-                # 使用最新的配置
                 db_config = configs[0]
                 logger.info(f"获取到回测配置: config_name={db_config.get('config_name')}")
-                # 合并配置：使用数据库值，不存在的使用默认值
-                result = self._DEFAULT_CONFIG.copy()
                 for key in result:
                     if db_config.get(key) is not None:
                         result[key] = db_config.get(key)
-                return result
             else:
                 logger.warning("未找到回测配置，使用默认参数")
-                return self._DEFAULT_CONFIG.copy()
+
+            # yaml **覆盖** DB ✓（yaml 为源 ✓）
+            for key in list(result.keys()):
+                if _yaml_vals.get(key) is not None:
+                    result[key] = _yaml_vals[key]
+            if _yaml_vals:
+                logger.info(f'回测配置 ✓ 由 yaml `backtest:` 节覆盖 {len(_yaml_vals)} 项 ✓')
+            return result
         except Exception as e:
             logger.error(f"获取回测配置失败: {str(e)}")
             import traceback
@@ -4564,6 +4577,24 @@ class StrategyRunner:
                 
                 # 生成买入信号
                 if timing_result.is_buy:
+                    # ---------- 【2026-09-26 §5.6】个股 ADX 闸门 ✓（**首仓 + 加仓 均生效** ✗✓）----------
+                    #   首仓 ✓：只做 ADX 判定 ✓（K线过滤在下方"首次建仓"分支 ✓）
+                    #   加仓 ✓：**规则2（当日开盘涨跌幅 ±4%）** + ADX 判定 ✓（规则1/3/4 **不过滤** ✗）
+                    #   开关 ✓：`enable_stock_adx_filter`（**默认关** ✗）+ `enable_add_open_rise_check`（默认开 ✓）
+                    #   ⚠️ 与回测两处（`backtest_engine` / `regime_backtest_engine` ✓）**口径一致** ✓
+                    _adx_cfg = self._load_engine_config()
+                    from trading.stock_adx_filter import (add_entry_gate,
+                                                          adx_entry_gate)
+                    _adx_gate = (add_entry_gate(df_to_date, stock_code, _adx_cfg,
+                                                signal_date=trade_date)
+                                 if timing_result.trade_type == 'add'
+                                 else adx_entry_gate(df_to_date, stock_code, _adx_cfg,
+                                                     signal_date=trade_date))
+                    if not _adx_gate['passed']:
+                        logger.info(f"【买入检查】{trade_date} {stock_code} {stock_name} "
+                                    f"ADX 闸门未通过 - {_adx_gate['reason']}")
+                        continue
+
                     # 根据交易类型决定买入数量计算方式
                     if timing_result.trade_type == 'add':
                         # 加仓（不检查涨幅、不检查重复信号）：

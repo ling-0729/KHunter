@@ -20,26 +20,34 @@ function startInitialization() {
             return;
         }
         
-        // 获取初始化选项
-        const initBasicData = document.getElementById('init-basic-data').checked;
-        const initHistoryData = document.getElementById('init-history-data').checked;
-        const initIndustryData = document.getElementById('init-industry-data').checked;
-        const initSectorData = document.getElementById('init-sector-data').checked;
-        const initFundFlowData = document.getElementById('init-fund-flow-data').checked;
-        
-        // 检查是否至少选择了一项
-        if (!initBasicData && !initHistoryData && !initIndustryData && !initSectorData && !initFundFlowData) {
+        // 获取初始化选项（2026-09-25 按**数据维度**重排 ✓）
+        //   安全取值 ✓：元素缺失/被置灰(disabled) 一律视为 false ✓——避免旧页面 JS 报错 ✗
+        const pick = (id) => {
+            const el = document.getElementById(id);
+            return !!(el && el.checked && !el.disabled);
+        };
+        const initBasicData = pick('init-basic-data');
+        const initHistoryData = pick('init-history-data');
+        const initCalendarData = pick('init-calendar-data');          // 交易日历 ✓
+        const initFundFlowData = pick('init-fund-flow-data');          // 个股资金流向 ✓
+        const initFundamentalData = pick('init-fundamental-data');     // 个股基本面 ✓
+        const initAnnouncementData = pick('init-announcement-data');   // 个股公告事件 ✓
+
+        // 检查是否至少选择了一项（**按数据维度**判定 ✓）
+        if (!initBasicData && !initHistoryData && !initCalendarData && !initFundFlowData
+            && !initFundamentalData && !initAnnouncementData) {
             alert('请至少选择一项初始化数据');
             return;
         }
-        
-        // 构建初始化选项
+
+        // 构建初始化选项（**按数据维度** ✓；行业/板块**已隐藏** ✗ → 不再上报 ✓）
         const options = {
             basicData: initBasicData,
             historyData: initHistoryData,
-            industryData: initIndustryData,
-            sectorData: initSectorData,
-            fundFlowData: initFundFlowData
+            calendarData: initCalendarData,
+            fundFlowData: initFundFlowData,
+            fundamentalData: initFundamentalData,
+            announcementData: initAnnouncementData
         };
         
         console.log('发送初始化请求到后端...');

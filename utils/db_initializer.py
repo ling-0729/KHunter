@@ -43,7 +43,23 @@ class DatabaseInitializer:
         try:
             conn = sqlite3.connect(str(self.selection_db_path))
             cursor = conn.cursor()
-            
+
+            # 【2026-09-25 新增】**启动自愈迁移** ✓ —— 必须**先于** DataSql.sql 执行 ✓
+            #   原因（实测事故 ✗✓）：历史环境里若存在"公告表误占 `stock_event`"✗，
+            #   直接执行 DataSql.sql 会在 `CREATE INDEX ... ON stock_event(event_date)`
+            #   处报错 ✗ → `executescript` 中断 ✗ → **web_server 启动崩溃** ✗✗。
+            #   此处先把它改名归还表名 ✓（幂等 ✓、RENAME 零丢失 ✓）⇒
+            #   已使用用户**平滑无感升级** ✓：无需手工执行任何 SQL ✓
+            try:
+                from utils.schema_migrations import run_startup_migrations
+                _mig = run_startup_migrations(conn)
+                if _mig.get('applied'):
+                    logger.warning(f'启动自愈迁移已执行 ✓: {_mig["applied"]}')
+                if _mig.get('failed'):
+                    logger.error(f'启动自愈迁移存在失败项 ✗: {_mig["failed"]}')
+            except Exception as e:                  # 迁移异常不得阻断初始化 ✗（但须可见 ✓）
+                logger.error(f'启动自愈迁移异常 ✗（继续初始化流程）: {e}', exc_info=True)
+
             # 先执行数据库迁移脚本（删除旧表，修复结构问题）
             migration_sql_path = self.data_dir / 'MigrationSql.sql'
             if migration_sql_path.exists():
@@ -187,7 +203,15 @@ class DatabaseInitializer:
             'stock_margin_trading',
             'backtest_config',
             'backtest_result',
-            'backtest_trade'
+            'backtest_trade',
+            # 【2026-09-25 新增】本地化数据表（回测复现依赖 ✓，四类 + 失败登记 ✓）
+            #   建表语句由 `data/DataSql.sql` 的"程序化生成段"提供 ✓
+            #   （源头：各采集器 create_table_sql() ✓；一致性由 test_schema_sql_sync.py 校验 ✓）
+            'trade_calendar',
+            'stock_moneyflow_daily',
+            'stock_finance_indicator',
+            'stock_announcement',
+            'data_fetch_failure'
         ]
         
         # 查询所有表
@@ -258,8 +282,14 @@ class DatabaseInitializer:
             'stock_margin_trading': '融资融券数据表',
             'backtest_config': '回测配置表',
             'backtest_result': '回测结果表',
-            'backtest_trade': '回测交易记录表'
-        }
+            'backtest_trade': '回测交易记录表',
+            # 【2026-09-25 新增】本地化数据表（回测复现依赖 ✓）
+            'trade_calendar': '交易日历表（本地化 ✓）',
+            'stock_moneyflow_daily': '个股资金流向（日频 ✓）',
+            'stock_finance_indicator': '个股基本面指标表',
+            'stock_announcement': '个股公告标题表',
+            'data_fetch_failure': '数据采集失败登记表'
+            }
         
         info = {}
         

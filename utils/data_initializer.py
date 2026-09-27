@@ -116,7 +116,8 @@ class DataInitializer:
     # ==================== K线数据初始化 ====================
     
     def _init_kline_history_data(self, stock_codes: list, years: int = 3,
-                                  progress_range: tuple = (0, 100)) -> None:
+                                 progress_range: tuple = (0, 100),
+                                 skip_kline: bool = False) -> None:
         """
         初始化K线历史数据
 
@@ -128,6 +129,7 @@ class DataInitializer:
             stock_codes: 股票代码列表
             years: 获取数据的年份数（默认 3 年，仅全量模式使用）
             progress_range: 进度映射区间 (start, end)，默认 (0, 100)
+            skip_kline: 【2026-09-24】跳过 K 线初始化 ✓（由上层全量更新统一处理 ✓）
         """
         import time as time_module
         total = len(stock_codes)
@@ -142,6 +144,17 @@ class DataInitializer:
             has_existing_data = False
 
         if has_existing_data:
+            # 【2026-09-24】上层任务稍后还会做**全量 K 线更新**（本次含 kline 类型 ✓）→
+            #   新股票的 K 线交由那一步统一拉取 ✓，这里直接跳过：
+            #     · 避免同一批股票（新股票）被更新两遍 ✗
+            #     · 避免"检测除权并重建历史数据"重复执行 ✗
+            #       （此前日志里除权检测出现两次的原因：8 只新股初始化 + 全量 5411 只 ✓）
+            if skip_kline:
+                logger.info("=" * 60)
+                logger.info(f"跳过新股票 K 线增量更新（将由本次任务的全量更新统一处理）| 股票: {total} 只")
+                logger.info("=" * 60)
+                self._report_progress(progress_end, "K线数据交由全量更新统一处理")
+                return
             # 已有数据 → 委派给 KlineUpdater 增量更新（与日常更新流程一致）
             logger.info("=" * 60)
             logger.info(f"检测到已有K线数据，执行增量更新 | 股票: {total} 只")
@@ -497,7 +510,7 @@ class DataInitializer:
     
     def init_full_data(self, max_stocks: Optional[int] = None, years: int = 3,
                        incremental: bool = False, stock_dict: dict = None,
-                       stock_codes: list = None) -> None:
+                       stock_codes: list = None, skip_kline: bool = False) -> None:
         """
         统一的初始化入口，支持全量和增量两种模式
         
@@ -507,6 +520,8 @@ class DataInitializer:
             incremental: 是否仅初始化新增股票（默认 False，全量初始化）
             stock_dict: 预获取的股票代码到名称的映射字典（可选，避免重复拉取）
             stock_codes: 直接传入股票代码列表（可选，跳过API拉取步骤）
+            skip_kline: 【2026-09-24】是否**跳过 K 线历史数据初始化** ✓
+                        —— 上层（数据更新任务）稍后还会做全量 K 线更新时传 True ✓
         """
         mode = "增量" if incremental else "全量"
         logger.info(f"开始{mode}初始化数据...")
@@ -560,7 +575,8 @@ class DataInitializer:
             # 2. 初始化K线历史数据（内部会按批次回调）
             self._report_progress(stages[1], f"正在获取K线数据（{years}年）...")
             self._init_kline_history_data(stock_codes, years=years,
-                                          progress_range=(stages[1], stages[2]))
+                                          progress_range=(stages[1], stages[2]),
+                                          skip_kline=skip_kline)
             self._report_progress(stages[2], "K线数据初始化完成")
             
             # 3. 初始化行业数据
@@ -582,7 +598,25 @@ class DataInitializer:
             self._report_progress(stages[5], "正在初始化事件数据...")
             self._init_event_data(stock_codes)
             self._report_progress(stages[6], "事件数据初始化完成")
-            
+
+            # ---------- 【2026-09-27 §5.3 覆盖矩阵】收尾**必须补算 ADX** ✗✓ ----------
+            #   `_init_kline_history_data` 用 `INSERT OR REPLACE`(L343 ✓) —— **不写 `adx` 列** ✗
+            #   ⇒ 不补算则全表 `adx = NULL` ✗ ⇒ 回测闸门随后会**明确拒绝** ✗（不静默跑 ✓）
+            #   ⚠️ 必须放在**所有 K 线写入之后** ✓（否则又被写入方覆盖 ✗）
+            try:
+                from utils.stock_adx import ensure_column, update_codes
+                _adx_conn = self.db_manager.connect()
+                ensure_column(_adx_conn)                 # 全新库可能还没这一列 ✓（自愈 ✓）
+                _codes = [str(c) for c in (stock_codes or [])]
+                if not _codes:                           # 未传 ⇒ 以库内实际代码为准 ✓
+                    _codes = [str(r[0]) for r in _adx_conn.execute(
+                        'SELECT DISTINCT code FROM stock_kline')]
+                _adx = update_codes(_adx_conn, _codes)
+                logger.info(f"初始化 ADX 补算完成 ✓ {_adx['updated_rows']} 行 / "
+                            f"{_adx['codes']} 只（失败 {len(_adx['failed'])} 只 ✗）")
+            except Exception as _e:                      # 补算失败**不**影响初始化 ✓
+                logger.error(f"初始化 ADX 补算失败 ✗（初始化结果不受影响 ✓）: {_e}")
+
             logger.info(f"{mode}初始化完成")
         
         except Exception as e:

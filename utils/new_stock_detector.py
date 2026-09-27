@@ -69,7 +69,8 @@ class NewStockDetector:
             'logs': []
         }
     
-    def detect_and_init_new_stocks(self, years: int = 3, days: int = 30) -> Dict:
+    def detect_and_init_new_stocks(self, years: int = 3, days: int = 30,
+                                   skip_kline: bool = False) -> Dict:
         """
         检测新股票并进行增量初始化
         
@@ -82,6 +83,9 @@ class NewStockDetector:
         Args:
             years: 新股票初始化时获取的K线年数，默认1年
             days: 新股票初始化时获取的资金流向天数，默认30天
+            skip_kline: 【2026-09-24】是否**跳过 K 线初始化** ✓
+                        —— 上层（数据更新任务）稍后还会做**全量 K 线更新**时传 True ✓，
+                           由那一步统一拉取：避免新股被更新两遍、除权检测跑两遍 ✗
         
         Returns:
             初始化结果字典，包含：
@@ -168,7 +172,8 @@ class NewStockDetector:
             logger.info(f"第3步: 初始化 {len(new_stocks)} 只新股票...")
             self._log(f"第3步: 初始化 {len(new_stocks)} 只新股票...")
             
-            init_result = self._init_new_stocks(new_stocks, years, days, latest_stocks)
+            init_result = self._init_new_stocks(new_stocks, years, days, latest_stocks,
+                                                skip_kline=skip_kline)
             
             # 更新统计信息
             self.stats['initialized'] = init_result['initialized']
@@ -251,7 +256,7 @@ class NewStockDetector:
             raise
     
     def _init_new_stocks(self, new_stock_codes: List[str], years: int = 3, days: int = 30,
-                         stock_dict: Dict = None) -> Dict:
+                         stock_dict: Dict = None, skip_kline: bool = False) -> Dict:
         """
         初始化新股票：使用统一初始化入口
 
@@ -260,6 +265,7 @@ class NewStockDetector:
             years: 初始化K线数据的年数（默认3年）
             days: 已废弃，保留兼容性
             stock_dict: 股票代码到名称的映射字典（可选，避免重复拉取）
+            skip_kline: 【2026-09-24】是否跳过 K 线初始化 ✓（上层会做全量 K 线更新时传 True ✓）
         """
         initialized = 0
         failed = 0
@@ -271,7 +277,8 @@ class NewStockDetector:
             
             # 使用统一初始化入口
             self.data_initializer.init_full_data(
-                stock_codes=new_stock_codes, years=years, stock_dict=stock_dict
+                stock_codes=new_stock_codes, years=years, stock_dict=stock_dict,
+                skip_kline=skip_kline
             )
             initialized = len(new_stock_codes)
             

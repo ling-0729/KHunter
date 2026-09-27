@@ -263,6 +263,70 @@ def _get_start_date(score_date: str, days: int) -> str:
     return (d - timedelta(days=days)).strftime("%Y%m%d")
 
 
+def _query_local_announcements(stock_code: str, start_fmt: str, end_fmt: str) -> Optional[List[dict]]:
+    """【2026-09-25 新增】从**本地表** `stock_announcement` 读取公告（离线 ✓，回测不联网 ✗）
+
+    ⚠️ 表名注意 ✓：公告表是 `stock_announcement` ✓ —— **不是** `stock_event` ✗
+    （后者是 `data/DataSql.sql` 的应用事件表 ✓，字段为 `event_type/event_date/...` ✗；
+      2026-09-25 曾因同名撞车导致 web_server 启动崩溃 ✗✓）
+
+    关键：返回与巨潮**完全同构**的原始结构 ✓（`announcementTitle` / `announcementTime`(ms UTC)
+    / `secCode`）—— 这样下游（`<em>` 清洗、毫秒解析、关键词过滤）**一行都不用改** ✓。
+
+    覆盖校验（防"假阴性" ✗）：
+      · 本地表为空 / 不存在 → 返回 None（交由上层走在线 ✓）
+      · 本地表的公告日期范围**未覆盖**请求区间 → 返回 None ✗
+        （否则"本地没采到"会被误当成"没有公告"✗ —— 这正是最危险的静默偏差 ✗）
+      · 覆盖良好 → 返回该股票在区间内的公告（可能为空列表 [] ✓）
+        —— 空列表是**可信**的"确实没有公告" ✓（与"查不到"严格区分 ✓）
+
+    Args:
+        stock_code: 6 位代码
+        start_fmt / end_fmt: YYYY-MM-DD
+
+    Returns:
+        List[dict] | None（None = 本地不可用，需在线 ✓）
+    """
+    try:
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+        from utils.global_db import get_global_db
+
+        conn = get_global_db().connect()
+        row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                           "AND name='stock_announcement'").fetchone()
+        if not row:
+            return None
+        rng = conn.execute('SELECT MIN(ann_date), MAX(ann_date), COUNT(*) '
+                           'FROM stock_announcement').fetchone()
+        if not rng or not rng[2]:
+            return None
+        if str(rng[0]) > start_fmt or str(rng[1]) < end_fmt:
+            logger.info("本地公告未覆盖请求区间（%s ~ %s，本地 %s ~ %s）→ 回退在线 ✓",
+                        start_fmt, end_fmt, rng[0], rng[1])
+            return None
+
+        code6 = str(stock_code).split('.')[0][:6]
+        rows = conn.execute(
+            'SELECT ann_date, title FROM stock_announcement WHERE stock_code=? '
+            'AND ann_date BETWEEN ? AND ? ORDER BY ann_date',
+            (code6, start_fmt, end_fmt)).fetchall()
+        items = []
+        for ann_date, title in rows:
+            # 还原为巨潮毫秒时间戳（UTC ✓）：保证下游 +8h 反解后回到同一日期 ✓
+            try:
+                ms = int(_dt.strptime(str(ann_date), '%Y-%m-%d')
+                         .replace(hour=4, tzinfo=_tz.utc).timestamp() * 1000)
+            except Exception:
+                ms = None
+            items.append({'announcementTitle': title, 'announcementTime': ms,
+                          'secCode': code6})
+        return items
+    except Exception as e:
+        logger.warning('本地公告读取失败（将回退在线）: %s', e)
+        return None
+
+
 def _query_cninfo_announcements(stock_code: str, start_fmt: str, end_fmt: str) -> Optional[List[dict]]:
     """
     直连巨潮公告查询接口，返回原始公告列表；失败/限流返回 None。
@@ -275,6 +339,14 @@ def _query_cninfo_announcements(stock_code: str, start_fmt: str, end_fmt: str) -
     返回:
         Optional[List[dict]]: 原始公告列表（含 announcementTitle/announcementTime）；失败返回 None
     """
+    # 【2026-09-25 新增】**本地优先** ✓：本地 `stock_announcement` 覆盖良好即直接返回 ✓
+    #   （回测期间为离线模式 ✓ → 走到下面的在线分支会被 online_guard 直接拦下 ✗）
+    local_items = _query_local_announcements(stock_code, start_fmt, end_fmt)
+    if local_items is not None:
+        logger.debug("本地公告命中: %s %s~%s（%d 条）", stock_code, start_fmt, end_fmt,
+                     len(local_items))
+        return local_items
+
     # 取 orgId 拼装 stock 入参（缺失则仅用代码）
     org_id = _get_org_id(stock_code)
     stock = f"{stock_code},{org_id}" if org_id else stock_code
@@ -295,6 +367,12 @@ def _query_cninfo_announcements(stock_code: str, start_fmt: str, end_fmt: str) -
         "sortType": "",
         "isHLtitle": "true",
     }
+    # 【2026-09-25 新增】在线检查点 ✓：回测（离线模式）走到这里会**直接抛错** ✗
+    from utils.online_guard import PURPOSE_SCORE, guard_online_call
+    # 【2026-09-25 契约 ✓】**评分/回测只读本地** ✗（在线回退 ⇒ 任何模式下都必须失败 ✗✓）
+    guard_online_call(f'巨潮公告查询 {stock_code} {start_fmt}~{end_fmt}（评分回退）',
+                      purpose=PURPOSE_SCORE)
+
     try:
         # 设超时根治挂起；form 表单提交
         resp = requests.post(CNINFO_QUERY_URL, headers=CNINFO_HEADERS, data=payload, timeout=CNINFO_TIMEOUT)

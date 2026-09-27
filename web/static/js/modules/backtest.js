@@ -311,6 +311,19 @@ async function saveBacktestParams() {
             buy_amount: parseFloat(buyAmountInput?.value) || 100000,
             max_daily_buys: parseInt(maxDailyBuysInput?.value) || 5
         };
+
+        // 【2026-09-27 新增】模式与开关 ✓（写入 `config/backtest_engine_config.yaml` ✓）
+        //   选「跟随回测模式」（空值 ✓）⇒ 发送 **null** ✓
+        //   ⇒ 后端会把这些键**还原为注释** ✓✓（不再覆盖模式预设 ✓）
+        const modeEl = document.getElementById('params-backtest-mode');
+        const poolModeEl = document.getElementById('params-pool-entry-mode');
+        const addRiseEl = document.getElementById('params-add-open-rise');
+        if (modeEl) params.backtest_mode = modeEl.value || null;
+        if (poolModeEl) params.pool_entry_mode = poolModeEl.value || null;
+        if (addRiseEl) {
+            params.enable_add_open_rise_check = (addRiseEl.value === '')
+                ? null : (addRiseEl.value === 'true');
+        }
         
         // 调用后端API保存配置
         const response = await fetch('/api/trading/backtest/configs', {
@@ -369,6 +382,19 @@ async function loadBacktestParams() {
             if (stopLossInput) stopLossInput.value = (params.stop_loss || -5) / 100; // 转换为小数
             if (takeProfitInput) takeProfitInput.value = (params.take_profit || 15) / 100; // 转换为小数
             if (maxHoldDaysInput) maxHoldDaysInput.value = params.hold_period || 10;
+
+            // 【2026-09-27 新增】模式与开关回填 ✓
+            //   ⚠️ `false` 不能用 `||` 兜底 ✗（会被当成空值 ✗）⇒ 用 `=== true/false` 显式判断 ✓
+            const modeSel = document.getElementById('params-backtest-mode');
+            const poolSel = document.getElementById('params-pool-entry-mode');
+            const riseSel = document.getElementById('params-add-open-rise');
+            if (modeSel) modeSel.value = params.backtest_mode || 'legacy';
+            if (poolSel) poolSel.value = (params.pool_entry_mode === 'veto_only'
+                || params.pool_entry_mode === 'scored') ? params.pool_entry_mode : '';
+            if (riseSel) {
+                riseSel.value = (params.enable_add_open_rise_check === true) ? 'true'
+                    : (params.enable_add_open_rise_check === false ? 'false' : '');
+            }
         }
     } catch (error) {
         console.error('加载回测配置失败:', error);

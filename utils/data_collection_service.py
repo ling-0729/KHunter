@@ -366,11 +366,55 @@ class DataCollectionService:
                 logger.error(f"重新初始化失败: {e}")
     
     def _delete_all_data(self):
-        """删除所有数据表内容"""
+        """删除所有数据表内容（**危险操作** ✗ → 需**显式确认** ✓）
+
+        【2026-09-25 加固】此前可无条件 `DELETE FROM stock_kline` ✗ ——
+        该表 500 万行历史会被整体擦除后重建 ✗，且重建后**所有行的写入时间被刷新** ✓
+        （实测：5,289,071 行同为 `updated_date=2026-05-06` ✗）⇒
+        前复权历史可能随之改变 ✗ → 任何既有回测结果**不可复现** ✗✓。
+
+        现要求显式确认（环境变量 `KHUNTER_ALLOW_FULL_WIPE=1` ✓）并**醒目告警** ✗；
+        未确认则**拒绝执行** ✗（宁可失败，也不静默改写历史 ✗）。
+        """
+        import os
+        n_kline = 0
+        try:
+            r = self.db_manager.query_one("SELECT COUNT(*) AS n FROM stock_kline")
+            if isinstance(r, dict):
+                n_kline = int(r.get('n') or 0)
+            elif r:
+                n_kline = int(r[0] or 0)
+        except Exception:
+            n_kline = 0
+        allow = str(os.environ.get('KHUNTER_ALLOW_FULL_WIPE', '')).strip().lower() in ('1', 'true', 'yes')
+        if n_kline and not allow:
+            msg = (f"拒绝清空 stock_kline（现有 {n_kline} 行）✗：全量擦除+重建会刷新所有行的写入时间 ✗，"
+                   f"前复权历史可能改变 ✗ ⇒ 既有回测结果将不可复现 ✗。若确需重来，请设置环境变量 "
+                   f"KHUNTER_ALLOW_FULL_WIPE=1 后重试 ✓（并建议先备份 data 目录 ✓）")
+            logger.error(msg)
+            raise RuntimeError(msg)
+        if n_kline:
+            logger.warning(f"⚠ **全量清空** stock_kline（{n_kline} 行）+ stock_basic ✗ —— "
+                           f"已由 KHUNTER_ALLOW_FULL_WIPE=1 显式确认 ✓；"
+                           f"此后既有回测结果将不可复现 ✗（请记录该时点 ✓）")
         try:
             self.db_manager.execute("DELETE FROM stock_kline")
             self.db_manager.execute("DELETE FROM stock_basic")
             logger.info("已清空 stock_kline 和 stock_basic 表")
+            # 【2026-09-27 §5.3 覆盖矩阵】擦除后的 ADX 处置 ✓：
+            #   ① 擦除后 `stock_kline` 已空 ⇒ **无行可算** ✓（此处不必重算 ✓）；
+            #   ② ⚠️ 但**必须清 ADX 进程内缓存** ✗✓ —— 键是**股票代码** ✓，不随擦除失效 ✗
+            #      ⇒ 长驻进程（web_server ✓）会继续拿**已删数据的旧 `adx`** ✓✗ 判买卖 ✗；
+            #   ③ 重建完成后**必须**补算 ✓ ⇒ 已有自动挂钩 ✓（`KlineInitializer` ✓ / 日更第 5.5 步 ✓）；
+            #      若走**其他**重建路径 ✗ ⇒ 需手动 `utils/stock_adx.py::backfill_all` ✓（此处显式提示 ✗）。
+            try:
+                from utils.stock_adx import clear_adx_cache
+                clear_adx_cache()
+            except Exception:
+                pass
+            logger.warning("⚠ stock_kline 已清空 ✗ ⇒ 重建完成后**必须**补算 ADX ✓："
+                           "走 `KlineInitializer` ✓（已自动补算 ✓）或日更第 5.5 步 ✓；"
+                           "其他重建路径请手动跑 `utils/stock_adx.py::backfill_all` ✓")
         except Exception as e:
             logger.error(f"删除数据失败: {e}")
             raise
@@ -410,12 +454,20 @@ class DataCollectionService:
             }
         
         # 检查数据是否已初始化
+        # 【2026-09-25 修正 ✗→✓】原逻辑"只要已初始化就**一律拒绝**"✗ —— 会挡住**新增的数据维度** ✗✓：
+        #   老用户的基础/K线早已就绪 ✓，但"交易日历 / 个股资金流 / 基本面 / 公告"可能尚未初始化 ✗，
+        #   此时点"开始初始化"会被直接弹回 ✗，新维度**永远点不动** ✗。
+        #   现改为：勾选了**本地数据维度**时放行 ✓（各采集器均为**覆盖驱动 + 幂等** ✓，重复跑安全 ✓）
+        _localized_keys = ('calendarData', 'fundFlowData', 'fundamentalData', 'announcementData')
+        _wants_localized = any((options or {}).get(k) for k in _localized_keys)
         if self._check_data_initialized():
-            return {
-                'success': False,
-                'message': '初始化已经完成，无需再次初始化',
-                'taskId': None
-            }
+            if not _wants_localized:
+                return {
+                    'success': False,
+                    'message': '初始化已经完成，无需再次初始化',
+                    'taskId': None
+                }
+            logger.info('基础/K线数据已存在 ✓ → 本次仅初始化所选的数据维度 ✓')
         
         # 生成任务ID
         task_id = f"INIT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -510,6 +562,10 @@ class DataCollectionService:
                     except ImportError:
                         pass
                 
+                # 【2026-09-25 新增】**四类本地数据维度** ✓（与初始化页面选项一一对应 ✓）
+                if init_type in ('custom', 'full'):
+                    self._init_localized_domains(options or {})
+
                 # 完成
                 self.init_status['progress'] = 100
                 self.init_status['end_time'] = datetime.now().isoformat()
@@ -555,6 +611,140 @@ class DataCollectionService:
                 except ImportError:
                     pass
     
+    def _init_localized_domains(self, options: Dict) -> Dict:
+        """按**数据维度**初始化四类本地数据 ✓（2026-09-25 新增，幂等 ✓）
+
+        与初始化页面选项**一一对应** ✓：
+          · `calendarData`     → 交易日历（`trade_calendar` ✓，离线 ✓）
+          · `fundFlowData`     → 个股资金流（`stock_moneyflow_daily` ✓，**按配置数据源** ✓，
+                                 默认同花顺 `moneyflow_ths` ✓ = 保真口径 ✓；见 §4.9 ✓）
+          · `fundamentalData`  → 个股基本面（`stock_finance_indicator` ✓，逐股 ✓）
+          · `announcementData` → 个股公告（`stock_announcement` ✓，按交易日 ✓）
+
+        设计 ✓：全部走"**覆盖驱动 + 只补缺口**"的实现 ✓（可重复执行 ✓）；
+        单维度失败**不影响**其它维度 ✓，但会 `_add_init_log` **如实记录** ✗（不静默 ✓）。
+        行业/板块资金流**不在**此处 ✓（暂不处理 ✓，页面已置灰 ✓）。
+        """
+        want = {
+            'calendar': bool((options or {}).get('calendarData')),
+            'moneyflow': bool((options or {}).get('fundFlowData')),
+            'fundamental': bool((options or {}).get('fundamentalData')),
+            'announcement': bool((options or {}).get('announcementData')),
+        }
+        result = {'done': {}, 'failed': {}}
+        if not any(want.values()):
+            self._add_init_log("ℹ 未选择任何本地数据维度 → 跳过 ✓")
+            return result
+
+        def _emit():
+            try:
+                from web_server import emit_init_progress
+                emit_init_progress()
+            except Exception:
+                pass
+
+        try:
+            from utils.data_collectors.cninfo_fetcher import CninfoAnnouncementFetcher
+            from utils.data_collectors.local_data_collectors import (CalendarCollector,
+                                                                     EventCollector,
+                                                                     FundamentalCollector)
+            from utils.global_db import get_global_db
+            from utils.local_calendar import load_local_trade_dates
+            # 【2026-09-26 ✓】资金流**不再直连某个采集器** ✗（此前硬编码东财 ✗✓）——
+            #   改由 `moneyflow_source.make_collector()` 按**配置数据源**产出 ✓
+            from utils.moneyflow_source import clip_dates_to_source, make_collector, resolve
+        except Exception as e:
+            msg = f'本地数据采集模块导入失败 ✗: {e}'
+            self._add_init_log(f"✗ {msg}")
+            logger.error(msg)
+            result['failed']['import'] = msg
+            return result
+
+        conn = get_global_db().connect()
+        state_dir = 'data/logs/collector_state'
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            dates = [d for d in load_local_trade_dates(conn, prefer_db=False) if d <= today]
+        except Exception as e:
+            self._add_init_log(f"✗ 本地交易日历不可用 ✗: {e}")
+            result['failed']['calendar_dates'] = str(e)
+            return result
+
+        def _calendar():
+            return CalendarCollector(conn, state_dir=state_dir).sync_from_local_cache()
+
+        def _moneyflow():
+            """资金流初始化 ✓：**按配置数据源** ✓ + **裁剪到该源起点** ✓
+
+            修正的漏洞 ✗✓（2026-09-26 实测）：此前**硬编码东财采集器** ✗ ⇒
+            ① 与"每日更新/评分"的源（同花顺 ✓）**不一致** ✗；
+            ② 会把已按用户要求**彻底清除**的东财数据**重新拉回来** ✗✓；
+            ③ 且区间取"本地日历全量（自 2023-09-11 ✗）"⇒ 对同花顺越界 ✗（会直接报错 ✗）。
+            现：工厂产出 ✓ + 区间裁剪 ✓ + 裁掉的天数**如实上报** ✗。
+            """
+            src = resolve()
+            if not dates:
+                return {'skipped': True, 'reason': '无可用交易日'}
+            use, dropped, start = clip_dates_to_source(dates, src)
+            if dropped:
+                self._add_init_log(
+                    f"ℹ 资金流初始化区间已裁剪 ✓：数据源 {src} 可用起点 {start} ✓，"
+                    f"更早的 {dropped} 个交易日**不受支持** ✗（回测起点亦须 ≥ 该源可评分起点 ✓）")
+            if not use:
+                return {'skipped': True,
+                        'reason': f'{src} 无可用区间（起点 {start}）'}
+            c = make_collector(conn, src, state_dir=state_dir,
+                               max_retries=1, retry_wait=1.0)
+            c.ensure_schema()
+            return c.run_initial(use[0], use[-1], use, strict=False)
+
+        def _fundamental():
+            codes = [r[0] for r in conn.execute('SELECT DISTINCT code FROM stock_kline ORDER BY code')]
+            if not codes:
+                return {'skipped': True, 'reason': 'stock_kline 无股票（请先初始化历史行情 ✓）'}
+            c = FundamentalCollector(conn, state_dir=state_dir, max_retries=1, retry_wait=1.0)
+            c.ensure_schema()
+            return c.run_stocks(codes, batch_sleep=0.0)
+
+        def _announcement():
+            if not dates:
+                return {'skipped': True, 'reason': '无可用交易日'}
+            c = EventCollector(conn, fetcher=CninfoAnnouncementFetcher(), state_dir=state_dir,
+                               max_retries=1, retry_wait=2.0)
+            c.ensure_schema()
+            return c.run(dates, resume=True)
+
+        steps = (
+            ('calendar', '交易日历', _calendar),
+            ('moneyflow', '个股资金流向', _moneyflow),
+            ('fundamental', '个股基本面', _fundamental),
+            ('announcement', '个股公告事件', _announcement),
+        )
+        total = sum(1 for k, _, _ in steps if want[k]) or 1
+        idx = 0
+        for key, label, fn in steps:
+            if not want[key]:
+                self._add_init_log(f"ℹ 未选择[{label}] → 跳过 ✓")
+                continue
+            idx += 1
+            self.init_status['current_task'] = f'初始化{label}...'
+            self._add_init_log(f"⟳ [{label}] 开始初始化（第 {idx}/{total} 项 ✓）...")
+            _emit()
+            try:
+                stats = fn() or {}
+                result['done'][key] = stats
+                self._add_init_log(f"✓ [{label}] 完成: {stats}")
+            except Exception as e:              # 单维度失败不影响其它 ✓（但如实记录 ✗）
+                result['failed'][key] = str(e)[:200]
+                self.init_status['failed'] += 1
+                self._add_init_log(f"✗ [{label}] 失败 ✗: {str(e)[:200]}")
+                logger.error(f'初始化[{label}]失败 ✗: {e}', exc_info=True)
+            self._update_progress(int(10 + 85 * idx / total))
+            _emit()
+
+        self.init_status['statistics'] = self.get_tables_stats()
+        return result
+
     def get_init_progress(self) -> Dict[str, Any]:
         """
         获取初始化进度
@@ -878,7 +1068,13 @@ class DataCollectionService:
                 )
                 
                 # 执行新股票检测和初始化
-                new_stock_result = detector.detect_and_init_new_stocks(years=3, days=30)
+                # 【2026-09-24】若本次任务稍后**仍会做全量 K 线更新**（【第5步】✓，判据与其一致 ✓），
+                #   则新股票初始化**不再单独拉 K 线** ✓ → 由【第5步】统一拉取：
+                #     · 避免新股票被更新两遍 ✗
+                #     · 避免"检测除权并重建历史数据"重复执行 ✗（此前日志里出现两次 ✓）
+                _will_update_kline = (not update_types) or ('kline' in update_types)
+                new_stock_result = detector.detect_and_init_new_stocks(
+                    years=3, days=30, skip_kline=_will_update_kline)
                 
                 # 更新统计信息
                 with self.update_lock:
@@ -937,6 +1133,44 @@ class DataCollectionService:
                     with self.update_lock:
                         self.update_status['totalStats']['kline_added'] = kline_result.get('added', 0)
                         self.update_status['totalStats']['kline_updated'] = kline_result.get('updated', 0)
+
+                    # ---------- 【第5.5步】重算个股 ADX ✓（§5.5 ✓，**位置关键** ✗）----------
+                    #   ⚠️ 注释**更正** ✗→✓（2026-09-27 实测 ✓）：`KlineUpdater` 实为 **UPSERT** ✓
+                    #      （`kline_upsert_sql()` ✓「只更新行情列、保留派生列」✓，2026-09-25 起 ✓）
+                    #      ⇒ 日增量路径上 `adx` **一般不会被清空** ✓；但**仍需本步** ✓：
+                    #      ① **OHLC 被更正**时**必须**重算 ✓（A4「价格变了就必须重算」✓）；
+                    #      ② SQLite < 3.24 会退回 `INSERT OR REPLACE` ✗ ⇒ 未列出列（含 `adx`）被清 ✗。
+                    #   开关 ✓：`update.stock_adx.enabled`（默认 true ✓；由 `update_recent_days` 自判 ✓）
+                    #   失败处理 ✗：只告警**不阻断** K 线更新 ✓（K 线是主数据 ✓，ADX 是派生 ✓）
+                    #              + **逐条落盘** `data_fetch_failure` ✓（§5.5 要求 ✓，2026-09-27 补 ✓）
+                    #              + **§5.4 自愈** ✓（真缺口 > 5% ⇒ 自动全量重算 ✓，AC10 ✓）
+                    try:
+                        from utils.stock_adx import (clear_adx_cache, record_failures,
+                                                     run_selfheal, update_recent_days)
+                        _adx_conn = self.db_manager.connect()
+                        _adx = update_recent_days(_adx_conn, 5)
+                        if _adx.get('skipped'):
+                            self._add_update_log(f"· 个股ADX重算已跳过（{_adx.get('note', '')}）")
+                        else:
+                            logger.info(f"【第5.5步】个股ADX重算 ✓ {_adx['updated_rows']} 行 / "
+                                        f"{_adx['codes']} 只（失败 {len(_adx['failed'])} 只 ✗）")
+                            self._add_update_log(
+                                f"✓ 个股ADX重算: {_adx['updated_rows']} 行 / {_adx['codes']} 只")
+                            if _adx.get('failed'):
+                                record_failures(_adx_conn, _adx['failed'])   # 逐条落盘 ✓（§5.5 ✓）
+                        # ★ 日更后**必须清 ADX 缓存** ✗✓ —— 键是股票代码 ✓，不随重算失效 ✗
+                        #   ⇒ 长驻进程（web_server ✓）否则会**一直用旧值** ✓✗ 判买卖 ✗
+                        clear_adx_cache()
+                        # 【§5.4 自愈 ✓】真缺口 > 5% ⇒ 自动全量重算 ✓
+                        #   （实测生产库真缺口为 **0** ✓ ⇒ 平时**永不触发** ✓，不会拖慢日更 ✓）
+                        _heal = run_selfheal(_adx_conn, days=5, threshold=0.05)
+                        if _heal.get('healed'):
+                            self._add_update_log(
+                                f"⚠ 检测到 ADX 缺口（{_heal['missing_ratio']:.2%}）⇒ 已自动全量重算 ✓")
+                            logger.error(f"【第5.5步】§5.4 自愈已触发并完成 ✓：{_heal}")
+                    except Exception as _adx_e:
+                        logger.warning(f"【第5.5步】个股ADX重算失败（不影响K线更新 ✓）: {_adx_e}")
+                        self._add_update_log(f"✗ 个股ADX重算失败: {_adx_e}")
                         self.update_status['totalStats']['kline_failed'] = kline_result.get('failed', 0)
                     
                     # 记录结果
@@ -1056,6 +1290,37 @@ class DataCollectionService:
             except Exception as e:
                 self._add_update_log(f"⚠ 减持计划缓存刷新异常(不影响其他步骤): {str(e)}")
                 logger.warning(f"减持计划缓存刷新异常: {str(e)}")
+
+            # 【第8.5步·2026-09-25 新增】四类本地数据更新（资金流 / 基本面 / 事件 / 日历 ✓）
+            #   设计定稿：**滚动重采最近 3 个交易日** ✓ + 幂等写入 ✓ + 失败逐条落盘 ✓
+            #   目的：让回测**只读本地**、结果可复现（杜绝同日同股评分漂移 ✗）
+            #   注：K 线仍由上面的第 5 步负责（前复权机制不变 ✓）
+            if not update_types or 'local_data' in update_types:
+                self._add_update_log("【第8.5步】更新四类本地数据（资金流/基本面/事件/日历）...")
+                try:
+                    from utils.data_collectors.daily_update import run_daily_update
+                    from utils.global_db import get_global_db
+
+                    lc = run_daily_update(get_global_db().connect(), window=3)
+                    _res = lc.get('results') or {}
+                    _ts = self.update_status['totalStats']
+                    _ts['local_moneyflow_added'] = (_res.get('moneyflow') or {}).get('added', 0)
+                    _ts['local_event_added'] = (_res.get('event') or {}).get('added', 0)
+                    _ts['local_fundamental_added'] = (_res.get('fundamental') or {}).get('added', 0)
+                    _ts['local_fundamental_targets'] = (_res.get('fundamental') or {}).get('targets', 0)
+                    _ts['local_calendar_days'] = (_res.get('calendar') or {}).get('total', 0)
+                    if lc.get('errors'):
+                        self._add_update_log(f"⚠ 四类本地数据部分失败(详见 data_fetch_failure): {lc['errors']}")
+                    else:
+                        self._add_update_log(
+                            f"✓ 四类本地数据更新完成: 资金流+{_ts['local_moneyflow_added']} 条, "
+                            f"公告+{_ts['local_event_added']} 条, 财报+{_ts['local_fundamental_added']} 行"
+                            f"({_ts['local_fundamental_targets']} 只), "
+                            f"日历 {_ts['local_calendar_days']} 日；窗口={lc.get('window')}")
+                except Exception as e:
+                    # 单步失败不影响既有的 K 线/资金流等步骤 ✓，但如实记录 ✗
+                    self._add_update_log(f"⚠ 四类本地数据更新异常(不影响其他步骤): {str(e)[:200]}")
+                    logger.warning(f"四类本地数据更新异常: {e}", exc_info=True)
 
             # 【第9步】记录更新完成
             self._add_update_log("【第9步】记录更新完成...")
@@ -1387,8 +1652,14 @@ class DataCollectionService:
                     'stock_fund_flow',
                     'stock_event',
                     'stock_lhb',
-                    'stock_margin_trading'
-                ]
+                    'stock_margin_trading',
+                    # 【2026-09-25 新增】本地化数据表（回测复现依赖 ✓）
+                    'trade_calendar',
+                    'stock_moneyflow_daily',
+                    'stock_finance_indicator',
+                    'stock_announcement',
+                    'data_fetch_failure'
+                    ]
                 
                 for table in tables:
                     try:

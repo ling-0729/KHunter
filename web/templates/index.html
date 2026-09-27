@@ -520,41 +520,50 @@
                     <!-- 步骤1：选择初始化范围 -->
                     <div id="init-step1" class="card" style="display: block;">
                         <div class="card-body">
-                            <!-- 初始化选项 -->
+                            <!-- 初始化选项（2026-09-25 按**数据维度**重排 ✓）
+                                 · 每项对应一张/一类落库数据 ✓，与回测"数据闸门"四项一致 ✓
+                                 · 行业/板块资金流属范围外 ✓ → 已从本页**移除** ✗（不再出现 ✓） -->
                             <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
                                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
                                     <input type="checkbox" id="init-basic-data" checked style="width: 20px; height: 20px; cursor: pointer;">
                                     <div>
                                         <div style="font-weight: 600; color: #1f2937;">基础股票数据</div>
-                                        <div style="font-size: 12px; color: #6b7280;">股票代码、名称、行业等基础信息</div>
+                                        <div style="font-size: 12px; color: #6b7280;">股票代码、名称、行业等基础信息（stock_basic）</div>
                                     </div>
                                 </label>
                                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
                                     <input type="checkbox" id="init-history-data" checked style="width: 20px; height: 20px; cursor: pointer;">
                                     <div>
                                         <div style="font-weight: 600; color: #1f2937;">历史行情数据</div>
-                                        <div style="font-size: 12px; color: #6b7280;">股票的日线行情数据</div>
+                                        <div style="font-size: 12px; color: #6b7280;">日线行情（前复权，stock_kline）</div>
                                     </div>
                                 </label>
                                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
-                                    <input type="checkbox" id="init-industry-data" checked style="width: 20px; height: 20px; cursor: pointer;">
+                                    <input type="checkbox" id="init-calendar-data" checked style="width: 20px; height: 20px; cursor: pointer;">
                                     <div>
-                                        <div style="font-weight: 600; color: #1f2937;">行业数据</div>
-                                        <div style="font-size: 12px; color: #6b7280;">行业分类和行业资金流向数据</div>
-                                    </div>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
-                                    <input type="checkbox" id="init-sector-data" checked style="width: 20px; height: 20px; cursor: pointer;">
-                                    <div>
-                                        <div style="font-weight: 600; color: #1f2937;">板块数据</div>
-                                        <div style="font-size: 12px; color: #6b7280;">板块分类和板块资金流向数据</div>
+                                        <div style="font-weight: 600; color: #1f2937;">交易日历</div>
+                                        <div style="font-size: 12px; color: #6b7280;">回测时序与完整性校验基准（trade_calendar）</div>
                                     </div>
                                 </label>
                                 <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
                                     <input type="checkbox" id="init-fund-flow-data" checked style="width: 20px; height: 20px; cursor: pointer;">
                                     <div>
-                                        <div style="font-weight: 600; color: #1f2937;">资金流向数据</div>
-                                        <div style="font-size: 12px; color: #6b7280;">个股资金流向数据（30个交易日）</div>
+                                        <div style="font-weight: 600; color: #1f2937;">个股资金流向</div>
+                                        <div style="font-size: 12px; color: #6b7280;">日频资金流（全历史，stock_moneyflow_daily）—— 资金面评分依据</div>
+                                    </div>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
+                                    <input type="checkbox" id="init-fundamental-data" checked style="width: 20px; height: 20px; cursor: pointer;">
+                                    <div>
+                                        <div style="font-weight: 600; color: #1f2937;">个股基本面</div>
+                                        <div style="font-size: 12px; color: #6b7280;">财务指标（ROE、净利同比等，stock_finance_indicator）</div>
+                                    </div>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
+                                    <input type="checkbox" id="init-announcement-data" checked style="width: 20px; height: 20px; cursor: pointer;">
+                                    <div>
+                                        <div style="font-weight: 600; color: #1f2937;">个股公告事件</div>
+                                        <div style="font-size: 12px; color: #6b7280;">公告标题（stock_announcement）—— 减持计划等事件否决依据</div>
                                     </div>
                                 </label>
                             </div>
@@ -918,7 +927,39 @@
                                     <label for="params-take-profit" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">止盈比例</label>
                                     <input type="number" id="params-take-profit" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0.01" max="1" step="0.01" value="0.15" aria-label="止盈比例">
                                 </div>
+                                <div>
+                                    <label for="params-max-hold-days" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">持有天数</label>
+                                    <input type="number" id="params-max-hold-days" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="1" max="120" step="1" value="10" aria-label="持有天数">
+                                </div>
+                                <!-- 【2026-09-27 新增】模式与开关：写入 config/backtest_engine_config.yaml 的 `backtest:` 节 ✓ -->
+                                <div>
+                                    <label for="params-backtest-mode" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">回测模式</label>
+                                    <select id="params-backtest-mode" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="回测模式">
+                                        <option value="legacy" selected>legacy（原有模式）</option>
+                                        <option value="adx">adx（ADX + 免评分）</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="params-pool-entry-mode" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">入池模式</label>
+                                    <select id="params-pool-entry-mode" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="入池模式">
+                                        <option value="" selected>跟随回测模式</option>
+                                        <option value="scored">scored（否决 + 评分门槛）</option>
+                                        <option value="veto_only">veto_only（免评分）</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="params-add-open-rise" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">加仓开盘限幅 ±4%</label>
+                                    <select id="params-add-open-rise" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="加仓开盘限幅">
+                                        <option value="" selected>跟随回测模式</option>
+                                        <option value="true">开启</option>
+                                        <option value="false">关闭</option>
+                                    </select>
+                                </div>
                             </div>
+                            <p style="color:#888;font-size:12px;margin:0 0 12px;">
+                                保存后写入 <code>config/backtest_engine_config.yaml</code> 的 <code>backtest:</code> 节（yaml 为源 ✓，DB 仅兼容镜像 ✗）。
+                                上面三项留「跟随回测模式」即由<b>回测模式</b>统一决定；单独选择则<b>覆盖</b>模式 ✓。
+                            </p>
                             
                             <button type="button" id="save-backtest-params-btn" class="btn btn-primary" style="padding:6px 16px; font-size:12px; margin-top: 16px;" aria-label="保存回测配置">保存配置</button>
                         </div>
@@ -2172,7 +2213,8 @@
     <!-- 【2026-09-20】v=15：强制刷新模块图（含 modules/backtest.js 等图表自愈逻辑） -->
     <script type="module" src="/static/js/app.js?v=15"></script>
     <script src="/static/js/kline_chart.js?v=20260920"></script>
-    <script src="/static/js/init_simple.js?v=2"></script>
+    <!-- ⚠️ 版本号：改动 init_simple.js 后**必须**同步 bump ✓（否则浏览器沿用旧缓存 ✗ → 页面"看起来没变化"✗） -->
+    <script src="/static/js/init_simple.js?v=4"></script>
     <script src="/static/js/trading.js"></script>
     <script src="/static/js/data_update.js?v=2"></script>
     

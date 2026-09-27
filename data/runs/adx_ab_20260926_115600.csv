@@ -1,0 +1,3 @@
+﻿group,total_trades,win_rate,total_return,max_drawdown,sharpe_ratio,profit_factor,avg_return,avg_hold_days,final_capital,seconds,error
+G0_基线,0,0.0,0.96,0.0,0.0,0.0,0.0,0.0,504799.4705,358.1,
+G3G5_ADX+去评分,0,0.0,0.92,0.0,0.0,0.0,0.0,0.0,504623.24100000004,359.5,

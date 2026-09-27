@@ -150,8 +150,41 @@ class MoneyflowScorer:
         self._pro = None
         # 初始化内存缓存
         self._cache = MemoryCache()
+        # 【2026-09-25 M1】保存 db_manager ✓ —— 本地读取（stock_moneyflow_daily）必需
+        #   （此前构造参数未落属性 ✗，本地路径会误用全局库 ✗）
+        self.db_manager = db_manager
+
+        # 【2026-09-25 M1】本地优先策略 ✓
+        #   · 回测/实盘**统一只读本地**（`stock_moneyflow_daily` ✓）；
+        #     本地窗口不足 → **直接报错** ✗（不再静默回退在线 ✗，杜绝口径漂移 ✓）
+        #   · 仅当显式开启（环境变量 KHUNTER_ALLOW_ONLINE_FALLBACK=1 ✓）才允许在线回退，
+        #     且离线模式下依旧会被 online_guard 拦住 ✗
+        import os as _os
+        self.allow_online_fallback = _os.environ.get(
+            'KHUNTER_ALLOW_ONLINE_FALLBACK', '0').strip() in ('1', 'true', 'True')
+        #: 数据源 ✓（**保真口径** ✓；不做跨源混用 ✗）
+        # 【2026-09-26 用户决策·**方案 C 保真** ✓】由 `moneyflow_dc`（东财 ✗）
+        #   **改回 `moneyflow_ths`（同花顺 ✓）**：
+        #   · 两源**字段同名但语义不同** ✗✓ —— 同股同日 600 条对照实测：
+        #     `main_net_flow` **99.8% 数值不同、1/3 符号相反** ✗；
+        #     大单占比维度均分 +22.1 → -10.3 ✗；出货否决率 **5.2% → 19.3%** ✗
+        #   · 评分阈值/权重**全部在同花顺口径上标定** ✓ ⇒ 必须回到同源 ✓
+        #     （否则同一套阈值"物理含义变了"✗，股票池被系统性改写 ✗）
+        #   · 覆盖：同花顺自 **2024-12-24** 起 ✓（实测 ✓）
+        #     ⇒ 更早区间**暂不支持回测** ✗ —— 由数据闸门**明确拒绝** ✓，不静默出结果 ✗
+        self.moneyflow_source = self._resolve_moneyflow_source()
         # 记录初始化日志（改为debug级别，避免频繁输出）
         logger.debug("资金面评分器初始化完成")
+
+    @staticmethod
+    def _resolve_moneyflow_source() -> str:
+        """解析资金流数据源 ✓（**默认 `moneyflow_ths` = 同花顺 ✓** = 保真口径 ✓）
+
+        委派给 `utils.moneyflow_source.resolve()` ✓（**单一事实源** ✓ ——
+        数据闸门与评分器共用同一解析 ✓，杜绝"两处各写一份规则"✗）。
+        """
+        from utils.moneyflow_source import resolve
+        return resolve()
 
     def _load_tushare_token(self) -> str:
         """
@@ -284,11 +317,104 @@ class MoneyflowScorer:
         # 深圳交易所（0开头、3开头）
         return f"{code}.SZ"
 
+    def _get_local_conn(self):
+        """取本地库连接（离线 ✓）"""
+        try:
+            if getattr(self, 'db_manager', None) is not None:
+                return self.db_manager.connect()
+        except Exception:
+            pass
+        from utils.global_db import get_global_db
+        return get_global_db().connect()
+
+    def _fetch_moneyflow_local(self, stock_code: str, score_date: str) -> Optional[pd.DataFrame]:
+        """【2026-09-25 M1】从**本地表**读取近 5 个交易日资金流（离线 ✓）
+        【2026-09-26 方案 C ✓】数据源 = `self.moneyflow_source`（默认**同花顺** ✓ = 保真口径 ✓）
+
+        关键设计：
+          · 窗口按**本地交易日历**取（缺一天就会被发现 ✓，不会被更早日期顶替 ✗）
+          · 返回的行**不包含** `net_d5_amount` ✗ ⇒ 下游 `_extract_from_tushare` 自动走
+            `Σ(net_amount)` 分支 ✓ = **本地 5 日聚合口径** ✓（不再依赖源端聚合字段 ✗）
+          · 窗口不完整 → 返回 None → 由调用方按"数据缺失"**报错** ✗（严格模式 ✓）
+
+        Returns:
+            DataFrame（列与源端一致 ✓）或 None（本地数据不足 ✗）
+        """
+        import pandas as _pd
+        from utils.local_calendar import recent_trade_dates_local
+        from utils.data_collectors.moneyflow_dc_collector import load_window_rows
+        conn = self._get_local_conn()
+        code6 = stock_code.split('.')[0][:6]
+        end_iso = self._normalize_date_iso(score_date)
+        try:
+            window = recent_trade_dates_local(conn, end_iso, window=5)
+        except Exception as e:
+            logger.warning(f'本地交易日历不可用（{stock_code}@{score_date}）: {e}')
+            return None
+        # 【2026-09-25 新增】已登记的**上游源侧缺口** ✓ 豁免（**显式告警** ✓，不静默 ✗）
+        #   源本身没有这一天 ✗ → 补也补不上 ✗。若仍按"完整交易日"硬要求，
+        #   则窗口含该日的每一次评分都会直接失败 ✗（回测整段崩 ✗）。
+        #   故按登记表豁免 ✓，但：① WARNING 打印具体日期 ✓；② 期望天数同步下调 ✓；
+        #   ③ 真漏采（未登记）**依旧报错** ✗ —— 豁免范围严格限定在登记表内 ✓
+        from utils.data_collectors.source_gaps import split_window
+        expected_dates, gaps_in_window = split_window(window, self.moneyflow_source)
+        if gaps_in_window:
+            logger.warning(
+                f'资金流窗口含**已登记上游源侧缺口** ✓ {gaps_in_window}'
+                f'（{stock_code}@{score_date}）→ 本次按 {len(window) - len(gaps_in_window)} 日计算 ✓；'
+                f'明细见 config/data_source_gaps.yaml ✓')
+        expected_dates = [d for d in window if d not in gaps_in_window]
+        rows = load_window_rows(conn, code6, window, source=self.moneyflow_source)
+        if len(rows) < len(expected_dates):
+            logger.warning(
+                f'本地资金流数据不足: {stock_code}@{score_date} '
+                f'期望 {len(expected_dates)} 日，实际 {len(rows)} 日 '
+                f'(缺失 {[d for d in expected_dates if d not in {r["trade_date"] for r in rows}]}) ✗')
+            return None
+        df = _pd.DataFrame(rows)
+        # 【2026-09-26 方案 C ✓】**保留** `net_d5_amount` ✗→✓（此前 M1 会剔除它 ✗）
+        #   原因 ✓：同花顺口径下，旧评分路径**正是**用源端 `net_d5_amount`
+        #   （5 日主力净额 ✓）来算 `main_net_flow` 的 ✓ —— 实测逐条可复现
+        #   （如 `600076 @ 2026-09-21` 旧值 -2855.1 与源端 d5 **分毫不差** ✓）。
+        #   剔除它 ⇒ 退化为 `Σ(net_amount)` ⇒ **与改前口径不同** ✗ ⇒ 保真失败 ✗。
+        #   注：东财行该列为 NULL ✓ ⇒ 自动落到 `Σ(net_amount)` 分支 ✓（互不干扰 ✓）。
+        df['ts_code'] = stock_code
+        return df
+
+    @staticmethod
+    def _normalize_date_iso(date_str: str) -> str:
+        """YYYYMMDD / YYYY-MM-DD → YYYY-MM-DD"""
+        s = str(date_str).strip()
+        return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if (len(s) == 8 and s.isdigit()) else s[:10]
+
     def _fetch_moneyflow_data(
         self, stock_code: str, score_date: str
     ) -> Optional[pd.DataFrame]:
+        """资金流取数入口 ✓：**本地优先**（M1 定稿 ✓）
+
+        1. 先读本地（`stock_moneyflow_daily` ✓，按本地日历取 5 日窗口 ✓）
+        2. 本地不足 → 默认**报错** ✗（回测不联网 ✓）
+           仅 `KHUNTER_ALLOW_ONLINE_FALLBACK=1` 时才回退在线 ✓（且离线模式下仍被闸门拦截 ✗）
         """
-        从 Tushare moneyflow_ths 接口获取个股资金流向数据
+        local = self._fetch_moneyflow_local(stock_code, score_date)
+        if local is not None and not local.empty:
+            return local
+        if not self.allow_online_fallback:
+            from utils.online_guard import require_local_data
+            require_local_data(
+                f'资金流向(近5个交易日, 源={self.moneyflow_source})',
+                False,
+                detail=(f'{stock_code} @ {score_date}：本地表 '
+                        f'stock_moneyflow_daily 窗口不足 ✗\n'
+                        f'  说明：回测只读本地数据，不联网、不回退其它源 ✗\n'
+                        f'  修复：运行数据更新（滚动 3 日）或初始化（2023-09-11 起）✓'))
+        return self._fetch_moneyflow_data_online(stock_code, score_date)
+
+    def _fetch_moneyflow_data_online(
+        self, stock_code: str, score_date: str
+    ) -> Optional[pd.DataFrame]:
+        """
+        （**仅实盘/数据更新允许** ✓）从 Tushare moneyflow_ths 接口获取个股资金流向数据
 
         获取近5个交易日的资金流向数据。
         个股图谱应该取实时数据，不从本地数据库降级。
@@ -299,6 +425,12 @@ class MoneyflowScorer:
         返回:
             DataFrame: 资金流向数据，失败返回 None
         """
+        # 【2026-09-25 M1】在线取数检查点 ✓：回测期间（离线模式）调用到此将直接抛错 ✗
+        from utils.online_guard import PURPOSE_SCORE, guard_online_call
+        # 【2026-09-25 契约 ✓】**评分侧只读本地** ✗ —— 此处为在线回退 ✗ ⇒ 任何模式下都**必须失败** ✗✓
+        #   （不得用 `purpose='update'` 豁免 ✗；缺数据请先运行"数据更新" ✓）
+        guard_online_call('Tushare moneyflow_ths 取数（评分回退）', purpose=PURPOSE_SCORE)
+
         # 构建缓存键
         cache_key = f"moneyflow_{stock_code}_{score_date}"
         # 检查缓存
@@ -854,15 +986,34 @@ class MoneyflowScorer:
             _amt = pd.to_numeric(df["amount"], errors='coerce').fillna(0).sum()
             metrics["amount_5d"] = float(_amt)
 
-        # 5日主力净额直接使用Tushare已计算好的net_d5_amount字段
-        # net_d5_amount是Tushare统一计算的5日主力净额，避免自己求和导致范围不一致
+        # 【2026-09-25 修复·口径统一 ✓】不再优先使用源端聚合字段 `net_d5_amount` ✗
+        #   原先：有 `net_d5_amount` 就用它 ✗（源端"5 日"的**起止范围**由源决定 ✗，
+        #   可能含窗口外日期 ✗），没有才自行求和 ✓ ⇒ **同一指标两条口径** ✗✓：
+        #       · 本地路径（已落库）→ 剔除该列 → Σ(net_amount) ✓
+        #       · 在线路径（源直连）→ 用源端聚合 ✗
+        #   ⇒ 同一股票同一日、仅因数据来源不同就得出**不同 5 日主力净额** ✗ ——
+        #     正是 `002372` 那种"评分漂移"的温床 ✗。
+        #   现统一为 **Σ(窗口内净额)** ✓（窗口由**本地交易日历**定义 ✓，可复现 ✓），
+        #   并附注：源端 `net_d5_amount` 自 2027-07-06 起停供 ✓，本改动同时消除了该风险 ✓
+        # 【2026-09-26 方案 C ✓】**源端 5 日聚合优先**（同花顺口径 ✓ = 旧路径口径 ✓）
+        #   同花顺 `net_d5_amount` = 源端给出的"5 日主力净额" ✓ —— 旧评分路径正是用它 ✓，
+        #   实测可逐条复现（`600076 @ 2026-09-21` 旧值 -2855.1 == 源端 d5 ✓）。
+        #   取**最后一行（截至评分日）** ✓：窗口按 `trade_date` 升序 ⇒ 末行 = 最新 ✓。
+        #   东财行该列为 NULL ✓ → 自动落到下面的 `Σ(net_amount)` 分支 ✓（互不干扰 ✓）。
+        _d5_taken = False
         if "net_d5_amount" in df.columns:
-            net_d5_col = pd.to_numeric(df["net_d5_amount"], errors='coerce')
-            metrics["net_flow_5d"] = float(net_d5_col.iloc[0])
-        elif "net_amount" in df.columns:
+            _d = df
+            if "trade_date" in _d.columns:
+                _d = _d.assign(trade_date=_d["trade_date"].astype(str)).sort_values("trade_date")
+            _d5 = pd.to_numeric(_d["net_d5_amount"], errors='coerce').dropna()
+            if len(_d5):
+                metrics["net_flow_5d"] = float(_d5.iloc[-1])
+                _d5_taken = True
+
+        if not _d5_taken and "net_amount" in df.columns:
             net_amount_col = pd.to_numeric(df["net_amount"], errors='coerce').fillna(0)
             metrics["net_flow_5d"] = float(net_amount_col.sum())
-        elif "net_buy_amount" in df.columns:
+        elif not _d5_taken and "net_buy_amount" in df.columns:
             net_buy_col = pd.to_numeric(df["net_buy_amount"], errors='coerce').fillna(0)
             metrics["net_flow_5d"] = float(net_buy_col.sum())
 

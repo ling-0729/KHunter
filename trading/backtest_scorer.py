@@ -56,7 +56,10 @@ class VetoResult:
 #             表（数据库依赖；回测场景语义也不严谨），**排除**
 #   板块   —— 否决需先计算板块得分（成本高、非必要），**排除**
 # 如需恢复：把对应维度名加回元组即可（元组顺序 = 检查顺序）
-VETO_ONLY_DIMENSIONS = ('事件', '基本面')
+#: ★【2026-09-27 用户口径】**基本面否决已去除** ✗ ⇒ 从本元组移除 ✓
+#:   （`fundamental_scorer.FUNDAMENTAL_VETO_ENABLED = False` ✓ 是另一道闸 ✓；
+#:     两处同时恢复才算"重新启用基本面否决" ✗✓）
+VETO_ONLY_DIMENSIONS = ('事件',)
 
 
 class BacktestScoreCalculator:
@@ -616,8 +619,13 @@ class BacktestScoreCalculator:
             stocks: 股票列表，每项包含 stock_code, stock_name
             score_date: 评分日期
             strategy_name: 策略名称
-            simplified: True → **简化模式：只判一票否决，不做任何打分**
-                        （score 置 0，入池只按 veto_flag 过滤，不参与排序）
+            simplified: True → **简化评分**（2026-09-11 口径 ✓，**2026-09-26 更正文档** ✗→✓）：
+                        先**排除一票否决** ✓；通过的**只计算资金面得分**作为 `score`
+                        （相当于资金面权重 100% ✓），**仍按** `score >= score_threshold` 入池 ✓
+                        —— 即**不是**"完全不打分"✗（旧文档写"score 置 0"✗，与代码不符 ✗）。
+                        如需**真正去评分** ✓ ⇒ 用 `pool_entry_mode: veto_only` ✓（§12.2b ✓）。
+            注 ✗：内部方法名 `_score_batch_veto_only` **名不副实** ✗（它仍算了资金面分 ✓），
+                 历史命名，暂不改名 ✗（避免大范围改动 ✓）。
             
         返回:
             带评分的股票列表

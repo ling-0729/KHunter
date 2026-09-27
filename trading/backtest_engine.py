@@ -4,6 +4,7 @@
 """
 
 import sqlite3
+import os
 from datetime import datetime, date, timedelta
 import logging
 import threading
@@ -13,9 +14,10 @@ from scipy import stats
 import json
 import yaml
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 from utils.db_manager import DBManager
+from utils.online_guard import backtest_offline
 from utils.akshare_fetcher import AKShareFetcher
 from strategy.strategy_registry import StrategyRegistry
 from trading.stock_score_api import calculate_stock_score
@@ -248,6 +250,9 @@ class BacktestEngine:
         
         # 交易日历缓存
         self.trading_calendar_cache = {}  # {date_str: is_open} 交易日历缓存
+        # 【2026-09-25 M1】数据闸门结果 / 数据指纹（写入回测结果，便于归因 ✓）
+        self.data_gate_report: Optional[Dict] = None
+        self.data_fingerprint: Dict = {}
         self._sorted_trading_dates = []   # 排序后的交易日列表
         
         # 择时策略
@@ -277,6 +282,40 @@ class BacktestEngine:
         # 资金流向冷却池：资金流向异常时加入冷却
         self.fund_flow_cool_down_pool = {}  # {stock_code: cool_down_end_date}
         
+    # ------------------------------------------------------------------
+    # ★【2026-09-27 用户要求 ✓】回测**启动参数快照** ✗✓
+    # ------------------------------------------------------------------
+    @staticmethod
+    def log_backtest_params(config: Dict, tag: str = '',
+                            extra: Optional[Dict] = None) -> None:
+        """把本次回测的**有效参数**打成日志 ✓（一行一类 ✓，便于 A/B 事后核对 ✓）
+
+        动机 ✗✓（用户实测反馈 ✓）：跑 A/B 时**无从确认**开关到底开没开 ✗ ——
+        尤其 `enable_adx_falloff` ✗：它**只在**走 `RegimeRouter` 的引擎里存在 ✗
+        ⇒ 普通引擎"日志里没有它"✗ **极易被误读成"没生效"** ✗✗（用户已踩 ✓）。
+        ⇒ 本快照把两类键**都**打出 ✓，并把**不适用**的情形**明写**出来 ✓（不沉默 ✗）。
+
+        Args:
+            config: **已并入默认值**后的回测配置 ✓（调用点须在 `merge_backtest_defaults` 之后 ✓）
+            tag: 前缀（引擎名 / A-B 组名 ✓）
+            extra: 引擎专属补充项 ✓（如**路由器开关本体** ✓）
+        """
+        sw = ('enable_stock_adx_filter', 'enable_add_open_rise_check',
+              'backtest_mode', 'pool_entry_mode', 'enable_no_new_high_exit',
+              'adx_direction_epsilon', 'slippage')
+        run = ('initial_capital', 'buy_amount', 'max_daily_buys',
+               'commission_rate', 'stamp_tax_rate', 'enable_limit_up_check')
+        pfx = '【回测参数' + (('·' + tag) if tag else '') + '】'
+        logger.info(f'{pfx} 策略={config.get("strategy_name") or "—"} '
+                    f'区间={config.get("start_date")} ~ {config.get("end_date")}')
+        logger.info(pfx + ' 开关: ' + ' | '.join(
+            f'{k}={config[k]}' if k in config else f'{k}=(未设置 ✓)' for k in sw))
+        logger.info(pfx + ' 运行: ' + ' | '.join(
+            f'{k}={config[k]}' if k in config else f'{k}=(默认 ✓)' for k in run))
+        if extra:
+            logger.info(pfx + ' 引擎: ' + ' | '.join(f'{k}={v}' for k, v in extra.items()))
+
+    @backtest_offline          # 【2026-09-25 契约 ✓】回测入口**自动**开启离线保护 ✗（无例外 ✓）
     def run_backtest(self, strategy_name: str, config: Dict) -> Dict:
         """运行回测
         
@@ -287,6 +326,18 @@ class BacktestEngine:
         Returns:
             回测结果字典
         """
+        # 【2026-09-27】把 yaml `backtest:` 节作为**默认值**并入 ✓
+        #   ⇒ 优先级：请求 config（Web/流水线/DB ✓）> yaml `backtest:` 节 > 引擎内置默认 ✓
+        #   ⇒ 只补缺 ✗✓（`setdefault` ✓）⇒ **不覆盖**显式传入 ✓
+        from utils.backtest_mode import merge_backtest_defaults
+        config = merge_backtest_defaults(config)
+
+        # ★【2026-09-27】启动参数快照 ✓ —— 并**明写**「大盘降温在本引擎不适用 ✗」，
+        #   免得"日志里没它"✗ 被误读成"没生效"✗✗（用户实测踩过 ✓）
+        self.log_backtest_params(config, tag='普通引擎', extra={
+            '大盘降温(enable_adx_falloff)': '不适用 ✗（本引擎不含 RegimeRouter ✗；'
+                                            '要看它请用 RegimeBacktestEngine ✓）'})
+
         # 获取回测锁，确保同一时刻只有一个回测任务执行
         if not _backtest_lock.acquire(blocking=False):
             logger.warning(f"回测任务正在执行中，策略 {strategy_name} 等待...")
@@ -369,6 +420,11 @@ class BacktestEngine:
             
             # 4. 获取回测交易日列表并打印
             date_range = self._get_trading_dates(start_date, end_date)
+
+            # 【2026-09-25 M1】回测数据闸门：四类本地数据（日历/资金流/基本面/事件）
+            #   覆盖校验 + 数据指纹 ✓ —— 缺失默认**直接终止** ✗（不再静默漂移 ✓）
+            #   严格开关优先级：环境变量 KHUNTER_DATA_STRICT > 引擎配置 data.strict > 默认 true
+            self.data_gate_report = self._run_data_gate(start_date, end_date, date_range)
             if not date_range:
                 raise ValueError(f"回测期间 {start_date} ~ {end_date} 没有交易日")
             
@@ -720,7 +776,26 @@ class BacktestEngine:
                             logger.info(f"【未买入】{stock_code} {stock['stock_name']}: K线过滤未通过 - {filter_result['reason']}")
                             remaining_candidates.append(candidate)
                             continue
-                    
+
+                    # ---------- 【2026-09-26 §5.6】个股 ADX 闸门 ✓（**首仓 + 加仓 均生效** ✗✓）----------
+                    #   首仓 ✓：只做 ADX 判定 ✓（K线过滤已在上方 ✓）
+                    #   加仓 ✓：**规则2（当日开盘涨跌幅 ±4%）** + ADX 判定 ✓（规则1/3/4 **不过滤** ✗）
+                    #   开关 ✓：`enable_stock_adx_filter`（默认**关** ✗ = 现状 ✓）
+                    #          `enable_add_open_rise_check`（默认**开** ✓，用户定稿 ✓）
+                    if self._should_apply_adx_filter(result, existing_pos):
+                        from trading.stock_adx_filter import (add_entry_gate,
+                                                              adx_entry_gate)
+                        adx_gate = (add_entry_gate(df_to_date, stock_code, config,
+                                                   signal_date=current_date)
+                                    if existing_pos is not None
+                                    else adx_entry_gate(df_to_date, stock_code, config,
+                                                        signal_date=current_date))
+                        if not adx_gate['passed']:
+                            logger.info(f"【未买入】{stock_code} {stock['stock_name']}: "
+                                        f"ADX 闸门未通过 - {adx_gate['reason']}")
+                            remaining_candidates.append(candidate)
+                            continue
+
                     # 停牌/退市检查：确认当日有真实行情数据（防止使用前一日收盘价兜底）
                     if not self._has_trading_data_on_date(stock_code, current_date):
                         logger.info(f"【未买入】{stock_code} {stock['stock_name']}: 当日{current_date}无行情数据（停牌/退市），跳过")
@@ -1005,8 +1080,16 @@ class BacktestEngine:
                 'timing_strategy': {
                     'name': self.timing_strategy_name,
                     'params': self.timing_strategy_params
+                },
+                # 【2026-09-25 M1】数据可追溯：闸门状态 + 数据指纹 ✓
+                #   重跑结果不一致时，可直接比对指纹判断"是不是数据变过" ✓
+                'data_gate': {
+                    'strict': (self.data_gate_report or {}).get('strict'),
+                    'ok': (self.data_gate_report or {}).get('ok'),
+                    'trade_days': (self.data_gate_report or {}).get('trade_days'),
+                },
+                'data_fingerprint': json.dumps(self.data_fingerprint or {}, ensure_ascii=False)
                 }
-            }
             
             logger.info(f"回测完成，初始资金: {initial_capital}, 最终资金: {final_capital}, 总收益率: {performance['total_return']:.2f}%")
 
@@ -1072,20 +1155,25 @@ class BacktestEngine:
             filtered_by_score = 0
             
             # 将预加载的股票添加到可买股票池（与正常选股同一套入池规则）
-            from trading.pool_entry_rules import resolve_pool_entry_simplified
+            from trading.pool_entry_rules import (resolve_pool_entry_mode,
+                                                  resolve_pool_entry_simplified)
 
             _simplified = resolve_pool_entry_simplified(config, self._load_engine_config())
+            # 【2026-09-26】与正常选股**同一套入池规则** ✓（模式 + 阈值都取自同一解析器 ✓）
+            _mode = resolve_pool_entry_mode(config, self._load_engine_config())
+            _veto_only = (_mode == 'veto_only')
             logger.info("预加载入池规则: " + (
-                f"简易评分（先排除一票否决，资金面得分>={score_threshold}）"
-                if _simplified else f"标准（综合评分>={score_threshold}）"))
+                "veto_only（**去除评分** ✗，只排除一票否决 ✓）" if _veto_only else
+                (f"简易评分（先排除一票否决，资金面得分>={score_threshold}）"
+                 if _simplified else f"标准（综合评分>={score_threshold}）")))
             for stock in preloaded_stocks:
-                # 评分过滤：与正常选股一致（统一规则：否决票 + 评分达标）
+                # 评分过滤：与正常选股一致（统一规则：否决票 + 评分达标；`veto_only` 跳过评分 ✗）
                 if stock.get('veto_flag', False):
                     logger.debug(f"预加载股票 {stock['stock_code']} 被否决标志过滤，veto_flag={stock.get('veto_flag')}")
                     filtered_by_veto += 1
                     continue
 
-                if stock.get('score', 0) < score_threshold:
+                if not _veto_only and stock.get('score', 0) < score_threshold:
                     logger.debug(f"预加载股票 {stock['stock_code']} 评分不达标，score={stock.get('score', 0)} < {score_threshold}")
                     filtered_by_score += 1
                     continue
@@ -1180,7 +1268,12 @@ class BacktestEngine:
             
             if tushare_token:
                 logger.info(f"从 Tushare 加载交易日历范围: {extended_start} ~ {end_date_str}")
-                
+
+                # 【2026-09-25 新增闸门 ✓】回测取历属**评分侧** ✗ ⇒ 本地优先、**禁止即时联网** ✗
+                #   此前此处**无任何检查** ✗ → 非离线模式跑回测时会静默联网取历 ✗✓
+                from utils.online_guard import PURPOSE_SCORE, guard_online_call
+                guard_online_call('Tushare trade_cal（回测取历）', purpose=PURPOSE_SCORE)
+
                 pro = ts.pro_api(tushare_token)
                 df = pro.trade_cal(
                     exchange='SSE',
@@ -1239,6 +1332,10 @@ class BacktestEngine:
         if self._calendar_coverage_insufficient(dates_cache, extended_start_dt, end_date):
             before = len(dates_cache)
             try:
+                # 【2026-09-25 新增闸门 ✓】akshare 日历兜底同属**回测取数** ✗ ⇒ 禁止联网 ✗✓
+                from utils.online_guard import PURPOSE_SCORE, guard_online_call
+                guard_online_call('akshare trade_date_hist（回测取历兜底）',
+                                  purpose=PURPOSE_SCORE)
                 import akshare as ak
                 df = ak.tool_trade_date_hist_sina()
                 raw = [str(x) for x in df['trade_date'].tolist()]
@@ -1256,6 +1353,41 @@ class BacktestEngine:
                     f"（无需 token）：获取 {len(dates_cache)} 日，缓存已更新至 {len(merged)} 日")
             except Exception as e:
                 logger.warning(f"本地缓存覆盖不足（{before} 日）且 akshare 兜底失败: {e}")
+
+        # 2.6 【2026-09-25 新增】交易日历**完整性硬校验**（杜绝"静默缺日"✗）
+        #   背景：此前的覆盖判据只有"实际天数 < 工作日×80%" ✗ —— 只能抓"几乎没数据"，
+        #   抓不到**局部空洞**（例如区间中段少 10~20 个交易日 ✗），于是残历照跑、结果静默偏差 ✗。
+        #   现改为：用权威日历（akshare 全量，含节假日）逐日比对 → 缺哪几天一目了然 ✓，
+        #   并**自动补齐**后继续 ✓；补齐失败则由 calendar.strict（默认 true）直接终止 ✗。
+        try:
+            from utils.trade_date_utils import ensure_calendar_coverage
+
+            _cfg = {}
+            try:
+                _cfg = self._load_engine_config() or {}
+            except Exception:
+                _cfg = {}
+            _cal_cfg = _cfg.get('calendar') or {}
+            _strict = _cal_cfg.get('strict', True)
+            _env = os.environ.get('KHUNTER_CALENDAR_STRICT')
+            if _env is not None:
+                _strict = _env.strip() not in ('0', 'false', 'False')
+
+            before = len(dates_cache)
+            healed = ensure_calendar_coverage(start_date, end_date, dates_cache,
+                                              auto_heal=True, strict=bool(_strict))
+            if healed:
+                _d0 = extended_start_dt.date()
+                _d1 = datetime.strptime(end_date, '%Y-%m-%d').date()
+                dates_cache = [d for d in healed
+                               if _d0 <= datetime.strptime(d, '%Y-%m-%d').date() <= _d1]
+            if len(dates_cache) != before:
+                logger.warning(f"交易日历校验后调整: {before} 日 → {len(dates_cache)} 日"
+                               f"（区间 {start_date} ~ {end_date}）")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning(f"交易日历完整性校验异常（继续使用现有日历）: {e}")
 
         # 3. 如果缓存/兜底都没有，报错终止（不再降级到仅过滤周末）
         if not dates_cache:
@@ -1309,15 +1441,19 @@ class BacktestEngine:
     @staticmethod
     def _save_cache_dates(cache_file, dates: list):
         """将交易日列表写入本地缓存文件
-        
+
+        【2026-09-25 加固】原实现为 `open(file,'w')` 直接覆盖 ✗ —— 非原子、无锁、
+        无"拒绝缩水"保护，多进程（Web 服务 / 回测 worker / 数据更新）并发写时会
+        把缓存**覆盖缩水**，且读方可能读到半截 JSON ✗。
+        现统一委托 `utils.trade_date_utils.save_trading_dates`：原子替换 + 只增不减 ✓
+        （保留本方法签名以兼容既有调用点 ✓）
+
         Args:
-            cache_file: Path 对象，缓存文件路径
+            cache_file: Path 对象，缓存文件路径（仅用于记录，实际路径由工具模块统一管理）
             dates: 日期字符串列表 ["YYYY-MM-DD", ...]
         """
-        import json
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump({"dates": dates}, f, ensure_ascii=False, indent=2)
+        from utils.trade_date_utils import save_trading_dates
+        save_trading_dates(dates, source='backtest_engine')
 
     @staticmethod
     def _calendar_coverage_insufficient(dates: list, start_dt, end_date: str) -> bool:
@@ -1352,6 +1488,54 @@ class BacktestEngine:
             return len(dates) < expected_weekdays * 0.8
         except Exception:
             return False
+
+    def _run_data_gate(self, start_date: str, end_date: str, date_range) -> Optional[Dict]:
+        """回测启动**数据闸门**（2026-09-25 M1 新增 ✓）
+
+        作用：
+          1. 校验四类本地数据在回测区间内的覆盖（日历 / 资金流 / 基本面 / 事件 ✓）
+          2. 缺失 → 打印**缺失清单并终止** ✗（杜绝"残数据跑出像样结果"的静默漂移 ✗）
+          3. 生成**数据指纹**（含 K 线表 ✓）→ 写入回测结果，便于事后归因 ✓
+
+        严格开关优先级：环境变量 `KHUNTER_DATA_STRICT` > 引擎配置 `data.strict` > 默认 `True` ✓
+        跳过项：引擎配置 `data.gate_skip: ['fundamental', 'event']`（M2 迁移期临时用 ✓）
+
+        Returns:
+            闸门报告 dict 或 None（异常时降级为 None + 告警 ✓）
+        """
+        try:
+            from utils.backtest_data_gate import run_gate
+            trade_dates = [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)
+                           for d in (date_range or [])]
+            cfg = {}
+            try:
+                cfg = self._load_engine_config() or {}
+            except Exception:
+                cfg = {}
+            data_cfg = cfg.get('data') or {}
+            strict = data_cfg.get('strict', True)
+            env = os.environ.get('KHUNTER_DATA_STRICT')
+            if env is not None:
+                strict = env.strip() not in ('0', 'false', 'False')
+            skip = data_cfg.get('gate_skip') or []
+            conn = self.db_manager.connect() if getattr(self, 'db_manager', None) else None
+            if conn is None:
+                from utils.global_db import get_global_db
+                conn = get_global_db().connect()
+            # 【2026-09-27 §5.8】若本引擎挂了**大盘路由**（`RegimeBacktestEngine` ✓，
+            #   路由器属性 `_router` ✓）⇒ 大盘 ADX 的**起点覆盖/预热**必须硬拦 ✗
+            #   （状态不可复现 ⇒ 结论无效 ✗）；普通引擎 ⇒ 只提醒 ✓（不误伤 ✗）
+            _idx_required = getattr(self, '_router', None) is not None
+            report = run_gate(conn, start_date, end_date, trade_dates,
+                              strict=bool(strict), skip=skip,
+                              index_adx_required=_idx_required)
+            self.data_fingerprint = report.get('fingerprint') or {}
+            return report
+        except RuntimeError:
+            raise                      # 闸门不通过 ⇒ 终止回测 ✗（不吞异常 ✓）
+        except Exception as e:
+            logger.error(f'回测数据闸门执行异常: {e}', exc_info=True)
+            return None
 
     def _is_trading_day(self, date: date) -> bool:
         """判断是否为交易日（必须基于交易日历缓存，不使用周末降级）
@@ -2027,12 +2211,29 @@ class BacktestEngine:
                 # 如果是字符串，移除横杠
                 date_str = str(current_date).replace('-', '')
             
-            # 使用资金评分器获取资金流向数据
+            # 使用资金评分器获取资金流向数据（M1 起为**本地读取** ✓，缺数据会抛错 ✗）
             scorer = MoneyflowScorer()
-            df = scorer._fetch_moneyflow_data(stock_code, date_str)
-            
+            try:
+                df = scorer._fetch_moneyflow_data(stock_code, date_str)
+            except RuntimeError as e:
+                # 本地数据缺失 ⇒ **显著告警 + 计数**（原实现会静默"不移除" ✗，掩盖问题）
+                self._fund_flow_data_gaps = getattr(self, '_fund_flow_data_gaps', 0) + 1
+                logger.warning(f'【资金流向数据缺失】{stock_code} @ {date_str}: {str(e)[:200]} '
+                               f'→ 本日不参与资金流向移除判定（累计 {self._fund_flow_data_gaps} 次）')
+                return {'should_remove': False,
+                        'reason': '资金流向数据缺失（已告警，不计入否决）', 'data_missing': True}
+
             if df is None or df.empty:
-                return {'should_remove': False, 'reason': ''}
+                # 【2026-09-25 M1】原实现直接 `should_remove=False` 静默放行 ✗ —— 数据缺失被掩盖 ✗
+                #   现改为**告警 + 计数**，并在结果中标记 `data_missing` ✓
+                #   （不抛错：个别新股/无资金流标的不应让整轮回测失败 ✗；
+                #     整体性缺失由启动数据闸门统一拦截 ✗✓）
+                self._fund_flow_data_gaps = getattr(self, '_fund_flow_data_gaps', 0) + 1
+                logger.warning(f'【资金流向数据缺失】{stock_code} @ {date_str}：本地窗口为空 ✗ '
+                               f'→ 本日不参与资金流向移除判定'
+                               f'（累计 {self._fund_flow_data_gaps} 次，请检查数据更新 ✓）')
+                return {'should_remove': False,
+                        'reason': '资金流向数据缺失（已告警，不计入否决）', 'data_missing': True}
             
             # 提取指标后交由「资金面一票否决」同一套条件判定
             #   条件1  5日主力净额 < -1亿 且 大单净流入占比 < -5%（无占比字段→净额/成交额 < -1%）
@@ -2386,12 +2587,25 @@ class BacktestEngine:
         # 筛选：入池规则（可配置，见 trading/pool_entry_rules.py）
         #   simplified=True  → 只剔除一票否决，其余全部入池（解决池/持仓不足）
         #   simplified=False → 原行为：否决票 + 评分达标
-        from trading.pool_entry_rules import filter_candidates, resolve_pool_entry_simplified
+        from trading.pool_entry_rules import (filter_candidates,
+                                              resolve_pool_entry_mode,
+                                              resolve_pool_entry_simplified)
 
         score_threshold = config.get('score_threshold', 60)
         _simplified = resolve_pool_entry_simplified(config, self._load_engine_config())
-        candidate_stocks = filter_candidates(scored_stocks, score_threshold, _simplified)
-        if _simplified:
+        # 【2026-09-26】入池模式 ✓（默认 `scored` ✗ = 现状 ✓；`veto_only` = **去除评分** ✓）
+        _mode = resolve_pool_entry_mode(config, self._load_engine_config())
+        candidate_stocks = filter_candidates(scored_stocks, score_threshold,
+                                             _simplified, mode=_mode)
+        # 【2026-09-27】把**当前模式**打出来 ✓（一眼可见跑的是 legacy 还是 adx ✓）
+        try:
+            from utils.backtest_mode import describe as _describe_mode
+            logger.info("【模式】" + _describe_mode(config, self._load_engine_config()))
+        except Exception:
+            pass
+        if _mode == 'veto_only':
+            logger.info("【入池规则】veto_only（**去除评分** ✗）：只排除一票否决 ✓")
+        elif _simplified:
             logger.info(f"【入池规则】简易评分：先排除一票否决，资金面得分>={score_threshold} 入池")
         else:
             logger.info(f"【入池规则】标准评分：否决票 + 综合评分>={score_threshold}")
@@ -2585,6 +2799,21 @@ class BacktestEngine:
             return False
         return existing_pos is None
 
+    @staticmethod
+    def _should_apply_adx_filter(result, existing_pos) -> bool:
+        """个股 ADX 闸门是否参与 ✓（**首仓 + 加仓 均 `True`** ✗✓，§5.6 ✓，2026-09-26 用户定稿 ✓）
+
+        ⚠️ 与 `_should_apply_buy_filter` **语义不同** ✗✓：
+          · 后者对**加仓**返回 `False` ✗（整体跳过 K线过滤 ✓，避免误杀已盈利加仓 ✓）；
+          · 本闸门**必须覆盖加仓** ✓（用户要求"加仓需要过滤：开盘涨幅 + ADX" ✓）。
+        ⇒ 故**独立新增** ✓；且**不得**在其上叠加 K线过滤 ✗
+          （否则会把「规则1 20日低点涨幅 ✓ / 规则4 涨停基因 ✓」也套到加仓 ✗ ⇒ 误杀 ✓）。
+
+        实际开关由 `enable_stock_adx_filter` 在闸门内部判定 ✓（**默认关** ✗ ⇒ 现状不变 ✓）；
+        加仓的「规则2（开盘 ±4%）」默认**开** ✓（`enable_add_open_rise_check` ✓）。
+        """
+        return True
+
     def _get_highest_price_since_entry(self, stock_code: str, buy_date,
                                        until_date, buy_price: float) -> float:
         """获取建仓以来（【不含建仓日】）至 until_date 的最高价（用于移动止损）
@@ -2752,6 +2981,9 @@ class BacktestEngine:
                     pass
                 
                 if tushare_token:
+                    # 【2026-09-25 新增闸门 ✓】回测取价属**评分侧** ✗ ⇒ 禁止即时联网 ✗✓
+                    from utils.online_guard import PURPOSE_SCORE, guard_online_call
+                    guard_online_call('Tushare daily（回测取价兜底）', purpose=PURPOSE_SCORE)
                     pro = ts.pro_api(tushare_token)
                     df = pro.daily(
                         ts_code=f"{stock_code}.SH" if stock_code.startswith('6') else f"{stock_code}.SZ",

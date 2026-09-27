@@ -446,6 +446,15 @@ CREATE TABLE IF NOT EXISTS stock_kline (
     -- created_date: 创建时间，类型DATETIME，默认当前时间
     updated_date DATETIME DEFAULT CURRENT_TIMESTAMP,
     -- updated_date: 更新时间，类型DATETIME，默认当前时间
+    adx REAL,
+    -- adx: 个股ADX（DMI体系趋势强度），类型REAL，可选（NULL=预热期/样本不足，非故障）
+    --   【2026-09-27 §5.1/§5.2】ADX M2 落地：本列由 utils/stock_adx.py 逐日重算（日更第5.5步）
+    --   ⚠️ 必须**保持在最后**（与 ALTER TABLE ADD COLUMN 的追加位置一致）：
+    --      新库（靠本 DDL ✓）与老库（靠启动迁移 stock_kline_add_adx ✓）的列顺序必须相同，
+    --      否则 PRAGMA table_info 顺序不一致，会让"位置解包 SELECT *"类代码踩坑
+    --   ⚠️ 与 utils/schema_migrations.py::migrate_stock_kline_adx 必须**同时**提供该列
+    --      （新库走 DDL ⇒ 迁移预检为 False 不重复动手；老库走迁移 ⇒ 本行对其无影响）
+    --   ⚠️ 预热期（前 120 根）为 NULL 是**正常**的（not_applicable），闸门 check_adx 已按此归因
     UNIQUE(code, date)
     -- 股票代码、日期的组合唯一
 );
@@ -970,3 +979,66 @@ CREATE INDEX IF NOT EXISTS idx_stock_favorite_code ON stock_favorite(stock_code)
 -- idx_stock_favorite_code: 股票代码索引，用于快速查询收藏状态
 
 
+
+-- ===== 本地化数据表（程序化生成 ✓ 2026-09-25）BEGIN =====
+-- ⚠️ 本段由 utils/data_collectors/*.py 的 create_table_sql() 生成 ✓
+--    请勿手工编辑 ✗；如字段有变，改采集器后重新生成 ✓（test_schema_sql_sync.py 会校验一致性 ✓）
+
+CREATE TABLE IF NOT EXISTS trade_calendar (
+  cal_date TEXT NOT NULL,
+  is_open TEXT,
+  exchange TEXT,
+  source TEXT,
+  created_date TEXT,
+  updated_date TEXT,
+  PRIMARY KEY (cal_date)
+);
+CREATE INDEX IF NOT EXISTS idx_trade_calendar_date ON trade_calendar(cal_date);
+CREATE TABLE IF NOT EXISTS stock_moneyflow_daily (
+  stock_code TEXT NOT NULL,
+  trade_date TEXT NOT NULL,
+  source TEXT NOT NULL,
+  net_amount REAL,
+  net_amount_rate REAL,
+  buy_elg_amount REAL,
+  buy_elg_amount_rate REAL,
+  buy_lg_amount REAL,
+  buy_lg_amount_rate REAL,
+  buy_md_amount REAL,
+  buy_md_amount_rate REAL,
+  buy_sm_amount REAL,
+  buy_sm_amount_rate REAL,
+  net_d5_amount REAL,
+  created_date TEXT,
+  updated_date TEXT,
+  PRIMARY KEY (stock_code, trade_date, source)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_moneyflow_daily_date ON stock_moneyflow_daily(trade_date);
+CREATE INDEX IF NOT EXISTS idx_smd_code_date ON stock_moneyflow_daily(stock_code, trade_date);
+CREATE TABLE IF NOT EXISTS stock_finance_indicator (
+  stock_code TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  ann_date TEXT NOT NULL,
+  roe REAL,
+  netprofit_yoy REAL,
+  ocfps REAL,
+  eps REAL,
+  ocf_to_opincome REAL,
+  created_date TEXT,
+  updated_date TEXT,
+  PRIMARY KEY (stock_code, end_date, ann_date)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_finance_indicator_date ON stock_finance_indicator(ann_date);
+CREATE TABLE IF NOT EXISTS stock_announcement (
+  stock_code TEXT NOT NULL,
+  ann_date TEXT NOT NULL,
+  title TEXT NOT NULL,
+  created_date TEXT,
+  updated_date TEXT,
+  PRIMARY KEY (stock_code, ann_date, title)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_announcement_date ON stock_announcement(ann_date);
+CREATE TABLE IF NOT EXISTS data_fetch_failure (id INTEGER PRIMARY KEY AUTOINCREMENT, data_type TEXT, key TEXT, error TEXT, retry_count INTEGER DEFAULT 0, last_try TEXT, resolved INTEGER DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_dff_type ON data_fetch_failure(data_type, resolved);
+
+-- ===== 本地化数据表 END =====

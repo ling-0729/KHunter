@@ -16,9 +16,11 @@
   基本面得分 = 50 + 净利润增速得分 + ROE得分 + 经营现金流得分（市值已屏蔽）
   得分范围：-90 到 +90（实际限制在 -100 到 +100）
 
-一票否决条件：
-  - 净利润同比下滑 > 50%（即 net_profit_yoy < -50）：-100分
-  - ROE < -5%：-100分
+一票否决条件（★【2026-09-27 用户口径】**已去除** ✗ ⇒ 默认**不否决** ✓）：
+  - 净利润同比下滑 > 50%（即 net_profit_yoy < -50）：-100分 ✗（**已停用** ✓）
+  - ROE < -5%：-100分 ✗（**已停用** ✓）
+  ⇒ 基本面**只打分、不否决** ✓（分数仍照常参与标准模式的加权 ✓）；
+    恢复方式：把 `FUNDAMENTAL_VETO_ENABLED` 改回 `True` ✓（**唯一开关** ✓）
 """
 
 import json
@@ -38,6 +40,12 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # 基本面评分常量配置
 # ============================================================
+
+#: ★【2026-09-27 用户口径】基本面**一票否决总开关** ✓（现**关闭** ✗ = 去除该否决 ✓）
+#:   · 关闭 ⇒ `check_veto` 恒 `False` ✓；`calculate_score` 内两条否决分支**不再短路** ✓
+#:     （分数仍按 `50 + 三维度` 正常计算 ✓，仍参与**标准模式**的五维加权 ✓）
+#:   · 恢复 ⇒ 改回 `True` ✓（**唯一开关** ✓，两处同时生效 ✓，不产生口径漂移 ✗）
+FUNDAMENTAL_VETO_ENABLED = False
 
 
 
@@ -108,7 +116,7 @@ class FundamentalScorer:
     支持一票否决机制。
     """
 
-    def __init__(self, tushare_token: str = None):
+    def __init__(self, tushare_token: str = None, db_manager=None):
         """
         初始化基本面评分器
 
@@ -121,6 +129,14 @@ class FundamentalScorer:
         self._pro = None
         # 初始化内存缓存
         self._cache = MemoryCache()
+        # 【2026-09-25 M2】本地优先：基本面只读本地表 `stock_finance_indicator` ✓
+        #   · 时点规则 = **`ann_date <= 选股日`**（最新一期 ✓）—— 替代 `end_date <= 选股日` ✗
+        #     （后者会把"报告期已到但尚未公告"的财报提前使用 ⇒ 前视偏差 ✗）
+        #   · 本地无可用期 → **报错** ✗（不再静默回退联网 ✗）
+        self.db_manager = db_manager          # 由构造参数显式传入时优先 ✓（否则用全局库 ✓）
+        import os as _os
+        self.allow_online_fallback = _os.environ.get(
+            'KHUNTER_ALLOW_ONLINE_FALLBACK', '0').strip() in ('1', 'true', 'True')
         # 记录初始化日志
         logger.info("基本面评分器初始化完成")
 
@@ -211,7 +227,61 @@ class FundamentalScorer:
         logger.error(f"Tushare API 调用失败（已重试 {MAX_RETRIES} 次）: {last_error}")
         return None
 
+    def _get_local_conn(self):
+        """取本地库连接（离线 ✓）"""
+        try:
+            if getattr(self, 'db_manager', None) is not None:
+                return self.db_manager.connect()
+        except Exception:
+            pass
+        from utils.global_db import get_global_db
+        return get_global_db().connect()
+
+    @staticmethod
+    def _to_iso(date_str: str) -> str:
+        s = str(date_str).strip()
+        return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if (len(s) == 8 and s.isdigit()) else s[:10]
+
+    def _fetch_fina_indicator_local(self, stock_code: str,
+                                    score_date: str) -> Optional[pd.DataFrame]:
+        """【2026-09-25 M2】读本地**最新一期且已公告**的财务指标 ✓（离线 ✓）
+
+        时点规则：`ann_date <= score_date` ✓（防前视偏差 ✗→✓）
+        """
+        from utils.data_collectors.local_data_collectors import load_indicators_local
+        conn = self._get_local_conn()
+        code6 = str(stock_code).split('.')[0][:6]
+        rows = load_indicators_local(conn, code6, self._to_iso(score_date))
+        if not rows:
+            return None
+        df = pd.DataFrame(rows)
+        if 'ann_date' not in df.columns or df.empty:
+            return None
+        return df
+
     def _fetch_fina_indicator(
+        self, stock_code: str, score_date: str
+    ) -> Optional[pd.DataFrame]:
+        """财务指标取数入口 ✓：**本地优先**（M2 定稿 ✓），本地无数据 → **返回 None** ✓
+
+        规则（用户 2026-09-27 决策 ✓）：
+          · 取**选股日所在季度**的财报（由 `load_indicators_local` 按季匹配 ✓）
+          · 该季度财报**已公告** → 返回本地数据 ✓
+          · 该季度财报**未公告** → 返回 `None`（**不计、不否决** ✓，不回溯上一季 ✗）
+          · 仅 `KHUNTER_ALLOW_ONLINE_FALLBACK=1`（实盘/数据更新 ✓）才走在线分支 ✓
+        """
+        local = self._fetch_fina_indicator_local(stock_code, score_date)
+        if local is not None and not local.empty:
+            return local
+        # 目标季度未公告 → 不计（返回 None，下游得基准分、不否决）
+        if not self.allow_online_fallback:
+            logger.info(
+                f'基本面数据缺失（目标季度未公告）: {stock_code} @ {score_date} '
+                f'→ 不计入基本面评分 ✓')
+            return None
+        return self._fetch_fina_indicator_online(stock_code, score_date)
+
+    def _fetch_fina_indicator_online(
         self, stock_code: str, score_date: str
     ) -> Optional[pd.DataFrame]:
         """
@@ -226,6 +296,11 @@ class FundamentalScorer:
         返回:
             DataFrame: 财务指标数据，失败返回 None
         """
+        # 【2026-09-25 M2】在线取数检查点 ✓（回测期间为离线模式 → 直接抛错 ✗）
+        from utils.online_guard import PURPOSE_SCORE, guard_online_call
+        # 【2026-09-25 契约 ✓】**评分只读本地** ✗（在线回退 ⇒ 任何模式下都必须失败 ✗✓）
+        guard_online_call('Tushare fina_indicator 取数（评分回退）', purpose=PURPOSE_SCORE)
+
         # 构建缓存键（包含评分日期）
         cache_key = f"fina_indicator_{stock_code}_{score_date}"
         # 检查缓存
@@ -497,6 +572,9 @@ class FundamentalScorer:
         返回:
             Tuple[bool, str]: (是否触发一票否决, 否决原因)
         """
+        # ★【2026-09-27 用户口径】基本面否决**已去除** ✗ ⇒ 恒不否决 ✓（见模块常量 ✓）
+        if not FUNDAMENTAL_VETO_ENABLED:
+            return False, ""
         try:
             df = self._fetch_fina_indicator(stock_code, score_date)
             indicators = self._extract_latest_indicators(df, score_date)
@@ -575,14 +653,20 @@ class FundamentalScorer:
         market_cap_score = 0
 
         # 一票否决：净利润同比下滑 > 50%
-        if indicators["net_profit_yoy"] is not None and indicators["net_profit_yoy"] < -50:
+        #   ★【2026-09-27 用户口径】**已去除** ✗ ⇒ 由 `FUNDAMENTAL_VETO_ENABLED` 统一关断 ✓
+        if (FUNDAMENTAL_VETO_ENABLED
+                and indicators["net_profit_yoy"] is not None
+                and indicators["net_profit_yoy"] < -50):
             detail.veto = True
             detail.veto_reason = f"净利润同比下滑超过50%（{indicators['net_profit_yoy']:.1f}%）"
             logger.warning(f"股票 {stock_code} 触发基本面一票否决: {detail.veto_reason}")
             return -100, detail
 
         # 一票否决：ROE < -5%
-        if indicators["roe"] is not None and indicators["roe"] < -5:
+        #   ★【2026-09-27 用户口径】**已去除** ✗ ⇒ 同上 ✓
+        if (FUNDAMENTAL_VETO_ENABLED
+                and indicators["roe"] is not None
+                and indicators["roe"] < -5):
             detail.veto = True
             detail.veto_reason = f"ROE低于-5%（{indicators['roe']:.1f}%）"
             logger.warning(f"股票 {stock_code} 触发基本面一票否决: {detail.veto_reason}")

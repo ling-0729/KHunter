@@ -157,7 +157,23 @@ class KlineInitializer:
                 'total_time': total_time,
                 'failed_stock_list': self.progress['failed_stocks'][:10]  # 返回前10个失败的股票
             }
-            
+
+            # ---------- 【2026-09-27 §5.3 覆盖矩阵】初始化后**必须补算 ADX** ✗✓ ----------
+            #   本初始化用 `INSERT OR REPLACE` 写 `stock_kline` ✓ ⇒ **不写 `adx` 列** ✗
+            #   ⇒ 不补算则全表 `adx = NULL` ✗ ⇒ 回测闸门随后会**明确拒绝** ✗（不静默跑 ✓）
+            #   注意 ✗：必须放在**所有 K 线写入之后** ✓（否则又会被写入方覆盖 ✗）
+            try:
+                from utils.stock_adx import ensure_column, update_codes
+                _adx_conn = self.db_manager.connect()
+                ensure_column(_adx_conn)                 # 全新库可能还没有这一列 ✓（自愈 ✓）
+                _adx = update_codes(_adx_conn, list(stock_codes))
+                result['adx_updated_rows'] = _adx['updated_rows']
+                logger.info(f"ADX 补算完成: {_adx['updated_rows']} 行 / "
+                            f"{_adx['codes']} 只（失败 {len(_adx['failed'])} 只 ✗）")
+                self._log(f"ADX 补算: {_adx['updated_rows']} 行")
+            except Exception as _e:                      # 补算失败**不**影响 K 线初始化 ✓
+                logger.error(f"ADX 补算失败 ✗（K 线初始化结果不受影响 ✓）: {_e}")
+
             logger.info(f"K线初始化完成: {result}")
             self._log(f"初始化完成: 共插入 {self.progress['inserted_records']} 条记录, 耗时 {total_time:.0f}秒")
             return result

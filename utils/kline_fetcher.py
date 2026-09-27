@@ -194,12 +194,13 @@ class KlineFetcher:
     
     # ==================== 数据库操作 ====================
     
-    def _batch_update_kline_to_db(self, kline_data: dict) -> tuple:
+    def _batch_update_kline_to_db(self, kline_data: dict, with_adx: bool = True) -> tuple:
         """
         批量更新K线数据到数据库 - 使用 UPSERT 语句
         
         参数：
             kline_data: {stock_code: DataFrame, ...}
+            with_adx: 写入后是否**补算个股 ADX** ✓（默认 True ✓；见方法尾部说明 ✓）
         
         返回：
             (updated_count, failed_count)
@@ -257,6 +258,22 @@ class KlineFetcher:
             logger.error(f"批量更新K线数据失败: {e}")
         
         logger.debug(f"批量更新完成: {updated_count} 只成功, {failed_count} 只失败, {record_count} 条记录")
+
+        # ---------- 【2026-09-27 §5.3 覆盖矩阵】批量写入后**补算 ADX** ✗✓ ----------
+        #   本方法用 **UPSERT** ✓（只更新行情列 ✓）⇒ **已有行**的 `adx` 保留 ✓；
+        #   但 ① **新行**的 `adx` 天然为 NULL ✗；② OHLC 被**更正**时 `adx` 已过期 ✗（A4 ✓）
+        #   ⇒ 对本批股票**就地重算** ✓（幂等 ✓；失败只告警 ✓，不影响 K 线写入 ✓）
+        #   ⚠️ 成本 ✓：每只都要**从全历史重算** ✓（ADX 是递推指标 ✗，截断会得错值 ✗）⇒
+        #      本方法按"批"调用 ✓（`kline_data` = 一批股票 ✓）时成本可接受 ✓；
+        #      若某调用方只想写 K 线 ✗ ⇒ 传 `with_adx=False` ✓（日更第 5.5 步会覆盖 ✓）。
+        if with_adx and kline_data:
+            try:
+                from utils.stock_adx import update_codes
+                _adx = update_codes(self.db_manager.connect(), list(kline_data.keys()))
+                logger.info(f"K线批量写入后已补算 ADX ✓ {_adx['updated_rows']} 行 / "
+                            f"{_adx['codes']} 只（失败 {len(_adx['failed'])} 只 ✗）")
+            except Exception as _e:
+                logger.warning(f"ADX 补算失败 ✗（K 线已写入 ✓；请稍后全量补算 ✓）: {_e}")
         return updated_count, failed_count
     
     def _get_latest_kline_date(self, stock_code: str) -> Optional[str]:

@@ -17,6 +17,7 @@ import time
 import random
 import hashlib
 import logging
+import threading
 import requests
 import pandas as pd
 from pathlib import Path
@@ -36,6 +37,65 @@ RETRYABLE_EXCEPTIONS = (
 
 # 上次 akshare 调用的时间戳，用于请求间隔控制
 _last_call_time = 0.0
+
+
+# ============================================================================
+# 【2026-09-27 事故修复 ✓】V8（py_mini_racer）**并发首次初始化**会**原生崩溃** ✗✗
+# ----------------------------------------------------------------------------
+# 现象 ✗：`FATAL:partition_address_space.cc(243)] Check failed: !IsConfigurablePoolInitialized().`
+#   + 栈里全是 `python312.dll`（**不是** Python 异常 ✗）⇒ **整个进程被原生终止** ✗，
+#   Python 层 `try/except` **完全拦不住** ✗（无法降级、无法记日志 ✗）。
+#
+# 根因 ✓（**本地实测复现 ✓**）：`akshare` 的**必装依赖** `mini-racer`（= **V8** 的 Python 绑定 ✓）
+#   在**多线程同时首次初始化**时，V8 的 PartitionAlloc 被初始化**两次** ✗ ⇒ 触发断言 ✗。
+#   实测 ✓：单线程创建 `MiniRacer()` 正常 ✓；**8 线程同时首次创建 ⇒ 100% 复现崩溃** ✗✓。
+#   而本服务是 **waitress + Flask（多线程 ✓）+ flask-socketio** ✗ ⇒ 只要两个并发请求
+#   （或后台线程 + 请求）**第一次**同时碰到 akshare 的 V8 接口，就会崩 ✗。
+#
+# 修复 ✓：把"**首次初始化**"收进**全局锁** ✓ —— 第一个调用者（持锁 ✓）完成 V8 初始化，
+#   其余线程**排队等待** ✓ ⇒ 从根上消除"并发首次 init" ✗✓。
+#   代价 ✓：akshare 调用被**串行化** ✗（它们本就带 0.5~1s 间隔限速 ✓ ⇒ 影响可接受 ✓）。
+#   逃生开关 ✓：`KHUNTER_AKSHARE_LOCK=0` 可关（**不建议** ✗，除非确认已单线程使用 V8）。
+# ============================================================================
+
+#: 串行化 akshare 调用 + 保证 V8 **单次**初始化 ✓
+_V8_LOCK = threading.RLock()
+_V8_READY = False
+
+
+def _env_lock_enabled() -> bool:
+    """是否启用串行锁 ✓（默认**开** ✓）"""
+    return str(os.environ.get('KHUNTER_AKSHARE_LOCK', '1')).strip() != '0'
+
+
+def ensure_v8_ready() -> bool:
+    """**一次性**初始化 V8 ✓（须在 `_V8_LOCK` 内调用 ✓）
+
+    幂等 ✓、失败不抛 ✗（失败只记日志 ✓ —— 后续 akshare 自己会再尝试 ✓）。
+    可用它做**启动预热** ✓（单线程阶段先建好 ✓，避免首个请求触发初始化 ✓）。
+    """
+    global _V8_READY
+    if _V8_READY:
+        return True
+    try:
+        from py_mini_racer import MiniRacer
+        ctx = MiniRacer()
+        ctx.eval('1+1')                 # 真正触发 V8 初始化 ✓
+        logger.info('【V8】已单次初始化完成 ✓（规避并发首次 init 崩溃 ✗）')
+    except Exception as e:              # 原生 abort **不会**走到这里 ✗（但锁已保证只一个线程进 ✗）
+        logger.debug(f'【V8】预热跳过（{e}）—— 不影响非 V8 接口 ✓')
+    _V8_READY = True
+    return True
+
+
+def warm_up_v8() -> bool:
+    """**启动预热** ✓（建议在 Web 服务**多线程启动之前**调用一次 ✓）
+
+    例 ✓：`web_server.py` / `main.py` 启动处 `from utils.akshare_retry import warm_up_v8; warm_up_v8()` ✓
+    注 ✓：即使不预热 ✓，`akshare_call_with_retry` 也会在锁内自动完成首次初始化 ✓ ⇒ **不致命** ✓。
+    """
+    with _V8_LOCK:
+        return ensure_v8_ready()
 
 
 class AkshareCache:
@@ -242,7 +302,15 @@ def akshare_call_with_retry(
             _enforce_call_interval()
 
             # 调用 akshare API
-            result = api_func(**kwargs)
+            # 【2026-09-27】**必须在锁内** ✗✓：
+            #   ① 保证 V8 **单次**初始化 ✓（并发首次 init ⇒ 原生 FATAL ✗✗）
+            #   ② 顺带串行化 akshare 调用 ✓（它们本就限速 ✓，代价可接受 ✓）
+            if _env_lock_enabled():
+                with _V8_LOCK:
+                    ensure_v8_ready()
+                    result = api_func(**kwargs)
+            else:
+                result = api_func(**kwargs)
 
             # 成功：更新缓存并返回
             if result is not None and not (isinstance(result, pd.DataFrame) and result.empty):
