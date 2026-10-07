@@ -48,7 +48,8 @@
 - `data/DataSql.sql` - 数据库结构脚本
 
 ### 图片资源
-- `image/imp.jpeg` - 系统界面截图
+- ⚠️ ~~`image/imp.jpeg`~~ —— ★ 2026-10-07 核实：**该目录/文件并不在仓库中** ✗
+  ⇒ README 里的截图引用已移除 ✓（如需展示 ⇒ 放 `web/static/images/` ✓，该目录已在库 ✓）
 
 ### 策略文件
 - `strategy/*.py` - 所有策略实现文件（★ 2026-10-07：**12 个生效** ✓；另 9 个已归档在 `strategy/disabled/` ✗）
@@ -247,7 +248,8 @@
 - `utils/var_calculator.py` - VaR计算器
 - `utils/risk_config_loader.py` - 风险配置加载器
 - `config/risk_config.yaml` - 风险配置文件
-- `image/imp.jpeg` - 系统界面截图
+- ⚠️ ~~`image/imp.jpeg`~~ —— ★ 2026-10-07 核实：**该目录/文件并不在仓库中** ✗
+  ⇒ README 里的截图引用已移除 ✓（如需展示 ⇒ 放 `web/static/images/` ✓，该目录已在库 ✓）
 
 #### 文档更新
 - README.md：添加Logo和系统截图，更新策略列表
