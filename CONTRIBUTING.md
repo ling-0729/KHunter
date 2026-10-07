@@ -271,8 +271,9 @@ class TestBowlReboundStrategy:
 
 1. 更新版本号（遵循 Semantic Versioning）
 2. 更新 CHANGELOG.md
-3. 创建Git标签：`git tag v1.0.0`
-4. 推送标签：`git push origin v1.0.0`
+3. 创建Git标签：`git tag 1.7.1`（⚠️ 2026-10-07 更正：本仓库 tag **不带 `v` 前缀** ✗✓，
+   与既有 `1.5.0` / `1.6.0` / `1.7.0` 保持一致 ✓；原示例写 `v1.0.0` ✗ 属笔误）
+4. 推送标签：`git push origin 1.7.1`
 5. 在GitHub上创建Release
 
 ## 💬 讨论和交流

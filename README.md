@@ -97,7 +97,12 @@ KHunter采用**五维度综合评分模型**，从多个角度全面评估股票
 - **一键启动** - 快速开始选股
 - **完善的文档** - 详细的策略说明和使用指南
 ### 环境要求
-- Python 3.8+
+- ★ **Python 3.10+**（2026-10-07 更正 ✗→✓）
+  - ⚠️ 原文档写 "3.8+" ✗ —— 实测**不成立** ✗：`web_server.py` 等使用
+    `StrategyRunner | None` 形式的**联合类型注解** ✓，且文件**没有**
+    `from __future__ import annotations` ✓ ⇒ 该语法会**立即求值** ✗ ⇒
+    **3.8 / 3.9 会直接报错、服务起不来** ✗✓（按旧文档装环境会踩坑 ✗）
+  - 开发/生产环境实测为 **3.12** ✓（`python --version` 复核过 ✓）
 - pip 或 conda
 
 ### 安装步骤
@@ -190,7 +195,7 @@ python main.py web
 
 ## 🛠️ 技术栈
 
-- **Python 3.8+** - 核心语言
+- ★ **Python 3.10+** - 核心语言（⚠️ 原写 "3.8+" ✗ 与代码不符，见「环境要求」说明 ✓）
 - **akshare** - A股实时/历史数据获取
 - **pandas/numpy** - 数据处理与技术指标计算
 - **matplotlib** - K线图生成
@@ -210,25 +215,34 @@ python main.py web
 │   ├── fund_flow_analyzer.py    # 资金流分析
 │   ├── event_analyzer.py        # 事件分析
 │   └── report_generator.py      # 报告生成
-├── strategy/                    # 策略模块
+├── strategy/                    # 策略模块（★ 2026-10-07 按实际注册清单更正 ✓）
 │   ├── __init__.py              # 初始化文件
 │   ├── base_strategy.py         # 策略基类
-│   ├── bottom_trend_inflection.py  # 底部趋势拐点
-│   ├── limit_up_pullback_strategy.py  # 涨停回马枪策略
-│   ├── limit_up_sideways_strategy.py  # 涨停横盘策略
+│   ├── golden_triangle_strategy.py      # 金三角策略
+│   ├── limit_up_pullback_strategy.py    # 涨停回马枪策略
 │   ├── morning_star.py          # 启明星策略
 │   ├── multi_golden_cross.py    # 多金叉共振
 │   ├── multi_party_cannon.py    # 多方炮策略
 │   ├── resistance_breakout.py   # 阻力位突破策略
-│   ├── strong_wash_weak_to_strong.py  # 强势洗盘弱转强
-│   ├── trend_acceleration_inflection.py  # 趋势加速拐点
-│   ├── immortal_guidance_strategy.py  # 仙人指路策略
-│   ├── w_bottom_strategy.py     # W底策略
-│   ├── trend_start_strategy.py  # 趋势起点策略
-│   ├── strategy_2560_selection.py  # 2560战法
-│   ├── parallel_strategy_executor.py  # 并行策略执行器
+│   ├── immortal_guidance_strategy.py    # 仙人指路策略
+│   ├── leader_strategy.py       # 龙头策略
+│   ├── main_uptrend_dip_buy_strategy.py # 主升低吸策略
+│   ├── new_stock_drawdown_strategy.py   # 次新腰斩策略
+│   ├── oversold_rebound_strategy.py     # 超跌反弹
+│   ├── strategy_2560_selection.py       # 2560战法
+│   ├── parallel_strategy_executor.py    # 并行策略执行器
 │   ├── strategy_registry.py     # 策略注册表
-│   └── ...                      # 其他策略相关文件
+│   ├── pattern_config.py / pattern_library.py / pattern_matcher.py  # 形态库
+│   ├── _bowl_rebound_disabled.py        # 碗口反弹（**已禁用** ✗）
+│   └── disabled/                # ★ 已归档策略（**不参与选股** ✗，共 8 个）
+│       ├── bottom_trend_inflection.py   # 底部趋势拐点
+│       ├── trend_acceleration_inflection.py  # 趋势加速拐点
+│       ├── limit_up_sideways_strategy.py     # 涨停横盘
+│       ├── strong_wash_weak_to_strong.py     # 强势洗盘弱转强
+│       ├── trend_start_strategy.py      # 趋势起点
+│       ├── w_bottom_strategy.py         # W底
+│       ├── golden_cross_not_green.py    # 金叉未绿
+│       └── low_td9_strategy.py          # 低位TD9
 ├── trading/                     # 交易和评分模块
 │   ├── __init__.py              # 初始化文件
 │   ├── backtest_engine.py       # 回测引擎
