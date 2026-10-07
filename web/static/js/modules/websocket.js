@@ -6,6 +6,12 @@
 let socket = null;
 let updateStatusInterval = null;
 
+// ★【2026-10-04 用户要求 ✓】**全站前端统一版本号** ✗→✓
+//   从自身 URL 取出 `?v=NN` ✓（源头 = `index.html` 的 `app.js?v=NN` ✓）
+//   ⇒ 本模块后续 `import()` 一律走 `imp()` ✓（**不要**自带 `?` ✗）。
+const V = new URL(import.meta.url).search;
+const imp = (p) => import(p + V);
+
 /**
  * 初始化WebSocket连接
  */
@@ -103,7 +109,7 @@ export function updateProgressUI(status) {
             alert(message);
             progressCard.style.display = 'none';
             // 刷新统计信息
-            import('./stocks.js').then(module => module.loadStats());
+            imp('./stocks.js').then(module => module.loadStats());
         }, 1000);
     }
 }
@@ -152,7 +158,7 @@ export async function checkUpdateStatusBackup(progressCard) {
                         alert(`Data update completed!\nSuccess: ${status.success}\nFailed: ${status.failed}`);
                         progressCard.style.display = 'none';
                         // 刷新统计信息
-                        import('./stocks.js').then(module => module.loadStats());
+                        imp('./stocks.js').then(module => module.loadStats());
                     }, 1000);
                 }
             }

@@ -2,6 +2,12 @@
  * 选股相关功能模块
  */
 
+// ★【2026-10-04 用户要求 ✓】**全站前端统一版本号** ✗→✓
+//   从自身 URL 取出 `?v=NN` ✓（源头 = `index.html` 的 `app.js?v=NN` ✓）
+//   ⇒ 此前写死的 `?v=2` ✗ 已废除 ✓。
+const V = new URL(import.meta.url).search;
+const imp = (p) => import(p + V);
+
 // 缓存最近一次选股结果，用于手动保存
 let lastSelectionResults = null;
 let lastSelectionTime = null;
@@ -141,7 +147,7 @@ export async function executeSelectionWithStrategies(strategies, logic = 'or', s
     indicator.innerHTML = '<span class="dot yellow"></span> 运行中';
     
     // 切换到选股结果页
-    import('./navigation.js').then(module => module.switchPage('selection'));
+    imp('./navigation.js').then(module => module.switchPage('selection'));
     document.getElementById('selection-results').innerHTML = '<p class="loading">正在执行选股策略，请稍候...</p>';
     
     console.log('选股请求开始', { strategies, logic, selectionDate });

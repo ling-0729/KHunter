@@ -3,6 +3,11 @@
  * 加载收藏股票列表，支持查看详情和取消收藏
  */
 
+// ★【2026-10-04 用户要求 ✓】**全站前端统一版本号** ✗→✓
+//   从自身 URL 取出 `?v=NN` ✓（源头 = `index.html` 的 `app.js?v=NN` ✓）。
+const V = new URL(import.meta.url).search;
+const imp = (p) => import(p + V);
+
 /**
  * 加载收藏列表
  */
@@ -76,7 +81,7 @@ export async function loadFavorites() {
  */
 window.openFavStockDetail = function(code) {
     // 调用 stocks.js 中的 viewStockDetail
-    import('./stocks.js').then(module => module.viewStockDetail(code));
+    imp('./stocks.js').then(module => module.viewStockDetail(code));
 };
 
 /**

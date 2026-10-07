@@ -219,11 +219,44 @@ async function getUpdateProgress() {
  */
 function updateProgressUI(data) {
     try {
-        // 简洁版本：只显示"正在更新中"，不显示进度条
-        // 但在控制台输出详细信息用于调试
+        // ★【2026-09-29 用户要求 ✓】显示"**当前环节**" + 已耗时 ✗→✓
+        //   动机 ✗✓：进度区此前**只有一句"正在更新数据，请稍候..."** ✗ ⇒
+        //   一旦某步变慢（实测：第8步空耗 20 分钟 ✗），用户**完全看不出卡在哪一步** ✗，
+        //   只能去翻日志或猜 ✗。现直接显示后端透出的 `currentStage` ✓。
+        const stageEl = document.getElementById('update-current-stage');
+        if (stageEl) {
+            const stage = String(data.currentStage || '').trim();
+            if (stage) {
+                // ★【2026-09-29 用户反馈 ✓】不再显示"第 N 个环节"✗ ——
+                //   环节名本身已含 `第X步`（含 5.5 / 8.5 ✓）⇒ 直接显示**最准** ✓，
+                //   也不会再出现"编号混乱"✗✓。
+                stageEl.textContent = `当前环节：${stage}`;
+                stageEl.style.display = 'block';
+            } else {
+                stageEl.style.display = 'none';   // 无环节信息 ⇒ 不显示假信息 ✓
+            }
+        }
+
+        // 已耗时（后端 `elapsedTime` 单位：秒 ✓）
+        const elapsedEl = document.getElementById('update-elapsed');
+        if (elapsedEl) {
+            const sec = Number(data.elapsedTime);
+            if (Number.isFinite(sec) && sec > 0) {
+                const m = Math.floor(sec / 60);
+                const s = sec % 60;
+                elapsedEl.textContent = m > 0 ? `已耗时 ${m} 分 ${s} 秒` : `已耗时 ${s} 秒`;
+                elapsedEl.style.display = 'block';
+            } else {
+                elapsedEl.style.display = 'none';
+            }
+        }
+
+        // 控制台仍保留详细信息 ✓（调试用 ✓）
         console.log('更新进度:', {
             status: data.status,
-            progress: data.progress,
+            currentStage: data.currentStage,
+            stageNo: data.stageNo,
+            elapsedTime: data.elapsedTime,
             message: data.message,
             totalStats: data.totalStats
         });

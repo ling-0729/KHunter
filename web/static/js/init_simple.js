@@ -32,10 +32,12 @@ function startInitialization() {
         const initFundFlowData = pick('init-fund-flow-data');          // 个股资金流向 ✓
         const initFundamentalData = pick('init-fundamental-data');     // 个股基本面 ✓
         const initAnnouncementData = pick('init-announcement-data');   // 个股公告事件 ✓
+        // ★【2026-10-07 新增 ✓】大盘指数 ADX（主指数 + 双创 ✓）—— 此前无入口 ✗
+        const initIndexAdxData = pick('init-index-adx-data');
 
         // 检查是否至少选择了一项（**按数据维度**判定 ✓）
         if (!initBasicData && !initHistoryData && !initCalendarData && !initFundFlowData
-            && !initFundamentalData && !initAnnouncementData) {
+            && !initFundamentalData && !initAnnouncementData && !initIndexAdxData) {
             alert('请至少选择一项初始化数据');
             return;
         }
@@ -47,7 +49,8 @@ function startInitialization() {
             calendarData: initCalendarData,
             fundFlowData: initFundFlowData,
             fundamentalData: initFundamentalData,
-            announcementData: initAnnouncementData
+            announcementData: initAnnouncementData,
+            indexAdxData: initIndexAdxData          // ★ 2026-10-07 ✓
         };
         
         console.log('发送初始化请求到后端...');

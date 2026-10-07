@@ -2,6 +2,15 @@
  * 页面导航相关功能模块
  */
 
+// ★★【2026-10-04 用户要求 ✓】**全站前端统一版本号** ✗→✓ ★★
+//   本模块是**懒加载的唯一出口** ✗✓（所有页面模块都由它 `import()` 拉起 ✓）
+//   ⇒ 此前必须手写 `?v=20260928` ✗，改了别的模块还要记得回来递增 ✗（踩过坑 ✓）。
+//   现在 ✓：**从自身 URL 取出 `?v=NN`** ✓（源头 = `index.html` 的 `app.js?v=NN` ✓，
+//   由 `app.js` 传播到本文件 ✓）⇒ 再往下传 ✓ ⇒ **一处 bump 全链失效** ✓✓。
+//   ⚠️ 新增 import 一律写 `imp('./x.js')` ✓（**不要**自带 `?` ✗）。
+const V = new URL(import.meta.url).search;
+const imp = (p) => import(p + V);
+
 /**
  * 设置导航事件监听
  */
@@ -66,9 +75,9 @@ export function switchPage(page) {
     
     // 加载页面数据
     if (page === 'dashboard') {
-        import('./stocks.js').then(module => module.loadStats());
+        imp('./stocks.js').then(module => module.loadStats());
     } else if (page === 'stocks') {
-        import('./stocks.js').then(module => module.loadStocks());
+        imp('./stocks.js').then(module => module.loadStocks());
     } else if (page === 'data-init') {
         // 初始化数据页面 - 重置表单
         console.log('调用 resetInitForm()');
@@ -77,9 +86,9 @@ export function switchPage(page) {
         // 数据更新页面 - 初始化
         initDataUpdatePage();
     } else if (page === 'history') {
-        import('./stocks.js').then(module => module.loadHistoryStrategyOptions());
+        imp('./stocks.js').then(module => module.loadHistoryStrategyOptions());
         // 不再自动查询，等待用户点击查询按钮
-        import('./history.js').then(module => module.showHistoryEmptyState('请点击"查询"按钮加载数据'));
+        imp('./history.js').then(module => module.showHistoryEmptyState('请点击"查询"按钮加载数据'));
     } else if (page === 'trading') {
         // 初始化交易模块 - 账户总览
         initTrading(page);
@@ -90,44 +99,46 @@ export function switchPage(page) {
         // 初始化交易模块 - 交易历史
         initTrading(page);
     } else if (page === 'strategies') {
-        import('./strategies.js').then(module => module.loadStrategies());
+        imp('./strategies.js').then(module => module.loadStrategies());
     } else if (page === 'analysis') {
         // 个股图谱页面 - 重置状态
-        import('./analysis.js').then(module => module.resetScorePageState());
+        imp('./analysis.js').then(module => module.resetScorePageState());
     } else if (page === 'stock-ranking') {
         // 选股排名页面 - 初始化
-        import('./ranking.js').then(module => module.initStockRankingPage());
+        imp('./ranking.js').then(module => module.initStockRankingPage());
     } else if (page === 'ranking-track') {
         // 排名跟踪页面 - 初始化
-        import('./ranking.js').then(module => module.initRankingTrackPage());
+        imp('./ranking.js').then(module => module.initRankingTrackPage());
     } else if (page === 'backtest-params') {
         // 回测参数配置页面 - 初始化
-        import('./backtest.js').then(module => module.initBacktestParamsPage());
+        imp('./backtest.js').then(module => module.initBacktestParamsPage());
     } else if (page === 'backtest-config') {
         // 策略回测页面 - 初始化
-        import('./backtest.js').then(module => module.initBacktestConfigPage());
+        imp('./backtest.js').then(module => module.initBacktestConfigPage());
     } else if (page === 'backtest-history') {
         // 回测历史页面 - 初始化
-        import('./backtest.js').then(module => module.initBacktestHistoryPage());
+        imp('./backtest.js').then(module => module.initBacktestHistoryPage());
     } else if (page === 'regime-backtest') {
         // 自适应回测页面 - 初始化
-        // 版本参数用于突破浏览器模块缓存（改动后需递增）
-        import('./regime-backtest.js?v=20260920').then(module => module.initRegimeBacktestPage());
+        // ★【2026-10-04 统一版本号 ✓】不再手写 `?v=` ✗ —— 由 `imp()` 自动带上 ✓
+        //   （旧事故 ✓：此处曾写死 `?v=20260928` ✓，改了 `regime-backtest.js` 忘递增 ⇒
+        //    浏览器仍用旧缓存 ✗ ⇒「res is not defined」修了也白修 ✗✓）
+        imp('./regime-backtest.js').then(module => module.initRegimeBacktestPage());
     } else if (page === 'khunter') {
         // 狩猎场页面 - 初始化
-        import('./khunter.js').then(module => module.initKHunterPage());
+        imp('./khunter.js').then(module => module.initKHunterPage());
     } else if (page === 'khunter-track') {
         // 狩猎跟踪页面 - 初始化
-        import('./khunter.js').then(module => {
+        imp('./khunter.js').then(module => {
             module.initKHunterTrackPage();
             module.setupKHunterTrackingEvents();
         });
     } else if (page === 'favorites') {
         // 收藏夹页面 - 初始化
-        import('./favorites.js').then(module => module.loadFavorites());
+        imp('./favorites.js').then(module => module.loadFavorites());
     } else if (page === 'strategy-runner') {
         // 策略执行器页面 - 初始化
-        import('./strategy-runner.js').then(module => {
+        imp('./strategy-runner.js').then(module => {
             module.default.initStrategyRunnerModule().catch(err => {
                 console.error('初始化策略执行器模块失败:', err);
             });

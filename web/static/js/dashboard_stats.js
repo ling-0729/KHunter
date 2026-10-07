@@ -685,6 +685,25 @@ function closeTemperatureModal() {
 let marketAdxChart = null;
 let marketAdxData = null;
 
+/* ★【2026-10-05 修复 ✓】卡片/弹窗**必须标出实际指数** ✗→✓
+ * 事故 ✗✓：库里**新增**创业板指/科创50 后，本卡片因后端 `get_trend(days)` **没传指数**
+ *   ⇒ 取到**任意一行** ✗ ⇒ 数字（17.3 = 科创50 ✓）与文案（"全A指数 000985.CSI" ✗）**不符** ✗✓。
+ * 现 ✓：后端已显式按配置指数取数 ✓ 并回传 `data.index_code` ✓ ⇒ 这里把指数**写在脸上** ✓
+ *   （将来再改配置/加指数，一眼就能看出"看的到底是哪一个" ✓）。
+ */
+const MARKET_ADX_INDEX_NAMES = {
+    '000985.CSI': '中证全指',
+    '399006.SZ': '创业板指',
+    '000688.SH': '科创50'
+};
+
+function _marketAdxIndexLabel(data) {
+    const code = (data && data.index_code) ? String(data.index_code) : '';
+    if (!code) return '大盘指数';
+    const name = MARKET_ADX_INDEX_NAMES[code];
+    return name ? (name + ' ' + code) : code;      // 未知代码 ⇒ 原样显示 ✓（不猜 ✗）
+}
+
 function _marketAdxColor(strength) {
     const s = strength || '';
     if (s.indexOf('强趋势') >= 0) return '#dc2626';
@@ -735,6 +754,11 @@ function _renderMarketAdxBadge(data) {
         }
     }
 
+    // ★【2026-10-05】弹窗标题也标出**实际指数** ✓（原来写死"全A指数 000985.CSI"✗ ⇒ 与数字不符 ✗）
+    const _adxTitle = document.getElementById('market-adx-title');
+    if (_adxTitle) {
+        _adxTitle.textContent = '📈 市场 ADX 详情（' + _marketAdxIndexLabel(data) + ' · 周期14）';
+    }
     const chgTxt = chg === null ? '' : (chg >= 0 ? '↑ ' + chg.toFixed(2) : '↓ ' + Math.abs(chg).toFixed(2));
     card.innerHTML =
         '<div style="display:flex;align-items:center;gap:12px;">' +
@@ -743,6 +767,7 @@ function _renderMarketAdxBadge(data) {
         '    <h3 style="margin:0;font-size:30px;font-weight:700;line-height:1.15;color:' + color + ';">'
         + Number(data.latest_adx).toFixed(1) + '</h3>' +
         '    <div style="font-size:13px;color:#64748b;margin-top:2px;">市场ADX(14)'
+        + ' · ' + _marketAdxIndexLabel(data)                 // ★ 2026-10-05：标出**实际指数** ✓
         + (chgTxt ? ' · ' + chgTxt : '') + '</div>' +
         '    <div style="font-size:12px;color:#64748b;margin-top:2px;white-space:nowrap;">' +
         '      <span style="color:' + color + ';font-weight:600;">' + (st || '-') + '</span>' +
@@ -805,7 +830,9 @@ function _ensureMarketAdxModal() {
     modal.innerHTML =
         '<div class="modal-content modal-lg">' +
         '  <div class="modal-header">' +
-        '    <h3>📈 市场 ADX 详情（全A指数 000985.CSI · 周期14）</h3>' +
+        // ★【2026-10-05】标题**不再写死指数** ✗→✓（由 `_renderMarketAdxBadge` 按实际
+        //   `data.index_code` 填充 ✓）—— 写死正是本次"数字与文案不符"✗ 的一半原因 ✓
+        '    <h3 id="market-adx-title">📈 市场 ADX 详情</h3>' +
         '    <button class="modal-close" onclick="closeMarketAdxModal()">&times;</button>' +
         '  </div>' +
         '  <div class="modal-body">' +
@@ -825,6 +852,8 @@ function _ensureMarketAdxModal() {
         '  </div>' +
         '</div>';
     document.body.appendChild(modal);
+    // ★【2026-10-05】首次打开时也按**已加载**的指数标好标题 ✓（否则通用标题撑到下次刷新 ✗）
+    _renderMarketAdxBadge(marketAdxData || {});
     return modal;
 }
 

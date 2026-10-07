@@ -619,12 +619,27 @@ async function _rsRunBacktest() {
         if (rdata.error) throw new Error(rdata.error);
         if (!rdata.result) throw new Error('未取到回测结果（可能已入库但结果态丢失，请到回测结果查看）');
         const resultData = rdata.result;
-        _rsRenderResult(resultData);
-        const perf = resultData.performance || {};
-        const rid = resultData.result_id;
-        _rsSetStatus(`完成：总收益 ${perf.total_return !== undefined ? perf.total_return.toFixed(2) : '-'}%`
-            + `，切换 ${((res.data || {}).strategy_switches || []).length} 次`
-            + (rid ? `，结果已保存（#${rid}）` : '，结果保存失败'));
+        // ★【2026-09-28 修复 ✗→✓】**成功后**的渲染与文案**单独兜底** ✗ ——
+        //   ① 本块原先写作 `res.data.strategy_switches` ✗：本作用域**没有 `res`** ✗
+        //      （正确变量是 `rdata` / `resultData` ✓）⇒ 抛 `ReferenceError` ✗ ⇒
+        //      被**外层** catch 捕获 ✗ ⇒ 后端**明明已成功** ✓ 却弹
+        //      「回测失败：res is not defined」✗（用户实测报障 ✓）。
+        //   ② 更根本 ✗：外层 catch 把**渲染错**与**回测失败**混为一谈 ✗ ⇒
+        //      任何渲染小错都会伪装成"回测失败"✗ ⇒ 现把它隔离在**内层** ✓
+        //      （渲染出错只告警 ✓，**绝不**再改判回测结果 ✗）。
+        try {
+            _rsRenderResult(resultData);
+            const perf = resultData.performance || {};
+            const rid = resultData.result_id;
+            // 两种形状都兼容 ✓（取不到就按 0 次 ✓，**不抛** ✗）
+            const _sw = (resultData.strategy_switches || rdata.strategy_switches || []);
+            _rsSetStatus(`完成：总收益 ${perf.total_return !== undefined ? perf.total_return.toFixed(2) : '-'}%`
+                + `，切换 ${_sw.length} 次`
+                + (rid ? `，结果已保存（#${rid}）` : '，结果保存失败'));
+        } catch (e2) {
+            console.error('[自适应回测] 结果渲染异常（**回测本身已成功** ✓）', e2);
+            _rsSetStatus('完成：后端已跑完并出结果 ✓（前端展示有告警，详见控制台 ✗）', true);
+        }
     } catch (e) {
         console.error('[自适应回测] 失败', e);
         // 【2026-09-20】区分"网络层中断"与"回测本身失败" ✓：

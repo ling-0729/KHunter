@@ -235,19 +235,87 @@ class FeishuNotifier:
                     f" | 建议仓位 {float(_t.get('position_ratio') or 0):.0%}"
                     f" | {_t.get('action') or '-'}")
             from trading.market_index_adx_dao import MarketIndexADXDAO
-            _a = MarketIndexADXDAO().get_latest() or {}
+            # ★★【2026-10-05 修复 ✓】**必须显式指定指数** ✗→✓（同 `web_server` 那处 ✓）★★
+            #   `get_latest()` 不传指数 ✗ ⇒ 多指数后会取到**任意一行** ✗✓（飞书里数字与文案不符 ✗）。
+            #   ⇒ 显式指定 ✓，且与大盘闸门/仓位上限**同一指数** ✓；并把指数代码**写进通知** ✓。
+            from trading.index_adx_filter import resolve_index_adx_code
+            _idx = resolve_index_adx_code()
+            _a = MarketIndexADXDAO().get_latest(_idx) or {}
             if _a.get('adx') is not None:
                 _chg = _a.get('adx_change')
                 _chg_txt = '' if _chg is None else f"（环比 {float(_chg):+.2f}）"
+                # ★【2026-10-07 ✓】补上**该行是哪一天的** ✗→✓（多指数/跨日后
+                #   "数字与日期不符"是同类事故的根源 ✗ —— 见 `test_market_adx_multi_index` ✓）
+                _d_txt = (f" @{_a.get('trade_date')}" if _a.get('trade_date') else '')
                 _env.append(
-                    f"**市场ADX(14)**: {float(_a['adx']):.1f}{_chg_txt}"
-                    f"（{_a.get('trend_strength') or '-'} · {_a.get('trend_direction') or '-'}）")
+                    f"**市场ADX(14)**[{_idx}]{_d_txt}: {float(_a['adx']):.1f}{_chg_txt}"
+                    f"（{_a.get('trend_strength') or '-'} · {_a.get('trend_direction') or '-'}）"
+                    f" ← **行情库最新** ✓（**展示用** ✓，非判定口径 ✗）")
             if _env:
                 lines.append("### 市场环境 📊")
                 lines.extend(_env)
                 lines.append("")
         except Exception as e:
             logger.debug(f"飞书日报：市场温度/ADX 读取失败（忽略，不影响日报）: {e}")
+
+        # ★★★★【2026-10-07 用户要求 ✓】新增「大盘 ADX + 当日仓位上限判定」✗→✓ ★★★★
+        #   用户原话 ✓："**飞书信息上增加大盘adx和当日仓位上限判定信息**" ✓
+        #   ⚠️ 口径铁律 ✗✓（本项目大忌：**看到的 ≠ 按它判的** ✗）：
+        #     · 直接调**判定函数本身** `index_position_cap()` ✓（**绝不另写一套** ✗）
+        #       ⇒ 拿到的 `adx / dir / band / state_date / cap / rule` 就是"开新仓时按它判的那一份" ✓；
+        #     · 时点按**实盘** ✓（**信号日当天收盘** ✓ —— 与 `strategy_runner` 的注入一致 ✓），
+        #       但**尊重 yaml 显式配置** ✓（写 `false` ⇒ 取前一根 ✓，供 A/B ✓）；
+        #     · ⚠️ 取不到（无数据/异常）⇒ 只打 `-` ✓ 并**如实标注**，绝不编数 ✗（也不阻断日报 ✓）。
+        try:
+            from trading.index_adx_filter import (
+                DEFAULT_CAP_USE_SIGNAL_DAY, any_board_release,
+                index_position_cap, resolve_cap_use_signal_day)
+            from utils.backtest_mode import is_explicit
+            _capcfg = {}
+            try:
+                if not is_explicit('index_cap_use_signal_day', None, None):
+                    _capcfg['index_cap_use_signal_day'] = DEFAULT_CAP_USE_SIGNAL_DAY
+            except Exception:                     # 判显式失败 ⇒ 按实盘默认注入 ✓（不因此丢块 ✗）
+                _capcfg['index_cap_use_signal_day'] = DEFAULT_CAP_USE_SIGNAL_DAY
+            _td8 = today.strftime('%Y%m%d')
+            _cap = index_position_cap(_td8, _capcfg) or {}
+            _cl = []
+            _adv = _cap.get('adx')
+            _adv_txt = '-' if _adv is None else f'{float(_adv):.2f}'
+            _cl.append(f"**大盘ADX(14)**[{_cap.get('index_code') or '-'}]: {_adv_txt}"
+                       f"（{_cap.get('band') or '-'} · 方向={_cap.get('dir') or '未定'}）"
+                       f" ← ★**判定用** ✓（与买入闸门**同源同口径** ✓）"
+                       f"；⚠️ 与上行「市场ADX」可能**方向不同** ✗"
+                       f"（那行取自**行情库列** ✓：展示口径 ✗）")
+            # ★【2026-10-07 ✓】"口径"之后**必须带实际判定日** ✓；若因**当日无数据**而回退
+            #   （非交易日 / 未采集 ✓）⇒ **显式写出回退** ✗→✓（否则读者会以为用的是当天 ✗✓）
+            _sd = str(_cap.get('signal_date') or '')
+            _st = str(_cap.get('state_date') or '')
+            _fb = (f'；⚠️ 信号日 {_sd} 无数据 ⇒ **实际取 {_st}** ✓（不编数 ✗）'
+                   if (_sd and _st and _sd != _st) else '')
+            _cl.append(f"**判定日**: {_st or '-'} | **口径**: "
+                       + ('信号日当天收盘 ✓' if resolve_cap_use_signal_day(_capcfg)
+                          else '前一根 ✓') + _fb)
+            _cap_v = float(_cap.get('cap') or 0.0)
+            _cl.append(f"**当日仓位上限**: {_cap_v:.0%}（{_cap.get('rule') or '-'}）")
+            if _cap.get('error'):                 # ⚠️ 取数异常也**如实打** ✓（不静默 ✗）
+                _cl.append(f"⚠️ {_cap['error']}")
+            if _cap_v <= 0.0:                     # ★ 0% ⇒ **一律不开新仓** ✓（**加仓不受限** ✓）
+                try:
+                    _rel = bool(any_board_release(_td8, _capcfg))
+                except Exception:
+                    _rel = False
+                _cl.append('**结论**: 不开新仓 ✗（**加仓不受限** ✓）；'
+                           + ('★ 板块回退：**仅对应板块**可买 ✓（⚠️ **双创同时放行 ⇒ 整体不放行** ✗✓）'
+                              if _rel else '**整体不放行** ✗（含双创 ✓）'))
+            else:
+                _cl.append('**结论**: 允许开新仓 ✓；**持仓 ≥ 上限 ⇒ 停止开新仓** ✓'
+                           '（⚠️ 加仓不受本规则限制 ✓）')
+            lines.append("### 仓位上限（大盘档位）📉")
+            lines.extend(_cl)
+            lines.append("")
+        except Exception as e:
+            logger.debug(f"飞书日报：仓位上限/大盘ADX 读取失败（忽略，不影响日报）: {e}")
 
         # 各步骤详情
         for step in result.steps:

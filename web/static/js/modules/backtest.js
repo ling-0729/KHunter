@@ -317,12 +317,100 @@ async function saveBacktestParams() {
         //   ⇒ 后端会把这些键**还原为注释** ✓✓（不再覆盖模式预设 ✓）
         const modeEl = document.getElementById('params-backtest-mode');
         const poolModeEl = document.getElementById('params-pool-entry-mode');
-        const addRiseEl = document.getElementById('params-add-open-rise');
+        // ⚠️ 控件 id 一律 = **键名派生** ✓（`params-` + 键名 `_`→`-` ✓）⇒ 见
+        //   `test_backtest_config_store.py::TestExtraKeysAllHaveFrontendControls` ✓
+        //   （穷尽校验"每个白名单键都有控件"✓，防再犯"加了键没加控件"✗）。
+        const addRiseEl = document.getElementById('params-enable-add-open-rise-check');
         if (modeEl) params.backtest_mode = modeEl.value || null;
         if (poolModeEl) params.pool_entry_mode = poolModeEl.value || null;
         if (addRiseEl) {
             params.enable_add_open_rise_check = (addRiseEl.value === '')
                 ? null : (addRiseEl.value === 'true');
+        }
+        // ★【2026-09-29 用户要求 ✓】"不开新仓 ⇒ 跳过选股"开关 ✗→✓
+        //   空值 ⇒ 发 **null** ⇒ 后端把该键**还原为注释** ✓ = 走代码默认（**开启** ✓）
+        //   ⇒ 不显式覆盖 ✓（与其它"跟随模式预设"的键同一处理 ✓）
+        const skipSelEl = document.getElementById('params-skip-selection-when-no-new-position');
+        if (skipSelEl) {
+            params.skip_selection_when_no_new_position = (skipSelEl.value === '')
+                ? null : (skipSelEl.value === 'true');
+        }
+        // ★★【2026-09-29 用户要求 ✓】**高级参数（ADX 口径 / 大盘仓位上限）** ✗→✓
+        //   动机 ✗✓（用户："没有看到前端设置的地方"✗）：这些键此前**只有后端白名单** ✗、
+        //     前端**零控件** ✗ ⇒ 只能手改 yaml ✗。
+        //   统一口径 ✓：**留空 ⇒ 发 null** ⇒ 后端把该键**还原为注释** ✓ = 走模式预设/代码默认 ✓；
+        //     ⚠️ 空值**绝不能**变成 0 / [] ✗✓（那是"**显式**改掉默认行为"✗）。
+        //   ⚠️ 控件缺失（旧页面缓存 ✓）⇒ **整个块跳过** ✓（不发这些键 ✗，绝不清空用户配置 ✗✓）。
+        const advEl = document.getElementById('params-advanced');
+        if (advEl) {
+            const _blank = (id) => {
+                const el = document.getElementById(id);
+                if (!el) return undefined;
+                const v = (el.value === null || el.value === undefined)
+                    ? '' : String(el.value).trim();
+                return v === '' ? null : v;
+            };
+            const _num = (id) => {
+                const v = _blank(id);
+                if (v === undefined || v === null) return v;
+                const n = Number(v);
+                return Number.isFinite(n) ? n : null;   // 非法输入 ⇒ 当"未填"✓（绝不写坏值 ✗）
+            };
+            const _bool = (id) => {
+                const v = _blank(id);
+                return (v === 'true') ? true : (v === 'false' ? false : v);
+            };
+            params.enable_stock_adx_filter = _bool('params-enable-stock-adx-filter');
+            params.adx_entry_mode = _blank('params-adx-entry-mode');
+            params.adx_dir_mode = _blank('params-adx-dir-mode');
+            // ★★【2026-09-30 用户要求 ✓】个股放行新增「`close(T-1) > MA20`」✗→✓
+            //   ⚠️ **只约束首仓** ✗✓（加仓不判 ✓ —— 加仓只看 `dir=上升` ✓）
+            //   留空 ⇒ **null** ⇒ 后端把该键**还原为注释** ✓ = 走默认（开启 ✓ / MA20 ✓）
+            params.adx_entry_require_above_ma = _bool('params-adx-entry-require-above-ma');
+            params.adx_entry_ma_period = _num('params-adx-entry-ma-period');
+            // ★★【2026-10-04 用户要求 ✓】**加仓也判** `close(T-1) > MA20`（用户答"需要" ✓）
+            //   ⚠️ **独立开关** ✗✓（与首仓分开 ⇒ 可各自 A/B、各自回退 ✓）；
+            //     关掉 ⇒ 加仓回到 2026-09-29 口径（只看 `dir=上升` ✓）
+            params.adx_add_require_above_ma = _bool('params-adx-add-require-above-ma');
+            const _lo = _num('params-adx-range-lo');
+            const _hi = _num('params-adx-range-hi');
+            const _lo2 = _num('params-adx-range2-lo');
+            const _hi2 = _num('params-adx-range2-hi');
+            // ★【2026-09-29 用户要求 ✓】**两段并集** ✓（口径：`ADX<18 ∪ 23<ADX<42` ✓）
+            //   ⚠️ 每段**两个都填**才算该段有效 ✓（只填一个 ⇒ **忽略该段** ✓，避免半套区间 ✗）；
+            //   ⚠️ 两段都空 ⇒ 发 **null** ✓（后端还原为注释 ✓ = 走默认单段 ✓，**旧行为完整保留** ✓）；
+            //   ⚠️ 保存格式：**扁平偶数个** ✓（`[0,18,23,42]` ✓ = 两两成段 ✓，后端按此解析 ✓）。
+            const _rng = [];
+            if (_lo !== null && _hi !== null) _rng.push(_lo, _hi);
+            if (_lo2 !== null && _hi2 !== null) _rng.push(_lo2, _hi2);
+            params.adx_entry_range = _rng.length ? _rng : null;
+            const _bandsEl = document.getElementById('params-adx-entry-bands');
+            const _picked = _bandsEl
+                ? Array.from(_bandsEl.selectedOptions).map((o) => o.value) : [];
+            params.adx_entry_bands = _picked.length ? _picked : null;
+            params.index_adx_code = _blank('params-index-adx-code');
+            params.index_adx_dir_mode = _blank('params-index-adx-dir-mode');
+            params.enable_index_position_cap = _bool('params-enable-index-position-cap');
+            params.index_cap_high_adx = _num('params-index-cap-high-adx');
+            params.index_cap_high_ratio = _num('params-index-cap-high-ratio');
+            params.index_cap_low_adx = _num('params-index-cap-low-adx');
+            params.index_cap_low_ratio = _num('params-index-cap-low-ratio');
+            params.index_cap_other_ratio = _num('params-index-cap-other-ratio');
+            // ★★【2026-09-30 用户要求 ✓】规则2 **附加条件**（`ADX<18` 时还须**收盘 > MA20** ✓）
+            //   留空 ⇒ **null** ⇒ 后端把该键**还原为注释** ✓ = 走代码默认（**开启** ✓）
+            //   ⚠️ `false` 必须原样发 ✗（别用 `||` 兜底 ⇒ 会被当空值吞掉 ✗）
+            params.index_cap_low_require_above_ma =
+                _bool('params-index-cap-low-require-above-ma');
+            params.index_cap_ma_period = _num('params-index-cap-ma-period');
+            // ★★【2026-10-05 用户要求 ✓】**板块回退**（全A 不放行 ⇒ 看科创板/创业板 ✓）
+            //   留空 ⇒ null ⇒ 后端把该键**还原为注释** ✓ = 走代码默认（**开启** ✓ / 两个默认代码 ✓）
+            //   ⚠️ `false` 必须原样发 ✗（别用 `||` 兜底 ⇒ 会被当空值吞掉 ✗）
+            //   ★ 同日口径二次调整 ✓："**双创同时放行 ⇒ 整体不放行**" ✓ 在**后端判定层** ✓
+            //     ⇒ **前端无需改动** ✗✓（也不新增控件 ✓）
+            params.index_cap_board_fallback =
+                _bool('params-index-cap-board-fallback');
+            params.index_cap_star_code = _blank('params-index-cap-star-code');
+            params.index_cap_chinext_code = _blank('params-index-cap-chinext-code');
         }
         
         // 调用后端API保存配置
@@ -340,7 +428,12 @@ async function saveBacktestParams() {
         
         const data = await response.json();
         if (data.success) {
-            alert('回测配置保存成功');
+            // ★【2026-09-29 用户提问 ✓】"改这些参数要不要重启服务？" ⇒ **不用** ✓
+            //   `save()` 写成功后会**自动清掉进程内的 yaml 缓存** ✓
+            //   （`utils/backtest_mode.clear_engine_yaml_cache()` ✓，见 `backtest_config_store.py` ✓）
+            //   ⇒ 下一轮回测/实盘**立刻**按新值判定 ✓。
+            //   ⚠️ 唯一例外 ✓：**正在跑**的任务在启动时已快照参数 ✓ ⇒ 它按旧值跑完 ✓（下一轮生效 ✓）。
+            alert('回测配置保存成功（已即时生效，无需重启服务；正在运行的任务下一轮生效）');
         } else {
             throw new Error(data.message || '保存回测配置失败');
         }
@@ -387,13 +480,113 @@ async function loadBacktestParams() {
             //   ⚠️ `false` 不能用 `||` 兜底 ✗（会被当成空值 ✗）⇒ 用 `=== true/false` 显式判断 ✓
             const modeSel = document.getElementById('params-backtest-mode');
             const poolSel = document.getElementById('params-pool-entry-mode');
-            const riseSel = document.getElementById('params-add-open-rise');
+            // ★★【2026-10-05 修复 ✓】**控件 id 写错 ⇒ 该下拉永远不回填** ✗→✓ ★★
+            //   事故 ✗✓（用户反馈："回测参数保存不成功"✓ 同一类症状 ✓）：
+            //     这里原本写的 id 是 `params-add-open-rise` ✗，而模板里真实的 id 是
+            //     `params-enable-add-open-rise-check` ✓（= `params-` + **键名** ✓）⇒
+            //     `getElementById` 恒为 `null` ⇒ `if (riseSel)` 恒假 ✗
+            //     ⇒ **保存后重新进页面，该下拉永远显示默认「跟随回测模式」** ✗
+            //     （而保存侧用的是**正确** id ✓ ⇒ 值其实写进 yaml 了 ✓
+            //       ⇒ 表现为"看着没保存"✗✓ —— 与 `backtest_mode` 那次同一坑 ✓）。
+            //   ⚠️ 约定 ✓：控件 id **一律 = `params-` + 键名（`_`→`-`）** ✗✓ ——
+            //     `test_backtest_config_store.py::TestExtraKeysAllHaveFrontendControls` 守着"有控件"✓，
+            //     但**守不住"JS 读的 id 与控件 id 一致"** ✗ ⇒ 故这里按约定修正 ✓。
+            const riseSel = document.getElementById('params-enable-add-open-rise-check');
             if (modeSel) modeSel.value = params.backtest_mode || 'legacy';
-            if (poolSel) poolSel.value = (params.pool_entry_mode === 'veto_only'
-                || params.pool_entry_mode === 'scored') ? params.pool_entry_mode : '';
+            // ★【2026-09-29】新增 `direct`（直通入池 ✓）⇒ 回填白名单**同步扩上** ✗→✓
+            //   （否则选了 direct 保存后再进页面 ⇒ 下拉回落"跟随回测模式"✗，看着像没保存 ✗）
+            if (poolSel) poolSel.value = ['veto_only', 'scored', 'direct']
+                .includes(params.pool_entry_mode) ? params.pool_entry_mode : '';
             if (riseSel) {
                 riseSel.value = (params.enable_add_open_rise_check === true) ? 'true'
                     : (params.enable_add_open_rise_check === false ? 'false' : '');
+            }
+            // ★【2026-09-29 用户要求 ✓】跳过选股开关回填 ✓
+            //   ⚠️ `false` **不能**用 `||` 兜底 ✗（会被当成空值 ✗）⇒ 显式判 `=== true/false` ✓；
+            //   yaml 里没写（= 默认 ✓）⇒ 后端**不会**返回该键 ⇒ 回落空值（未显式设置 ✓）。
+            const skipSel = document.getElementById('params-skip-selection-when-no-new-position');
+            if (skipSel) {
+                skipSel.value = (params.skip_selection_when_no_new_position === true) ? 'true'
+                    : (params.skip_selection_when_no_new_position === false ? 'false' : '');
+            }
+            // ★★【2026-09-29 用户要求 ✓】**高级参数回填** ✗→✓（与保存侧**逐键对应** ✓）
+            //   ⚠️ `false` / `0` **不能**用 `||` 兜底 ✗（会被当成空值 ✗）⇒ 一律显式判类型 ✓；
+            //   yaml 里没写（= 走默认 ✓）⇒ 后端**不会**返回该键 ⇒ 回落空值（未显式设置 ✓）。
+            const advElL = document.getElementById('params-advanced');
+            if (advElL) {
+                const _setSel = (id, v) => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = (v === null || v === undefined) ? '' : String(v);
+                };
+                const _setBoolSel = (id, v) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.value = (v === true) ? 'true' : (v === false ? 'false' : '');
+                    }
+                };
+                const _setNum = (id, v) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.value = (typeof v === 'number' && Number.isFinite(v)) ? v : '';
+                    }
+                };
+                _setBoolSel('params-enable-stock-adx-filter', params.enable_stock_adx_filter);
+                _setSel('params-adx-entry-mode', params.adx_entry_mode);
+                _setSel('params-adx-dir-mode', params.adx_dir_mode);
+                // ★【2026-09-30】个股放行 MA 条件回填 ✓（`false` 显式判 ✓ 不用 `||` ✗）
+                _setBoolSel('params-adx-entry-require-above-ma',
+                    params.adx_entry_require_above_ma);
+                // ★【2026-10-04】加仓独立开关回填 ✓（`false` 显式判 ✓ 不用 `||` ✗）
+                _setBoolSel('params-adx-add-require-above-ma',
+                    params.adx_add_require_above_ma);
+                _setNum('params-adx-entry-ma-period', params.adx_entry_ma_period);
+                // ⚠️ 区间键：**四个输入同属一键** ✗✓（容器 id = 键名派生 ✓）
+                //   ★【2026-09-29】兼容**三种**存储形态 ✓：扁平 `[0,18,23,42]` ✓ /
+                //     嵌套 `[[0,18],[23,42]]` ✓ / 单段 `[21,30]` ✓（旧值 ✓）
+                const _rngWrap = document.getElementById('params-adx-entry-range');
+                if (_rngWrap) {
+                    const _arr = Array.isArray(params.adx_entry_range)
+                        ? params.adx_entry_range : [];
+                    const _segs = (typeof _arr[0] === 'object' && _arr[0] !== null)
+                        ? _arr.map((r) => [r[0], r[1]])          // 嵌套 ✓
+                        : (() => {                               // 扁平 ✓（两两成对）
+                            const out = [];
+                            for (let i = 0; i + 1 < _arr.length; i += 2) {
+                                out.push([_arr[i], _arr[i + 1]]);
+                            }
+                            return out;
+                        })();
+                    _setNum('params-adx-range-lo', _segs[0] && _segs[0][0]);
+                    _setNum('params-adx-range-hi', _segs[0] && _segs[0][1]);
+                    _setNum('params-adx-range2-lo', _segs[1] && _segs[1][0]);
+                    _setNum('params-adx-range2-hi', _segs[1] && _segs[1][1]);
+                }
+                const _bandsElL = document.getElementById('params-adx-entry-bands');
+                if (_bandsElL) {
+                    const _want = Array.isArray(params.adx_entry_bands)
+                        ? params.adx_entry_bands.map(String) : [];
+                    Array.from(_bandsElL.options).forEach((o) => {
+                        o.selected = _want.includes(o.value);
+                    });
+                }
+                _setSel('params-index-adx-code', params.index_adx_code);
+                _setSel('params-index-adx-dir-mode', params.index_adx_dir_mode);
+                _setBoolSel('params-enable-index-position-cap', params.enable_index_position_cap);
+                _setNum('params-index-cap-high-adx', params.index_cap_high_adx);
+                _setNum('params-index-cap-high-ratio', params.index_cap_high_ratio);
+                _setNum('params-index-cap-low-adx', params.index_cap_low_adx);
+                _setNum('params-index-cap-low-ratio', params.index_cap_low_ratio);
+                _setNum('params-index-cap-other-ratio', params.index_cap_other_ratio);
+                // ★【2026-09-30】规则2 附加条件回填 ✓（`false` 显式判 ✓ 不用 `||` ✗）；
+                //   yaml 里没写（= 默认开启 ✓）⇒ 后端**不返回该键** ⇒ 回落空值 ✓
+                _setBoolSel('params-index-cap-low-require-above-ma',
+                    params.index_cap_low_require_above_ma);
+                _setNum('params-index-cap-ma-period', params.index_cap_ma_period);
+                // ★【2026-10-05】板块回退三键回填 ✓（`false` 显式判 ✓ 不用 `||` ✗）
+                _setBoolSel('params-index-cap-board-fallback',
+                    params.index_cap_board_fallback);
+                _setSel('params-index-cap-star-code', params.index_cap_star_code);
+                _setSel('params-index-cap-chinext-code', params.index_cap_chinext_code);
             }
         }
     } catch (error) {
@@ -547,7 +740,7 @@ async function runBacktest() {
                 // 如果没有交易记录，显示空状态
                 const tradesBody = document.getElementById('backtest-trades-body');
                 if (tradesBody) {
-                    tradesBody.innerHTML = '<tr><td colspan="6" class="text-center">暂无交易记录</td></tr>';
+                    tradesBody.innerHTML = '<tr><td colspan="9" class="text-center">暂无交易记录</td></tr>';
                 }
             }
         } else {
@@ -1118,6 +1311,39 @@ function displayBacktestResultInModal(result) {
                 </div>
             </div>
             
+            ${result.params_snapshot ? `
+            <!-- ★★【2026-10-03 用户要求 ✓】本次回测的「**主要参数设置情况**」 ✗→✓
+                 来源 ✓：trading/backtest_engine.py::build_param_snapshot ✓
+                   ⇒ 与「回测参数」日志**同一份** ✓（日志里看到的 = 这里显示的 ✓）；
+                 为什么要看它 ✗✓：两次回测收益不同时，**先看这里**就能定位
+                   "是哪项参数变了" ✓（此前只能翻日志 + 手查 yaml ✗✓）。
+                 ⚠️ timing_params 单独补打 ✗✓ —— 海龟参数（n_entry / n_exit / atr_period ✓）
+                   不在文本快照里 ✓，但它恰恰是最常被调的一项 ✗。
+                 ⚠️【2026-10-04 修复 ✓】**本注释内严禁反引号** ✗✓ —— 本块位于**模板字符串**
+                   内部 ✗（外层是反引号包裹的 HTML 串 ✓），而反引号会**提前结束模板串** ✗
+                   ⇒ 整个模块**语法错误** ✗ ⇒ 浏览器报「加载模块失败，请刷新页面重试」✗✓
+                   （实测发生 ✓）。⇒ 以后此块注释请用普通文字 ✓
+                   （旁边 router_config 那块同样没有反引号 ✓）。 -->
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-header">
+                    <h3>本次回测的参数设置</h3>
+                </div>
+                <div class="card-body">
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.8; color: #334155; font-family: inherit;">${(() => {
+                        try {
+                            const s = JSON.parse(result.params_snapshot);
+                            const tp = (s.timing_params && Object.keys(s.timing_params).length)
+                                ? ('\n\n择时策略: ' + (s.timing_strategy || '-')
+                                   + '\n择时参数: ' + JSON.stringify(s.timing_params, null, 2))
+                                : '';
+                            return String(s.text || result.params_snapshot) + tp;
+                        } catch (e) {
+                            return String(result.params_snapshot);
+                        }
+                    })().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>
+                </div>
+            </div>` : ''}
+
             ${result.router_config ? `
             <!-- 选股/择时条件（各档位配置）——自适应回测保存时持久化 -->
             <div class="card" style="margin-bottom: 20px;">
@@ -1635,6 +1861,23 @@ async function loadBacktestTradesOnConfigPage(resultId) {
  * 在策略回测页面显示交易记录
  * @param {Array} trades - 交易记录数组
  */
+function _tradeTypeLabel(tradeType, sellType) {
+    // ★【2026-09-29 用户要求 ✓】交易类型**中文化** ✗→✓（自适应那份直接打英文 `normal/sell` ✗）
+    //   口径 ✓：先看 `trade_type`（`new`=建仓 / `add`=加仓 / `sell`=清仓 / `reduce`=减仓 ✓），
+    //   再看 `sell_type`（卖出原因 ✓，如 `stop_loss` / `take_profit` ✓）；
+    //   ⚠️ **认不出就原样显示** ✓（绝不伪造语义 ✗），空值显示 `-` ✓。
+    const MAP = {
+        new: '建仓', add: '加仓', sell: '清仓', reduce: '减仓',
+        stop_loss: '止损', take_profit: '止盈', time_exit: '到期',
+        pool_remove: '池移除', normal: '普通卖出', final: '期末平仓',
+    };
+    const t = String(tradeType || '').trim();
+    const s = String(sellType || '').trim();
+    if (t && MAP[t]) return MAP[t];
+    if (s && MAP[s]) return MAP[s];
+    return (t || s || '-');
+}
+
 function displayBacktestTradesOnConfigPage(trades) {
     const tradesBody = document.getElementById('backtest-trades-body');
     if (!tradesBody) {
@@ -1645,12 +1888,13 @@ function displayBacktestTradesOnConfigPage(trades) {
     // 检查trades是否为有效的数组
     if (!Array.isArray(trades)) {
         console.warn('交易记录不是数组:', trades);
-        tradesBody.innerHTML = '<tr><td colspan="6" class="text-center">交易记录格式错误</td></tr>';
+        tradesBody.innerHTML = '<tr><td colspan="9" class="text-center">交易记录格式错误</td></tr>';
         return;
     }
     
     if (trades.length === 0) {
-        tradesBody.innerHTML = '<tr><td colspan="6" class="text-center">暂无交易记录</td></tr>';
+        // ★【2026-09-29】`colspan` 必须与**表头列数**一致 ✗✓（表头 9 列 ✓ ⇒ 否则空态行错位 ✗）
+        tradesBody.innerHTML = '<tr><td colspan="9" class="text-center">暂无交易记录</td></tr>';
     } else {
         try {
             tradesBody.innerHTML = trades.map(trade => {
@@ -1659,7 +1903,16 @@ function displayBacktestTradesOnConfigPage(trades) {
                 const stockName = trade.stock_name || '-';
                 const buyDate = trade.buy_date || '-';
                 const sellDate = trade.sell_date || '-';
-                const holdDays = trade.hold_days || '-';
+                // ★【2026-09-29】`0` **不能**被 `||` 吞掉 ✗✓（持有 0 日 = 当日买当日卖 ✓ 是真值 ✓）
+                const holdDays = (trade.hold_days === null || trade.hold_days === undefined)
+                    ? '-' : trade.hold_days;
+                // ★【2026-09-29 用户要求 ✓】新增三列 ✓（照自适应那份 ✓）：
+                //   买入价格 / 卖出价格 / 交易类型 ✓；⚠️ 未平仓(`None`) ⇒ `-` ✓（**不写 0** ✗）
+                const _num2 = (v) => (v === null || v === undefined || v === '')
+                    ? '-' : Number(v).toFixed(2);
+                const buyPrice = _num2(trade.buy_price);
+                const sellPrice = _num2(trade.sell_price);
+                const typeText = _tradeTypeLabel(trade.trade_type, trade.sell_type);
                 const returnRate = trade.return_rate;
                 const detailUrl = trade.detail_url || 'javascript:void(0)';
                 
@@ -1681,15 +1934,18 @@ function displayBacktestTradesOnConfigPage(trades) {
                         <td>${stockCodeLink}</td>
                         <td>${stockName}</td>
                         <td>${buyDate}</td>
+                        <td>${buyPrice}</td>
                         <td>${sellDate}</td>
+                        <td>${sellPrice}</td>
                         <td>${holdDays}</td>
                         <td class="${returnRateClass}">${returnRateText}</td>
+                        <td>${typeText}</td>
                     </tr>
                 `;
             }).join('');
         } catch (error) {
             console.error('显示交易记录失败:', error);
-            tradesBody.innerHTML = '<tr><td colspan="6" class="text-center">显示交易记录失败</td></tr>';
+            tradesBody.innerHTML = '<tr><td colspan="9" class="text-center">显示交易记录失败</td></tr>';
         }
     }
 }

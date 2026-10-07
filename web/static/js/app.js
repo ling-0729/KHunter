@@ -12,6 +12,25 @@ let lastSelectionTime = null;
 // 模块变量
 let modules = {};
 
+// ★★【2026-10-04 用户要求 ✓】**全站前端统一版本号** ✗→✓ ★★
+//   用户原话 ✓："**所有前端模块统一版本号**" ✓
+//
+//   问题 ✗（本文件此前确实踩过两次坑 ✓）：各模块**各写各的版本号** ✗
+//     （`navigation.js?v=20260928` ✓ / `selection.js?v=2` ✓ / `backtest.js?v=20261004b` ✓ …），
+//     还有一批**完全裸奔**（`import('./stocks.js')` ✗）。
+//     ⇒ 改完模块 A 却忘了递增它的号 ✗ ⇒ 浏览器**继续用旧缓存** ✗ ⇒
+//       "源码明明改对了，页面就是不变" ✗✓（排查半天 ✗）。
+//
+//   做法 ✓（**单一来源** ✗✓）：**只有一个地方写版本号** = `index.html` 里
+//     `<script type="module" src="/static/js/app.js?v=NN">` ✓
+//     · 本文件从**自身 URL** 读出尾巴（`?v=NN` ✓）⇒ 用它去 import 所有模块 ✓；
+//     · 每个模块**再**从自身 URL 读出同一个尾巴 ✓ ⇒ 它 import 的子模块也带上 ✓；
+//     · 如此**沿调用链自动传播** ✓ ⇒ 一次 bump ⇒ **整张依赖图全失效** ✓✓。
+//   ⚠️ 因此本文件内**不得**再出现硬编码 `?v=` ✗（那是旧的坑 ✓）；
+//      新增 import 一律走 `imp('./x.js')` ✓（回归测试 `test_frontend_asset_version.py` 会拦 ✗✓）。
+const V = new URL(import.meta.url).search;      // 例：'?v=28'（未带版本时为空串 ✓ 亦可用 ✓）
+const imp = (p) => import(p + V);               // ★ 统一入口 ✓（调用方**不要**自带 `?` ✗）
+
 // 检查策略配置文件是否存在
 async function checkStrategyConfig() {
     try {
@@ -47,22 +66,24 @@ async function checkStrategyConfig() {
 async function loadModules() {
     try {
         // 加载各个模块
-        const websocketModule = await import('./modules/websocket.js');
-        const navigationModule = await import('./modules/navigation.js');
-        const stocksModule = await import('./modules/stocks.js');
-        const selectionModule = await import('./modules/selection.js?v=2');
-        const analysisModule = await import('./modules/analysis.js');
-        const strategiesModule = await import('./modules/strategies.js');
-        const historyModule = await import('./modules/history.js');
-        const rankingModule = await import('./modules/ranking.js');
-        const utilsModule = await import('./modules/utils.js');
-        const backtestModule = await import('./modules/backtest.js');
-        const backtestBatchModule = await import('./modules/backtest-batch.js');
-        const backtestExecutorModule = await import('./modules/backtest-executor.js');
-        const marketTempModule = await import('./modules/market_temperature.js');
-        const moneyFlowModule = await import('./modules/money_flow.js');
-        const strategyRunnerModule = await import('./modules/strategy-runner.js');
-        const riskModule = await import('./modules/risk.js');
+        // ★【2026-10-04 统一版本号 ✓】全部走 `imp(...)` ✓ ⇒ 自动带上本文件那个 `?v=NN` ✓
+        //   ⚠️ 旧写法各写各的（`?v=20260928` ✓ / `?v=2` ✓ / `?v=20261004b` ✓ / 裸奔 ✗）已全部废除 ✗
+        const websocketModule = await imp('./modules/websocket.js');
+        const navigationModule = await imp('./modules/navigation.js');
+        const stocksModule = await imp('./modules/stocks.js');
+        const selectionModule = await imp('./modules/selection.js');
+        const analysisModule = await imp('./modules/analysis.js');
+        const strategiesModule = await imp('./modules/strategies.js');
+        const historyModule = await imp('./modules/history.js');
+        const rankingModule = await imp('./modules/ranking.js');
+        const utilsModule = await imp('./modules/utils.js');
+        const backtestModule = await imp('./modules/backtest.js');
+        const backtestBatchModule = await imp('./modules/backtest-batch.js');
+        const backtestExecutorModule = await imp('./modules/backtest-executor.js');
+        const marketTempModule = await imp('./modules/market_temperature.js');
+        const moneyFlowModule = await imp('./modules/money_flow.js');
+        const strategyRunnerModule = await imp('./modules/strategy-runner.js');
+        const riskModule = await imp('./modules/risk.js');
         
         // 存储模块
         modules = {

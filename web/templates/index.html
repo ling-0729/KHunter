@@ -566,6 +566,20 @@
                                         <div style="font-size: 12px; color: #6b7280;">公告标题（stock_announcement）—— 减持计划等事件否决依据</div>
                                     </div>
                                 </label>
+                                <!-- ★★【2026-10-07 新增 ✓】**大盘指数 ADX** ✗→✓ ★★
+                                     · 此前**没有入口** ✗ ⇒ 点了"全部"仍缺 `market_index_adx` ✗
+                                       ⇒ 回测被数据闸门拦 ✗、还得**手工**跑 `backfill_index_adx.py` ✗
+                                     · 本项 = 主指数（默认 000985.CSI ✓）+ 科创板(000688.SH ✓)
+                                       + 创业板(399006.SZ ✓) 三个指数 ✓，区间 2020-01-01 起 ✓
+                                     · ⚠️ 需要联网（Tushare ✓）；离线/回测语境会**如实失败** ✗
+                                       （**不**静默联网 ✗ —— 与其它维度同一规矩 ✓） -->
+                                <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 12px; background: #f9fafb; border-radius: 6px; border: 2px solid #e5e7eb; transition: all 0.2s;">
+                                    <input type="checkbox" id="init-index-adx-data" checked style="width: 20px; height: 20px; cursor: pointer;">
+                                    <div>
+                                        <div style="font-weight: 600; color: #1f2937;">大盘指数 ADX</div>
+                                        <div style="font-size: 12px; color: #6b7280;">主指数 + 科创板 + 创业板（market_index_adx）—— 仓位上限/板块回退的判定依据</div>
+                                    </div>
+                                </label>
                             </div>
 
                             <!-- 操作按钮 -->
@@ -676,8 +690,14 @@
                     <div id="update-progress-state" class="card" style="display: none;">
                         <div class="card-body" style="text-align: center; padding: 60px 20px;">
                             <div style="font-size: 48px; margin-bottom: 20px; animation: pulse 1.5s infinite;">⏳</div>
-                            <p style="font-size: 16px; color: #6b7280; margin: 0 0 30px 0;">正在更新数据，请稍候...</p>
-                            
+                            <p style="font-size: 16px; color: #6b7280; margin: 0 0 10px 0;">正在更新数据，请稍候...</p>
+
+                            <!-- ★【2026-09-29 用户要求 ✓】当前环节 + 已耗时 ✗→✓
+                                 （数据源：`/api/data/update/progress` 的 `currentStage` / `stageNo` / `elapsedTime` ✓；
+                                  节点默认隐藏 ✓ —— 后端没有环节信息时不显示占位假信息 ✗） -->
+                            <p id="update-current-stage" style="font-size: 15px; color: #111827; margin: 0 0 6px 0; font-weight: 600; display: none;">—</p>
+                            <p id="update-elapsed" style="font-size: 13px; color: #6b7280; margin: 0 0 26px 0; display: none;">—</p>
+
                             <!-- 取消按钮 -->
                             <button class="btn btn-danger" onclick="cancelDataUpdate()">✕ 取消</button>
                         </div>
@@ -944,23 +964,255 @@
                                     <select id="params-pool-entry-mode" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="入池模式">
                                         <option value="" selected>跟随回测模式</option>
                                         <option value="scored">scored（否决 + 评分门槛）</option>
-                                        <option value="veto_only">veto_only（免评分）</option>
+                                        <option value="veto_only">veto_only（免评分，仍判否决）</option>
+                                        <option value="direct">direct（直通入池：无评分、无一票否决）</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label for="params-add-open-rise" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">加仓开盘限幅 ±4%</label>
-                                    <select id="params-add-open-rise" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="加仓开盘限幅">
+                                    <select id="params-enable-add-open-rise-check" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="加仓开盘限幅">
                                         <option value="" selected>跟随回测模式</option>
                                         <option value="true">开启</option>
                                         <option value="false">关闭</option>
+                                    </select>
+                                </div>
+                                <!-- ★【2026-09-29 用户要求 ✓】**"不开新仓 ⇒ 跳过选股"的开关** ✗→✓
+                                     · 默认**开启** ✓（判定当日不开新仓 ⇒ 不跑选股/评分 ✓，结果直接为 0 ✓）
+                                     · 关闭 = **旧行为**（选股照跑、结果置 0 ✓）⇒ **A/B 对比用** ✓
+                                     · ⚠️ 与"跟随回测模式"无关 ✗（它不属任何模式预设 ✓）⇒ 留空 = **未显式设置** ✓
+                                       （= 走代码默认「开启」✓，与"模式预设"是两回事 ✓） -->
+                                <div>
+                                    <label for="params-skip-selection" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">不开新仓时跳过选股（性能）</label>
+                                    <select id="params-skip-selection-when-no-new-position" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="不开新仓时跳过选股">
+                                        <option value="" selected>未显式设置（默认：开启）</option>
+                                        <option value="true">开启（不开新仓 ⇒ 跳过选股/评分，结果直接为 0）</option>
+                                        <option value="false">关闭（选股照跑、结果置 0 —— 旧行为，对比用）</option>
                                     </select>
                                 </div>
                             </div>
                             <p style="color:#888;font-size:12px;margin:0 0 12px;">
                                 保存后写入 <code>config/backtest_engine_config.yaml</code> 的 <code>backtest:</code> 节（yaml 为源 ✓，DB 仅兼容镜像 ✗）。
                                 上面三项留「跟随回测模式」即由<b>回测模式</b>统一决定；单独选择则<b>覆盖</b>模式 ✓。
+                                「不开新仓时跳过选股」留空 = <b>未显式设置</b>（走代码默认 <b>开启</b> ✓）—— 要与旧基准对比时请选<b>关闭</b> ✓。
                             </p>
-                            
+
+                            <!-- ★★【2026-09-29 用户要求 ✓】**高级参数（ADX 口径 / 大盘仓位上限）** ✗→✓
+                                 动机 ✗✓（用户："**没有看到前端设置的地方**"✗）：这些键此前**只进了后端白名单** ✗、
+                                   前端**从无控件** ✗ ⇒ 只能手改 yaml ✗✓。现补齐 ✓ 并加**穷尽性测试** ✓
+                                   （`test_backtest_config_store.py` ✓：每个 `EXTRA_KEYS` **必须有**控件 ✓）。
+                                 ⚠️ 统一口径 ✓：**留空 = 未显式设置** ✓ ⇒ 后端把该键**还原为注释** ✓
+                                   （⇒ 走 `backtest_mode` 预设 / 代码默认 ✓）；**绝不**把空值写成 0 / [] ✗✓
+                                   （那会**显式**改掉默认行为 ✗）。
+                                 ⚠️ `adx_entry_bands` / `adx_entry_range` **两套口径二选一** ✓（由 `adx_entry_mode` 决定 ✓）
+                                   ⇒ 另一套即使填了也**不生效** ✗（回测日志会给一行"已配置但不生效"短提示 ✓）。 -->
+                            <details id="params-advanced" style="margin:0 0 12px; border:1px solid #e5e7eb; border-radius:6px; padding:8px 10px; background:#fafafa;">
+                                <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#374151;">
+                                    高级参数（ADX 入场口径 / 大盘仓位上限）—— <b>留空即"未设置"</b>，随模式预设 / 默认值
+                                </summary>
+
+                                <div style="font-size:11px; font-weight:700; color:#6b7280; margin:10px 0 6px;">① 个股 ADX 闸门与入场口径</div>
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;">
+                                    <div>
+                                        <label for="params-enable-stock-adx" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">个股 ADX 闸门</label>
+                                        <select id="params-enable-stock-adx-filter" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="个股 ADX 闸门">
+                                            <option value="" selected>未显式设置（跟随模式预设）</option>
+                                            <option value="true">开启</option>
+                                            <option value="false">关闭</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="params-adx-entry-mode" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">入场口径</label>
+                                        <select id="params-adx-entry-mode" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="入场口径">
+                                            <option value="" selected>未显式设置（默认 range）</option>
+                                            <option value="range">range（数值区间，21&lt;ADX&lt;30）</option>
+                                            <option value="band">band（档位集合，旧口径）</option>
+                                        </select>
+                                    </div>
+                                    <!-- ★ `params-adx-entry-range` = 键名派生的**稳定 id** ✓（四个输入同属一键 ✓）
+                                         ⚠️ `display:contents` ✓ = 不破坏外层 grid 布局 ✓（各框仍各占一格 ✓）
+                                         ★【2026-09-29 用户要求 ✓】**两段并集** ✓：段① ∪ 段②（段间空当 = **拒** ✗）
+                                           段② 两个都留空 ⇒ 自动按**单段**保存 ✓（旧行为 ✓） -->
+                                    <div id="params-adx-entry-range" style="display:contents;">
+                                        <div>
+                                            <label for="params-adx-range-lo" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">段①下限（开区间）</label>
+                                            <input type="number" id="params-adx-range-lo" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.5" placeholder="留空=未设置（默认 21）" aria-label="入场段①下限">
+                                        </div>
+                                        <div>
+                                            <label for="params-adx-range-hi" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">段①上限（仅约束首仓）</label>
+                                            <input type="number" id="params-adx-range-hi" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.5" placeholder="留空=未设置（默认 30）" aria-label="入场段①上限">
+                                        </div>
+                                        <div>
+                                            <label for="params-adx-range2-lo" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">段②下限（可留空 ⇒ 单段）</label>
+                                            <input type="number" id="params-adx-range2-lo" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.5" placeholder="如 23（与段①取并集）" aria-label="入场段②下限">
+                                        </div>
+                                        <div>
+                                            <label for="params-adx-range2-hi" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">段②上限</label>
+                                            <input type="number" id="params-adx-range2-hi" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.5" placeholder="如 42" aria-label="入场段②上限">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label for="params-adx-bands" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">档位集合（仅 band 口径）</label>
+                                        <select id="params-adx-entry-bands" multiple size="3" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="入场档位集合">
+                                            <option value="明确">明确（ADX ≥ 25）</option>
+                                            <option value="萌芽">萌芽（20 ~ 25，放宽）</option>
+                                            <option value="震荡">震荡（&lt; 20）</option>
+                                        </select>
+                                        <span style="font-size:11px; color:#9ca3af;">不选 = 未设置（默认只放「明确」）</span>
+                                    </div>
+                                    <!-- ★★【2026-09-30 用户要求 ✓】个股放行**新增「`close(T-1) > MA20`」** ✗→✓
+                                         用户原话 ✓："**个股放行过滤增加 t-1(close) > ma20**" ✓
+                                         · **只约束首仓** ✗✓（**加仓不判** ✗ —— 加仓只看 `dir=上升` ✓）
+                                         · 防前视 ✓：一律 T-1 及之前 ✓（与 ADX 判定**同一纪律** ✓）
+                                         · 数据源 ✓：K 线 df 的 `close` ✓（无则自取库 ✓ `stock_kline` ✓ 不联网 ✓）
+                                         · 缺数据（收盘不足 20 根 / 取不到）⇒ **不放行** ✗（保守 ✓）
+                                         ⚠️ 留空 = **未显式设置** ✓ ⇒ 走代码默认（**开启** ✓ / MA20 ✓） -->
+                                    <div>
+                                        <label for="params-adx-entry-require-above-ma" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">首仓须 close(T-1) &gt; MA20<br><span style="font-weight:400;color:#9ca3af;">（个股放行附加条件）</span></label>
+                                        <select id="params-adx-entry-require-above-ma" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="首仓须 close(T-1) 大于 MA20">
+                                            <option value="" selected>未显式设置（默认：开启）</option>
+                                            <option value="true">开启（须站上均线才放行首仓）</option>
+                                            <option value="false">关闭（旧行为：ADX 口径过即放行）</option>
+                                        </select>
+                                    </div>
+                                    <!-- ★★【2026-10-04 用户要求 ✓】**加仓也判** `close(T-1) > MA20` ✗→✓
+                                         用户答"**需要**" ✓（上轮我问过"要不要加仓也判" ✓）
+                                         · 默认**开** ✓（加仓也须站上均线才放行 ✓）
+                                         · ⚠️ **独立于首仓开关** ✗✓ —— 加仓口径你 2026-09-29 定稿过
+                                           "只看 `dir=上升`" ✓ ⇒ 两条路必须能**各自 A/B / 各自回退** ✓
+                                         · 关掉本开关 ⇒ 加仓**回到 2026-09-29 口径** ✓（只看 `dir=上升` ✓）
+                                         · MA 周期与首仓**共用** `adx_entry_ma_period` ✓（默认 20 ✓） -->
+                                    <div>
+                                        <label for="params-adx-add-require-above-ma" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">加仓也须 close(T-1) &gt; MA20<br><span style="font-weight:400;color:#9ca3af;">（与首仓开关独立）</span></label>
+                                        <select id="params-adx-add-require-above-ma" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="加仓也须 close(T-1) 大于 MA20">
+                                            <option value="" selected>未显式设置（默认：开启）</option>
+                                            <option value="true">开启（加仓也须站上均线）</option>
+                                            <option value="false">关闭（回到 2026-09-29：加仓只看 dir=上升）</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="params-adx-entry-ma-period" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">MA 周期<br><span style="font-weight:400;color:#9ca3af;">（首仓 / 加仓**共用**）</span></label>
+                                        <input type="number" id="params-adx-entry-ma-period" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="2" max="250" step="1" placeholder="留空=未设置（默认 20）" aria-label="MA 周期（首仓与加仓共用）">
+                                    </div>
+                                    <div>
+                                        <label for="params-adx-dir-mode" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">方向口径</label>
+                                        <select id="params-adx-dir-mode" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="方向口径">
+                                            <option value="" selected>未显式设置（默认 two_day）</option>
+                                            <option value="two_day">two_day（连续两日同向，防抖）</option>
+                                            <option value="epsilon">epsilon（旧口径，噪声门槛）</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div style="font-size:11px; font-weight:700; color:#6b7280; margin:12px 0 6px;">② 大盘（指数）口径 —— 供「当日仓位上限」用</div>
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;">
+                                    <div>
+                                        <label for="params-index-adx-code" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">指数代码</label>
+                                        <input type="text" id="params-index-adx-code" list="idx-code-options" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" placeholder="留空=未设置（默认 000985.CSI）" aria-label="指数代码">
+                                        <!-- ★【2026-10-05】候选指数 ✓（仍是**自由文本** ✓ ⇒ 别的代码照填 ✓）
+                                             ⚠️ 只有**库里已初始化 ADX** ✓ 的指数才能用 ✗（否则档位落到"缺数据 ⇒ 0%"✗）
+                                             库内现有 ✓：000985.CSI（中证全指 ✓）/ 399006.SZ（创业板指 ✓）/
+                                                         000688.SH（科创50 ✓，2020-01-02 起 ✓） -->
+                                        <datalist id="idx-code-options">
+                                            <option value="000985.CSI">中证全指（默认 ✓ 2020-01-02 起）</option>
+                                            <option value="399006.SZ">创业板指（2020-01-02 起 ✓）</option>
+                                            <option value="000688.SH">科创50（2020-01-02 起 ✓，前 26 日预热不足 ✓）</option>
+                                        </datalist>
+                                    </div>
+                                    <div>
+                                        <label for="params-index-adx-dir-mode" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">大盘方向口径</label>
+                                        <select id="params-index-adx-dir-mode" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="大盘方向口径">
+                                            <option value="" selected>未显式设置（回落个股方向口径）</option>
+                                            <option value="two_day">two_day</option>
+                                            <option value="epsilon">epsilon</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div style="font-size:11px; font-weight:700; color:#6b7280; margin:12px 0 6px;">③ 当日仓位上限（仅约束「开新仓」；比例可写小数或百分数：0.5 = 50）</div>
+                                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px;">
+                                    <div>
+                                        <label for="params-enable-index-cap" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">仓位上限总开关</label>
+                                        <select id="params-enable-index-position-cap" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="仓位上限总开关">
+                                            <option value="" selected>未显式设置（跟随模式预设）</option>
+                                            <option value="true">开启</option>
+                                            <option value="false">关闭</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-high-adx" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">规则1：ADX 高于</label>
+                                        <input type="number" id="params-index-cap-high-adx" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.5" placeholder="留空=未设置（默认 25）" aria-label="规则1 ADX 阈值">
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-high-ratio" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">规则1：上限比例</label>
+                                        <input type="number" id="params-index-cap-high-ratio" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.05" placeholder="留空=未设置（默认 1.0）" aria-label="规则1 上限比例">
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-low-adx" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">规则2：ADX 低于</label>
+                                        <input type="number" id="params-index-cap-low-adx" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.5" placeholder="留空=未设置（默认 18）" aria-label="规则2 ADX 阈值">
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-low-ratio" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">规则2：上限比例</label>
+                                        <input type="number" id="params-index-cap-low-ratio" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.05" placeholder="留空=未设置（默认 0.5）" aria-label="规则2 上限比例">
+                                    </div>
+                                    <!-- ★★【2026-09-30 用户要求 ✓】规则2 的**附加条件** ✗→✓
+                                         用户原话 ✓："大盘仓位控制规则：**adx<18 时增加条件，
+                                         dir 上升，而且 >ma20**" ✓
+                                         · 满足 ⇒ 规则2 的 50% 档 ✓；
+                                         · 不满足（**收盘 ≤ MA20** ✓ / MA 不足 ✓）⇒ 落**兜底**档 ✓
+                                           （默认 0% ⇒ **不允许开新仓** ✓）
+                                         · 数据源 = `market_index_adx.close` ✓（与 ADX 同表 ✓ 零联网 ✓）
+                                         · 只用 **T-1** ✓（收盘 + 含 T-1 的 MA 均值 ✓ ⇒ 不前视 ✓）
+                                         ⚠️ 留空 = **未显式设置** ✓ ⇒ 走代码默认（**开启** ✓） -->
+                                    <div>
+                                        <label for="params-index-cap-low-require-above-ma" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">规则2 附加条件<br><span style="font-weight:400;color:#9ca3af;">（ADX&lt;18 时还须收盘 &gt; MA20）</span></label>
+                                        <select id="params-index-cap-low-require-above-ma" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="规则2 附加条件（收盘>MA20）">
+                                            <option value="" selected>未显式设置（默认：开启）</option>
+                                            <option value="true">开启（须收盘 &gt; MA20 才给规则2 档）</option>
+                                            <option value="false">关闭（旧行为：ADX&lt;18 且上升即给档）</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-ma-period" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">规则2：MA 周期</label>
+                                        <input type="number" id="params-index-cap-ma-period" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="2" max="250" step="1" placeholder="留空=未设置（默认 20）" aria-label="规则2 MA 周期">
+                                    </div>
+                                    <!-- ★★【2026-10-05 用户要求 ✓】**板块回退** ✗→✓ ★★
+                                         用户原话 ✓：全A **不放行**（兜底 0%）时，若**科创板/创业板**
+                                         adx 符合放行规则 ⇒ **按部分放行（规则2）**，但**只能买对应板块**的票 ✓
+                                         · 全A **放行**（规则1/规则2）⇒ **全部股票**照旧 ✓（不看板块 ✓）
+                                         · 板块指数**放行**（规则1 或 规则2）⇒ 一律按**规则2 比例** ✓
+                                           （⚠️ 即便走规则1 也**不给 100%** ✗ —— 用户口径 ✓）
+                                         · ★★【同日二次调整 ✓】**双创同时放行 ⇒ 整体不放行** ✗✓
+                                           （用户原话 ✓："当科创板和创业板同时放行时，判定为整体不放行"✓
+                                            ⇒ 该细则在**后端判定层**实现 ✓，此处**无对应控件** ✗）
+                                         · 前置 ✓：两个板块指数需**已初始化 ADX** ✓
+                                           （2026-10-05 已初始化 ✓：各 1636 天 ✓ 2020-01-02 起 ✓）
+                                         留空 = 未显式设置 ⇒ 走代码默认（**开启** ✓ / 上列两个代码 ✓） -->
+                                    <div>
+                                        <label for="params-index-cap-board-fallback" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">板块回退<br><span style="font-weight:400;color:#9ca3af;">（全A 不放行时按板块指数放行）</span></label>
+                                        <select id="params-index-cap-board-fallback" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" aria-label="板块回退开关">
+                                            <option value="" selected>未显式设置（默认：开启）</option>
+                                            <option value="true">开启（全A 兜底时，双创板块各自判）</option>
+                                            <option value="false">关闭（旧行为：全A 兜底 ⇒ 全部不买）</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-star-code" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">科创板：指数代码</label>
+                                        <input type="text" id="params-index-cap-star-code" list="idx-code-options" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" placeholder="留空=未设置（默认 000688.SH 科创50）" aria-label="科创板指数代码">
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-chinext-code" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">创业板：指数代码</label>
+                                        <input type="text" id="params-index-cap-chinext-code" list="idx-code-options" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" placeholder="留空=未设置（默认 399006.SZ 创业板指）" aria-label="创业板指数代码">
+                                    </div>
+                                    <div>
+                                        <label for="params-index-cap-other-ratio" style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:5px;">兜底：上限比例<br><span style="font-weight:400;color:#9ca3af;">（18~25 / dir≠上升 / 收盘≤MA20 / 缺数据）</span></label>
+                                        <input type="number" id="params-index-cap-other-ratio" style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" min="0" max="100" step="0.05" placeholder="留空=未设置（默认 0 = 不允许开仓）" aria-label="兜底上限比例">
+                                    </div>
+                                </div>
+                                <p style="color:#9ca3af;font-size:11px;margin:8px 0 0;">
+                                    ⚠️ 比例比较用 <b>≥</b>（上限 0% ⇒ 空仓也<b>不允许</b>开仓）。改完请点下方「保存配置」✓。
+                                </p>
+                            </details>
+
                             <button type="button" id="save-backtest-params-btn" class="btn btn-primary" style="padding:6px 16px; font-size:12px; margin-top: 16px;" aria-label="保存回测配置">保存配置</button>
                         </div>
                     </div>
@@ -1128,6 +1380,14 @@
                                 </div>
                                 
                                 <!-- 交易明细表格 -->
+                                <!-- ★【2026-09-29 用户要求 ✓】**与"自适应回测结果"同一套列** ✗→✓
+                                     （用户原话："回测结果建议参考自适应回测结果展示，**更加清晰**" ✓）
+                                     · 新增 ✓：**买入价格** / **卖出价格** / **交易类型** ✓
+                                       （自适应那份有这三列 ✓ 判断"贵不贵 / 什么原因卖"一目了然 ✓）；
+                                     · **保留**"持有天数" ✓ —— 自适应那份没有 ✗ ⇒ 这里是**超集** ✓
+                                       （信息只增不减 ✓）；
+                                     · 未平仓行（期末仍持有 ✓）的卖出字段是 `None` ⇒ 前端显示 `-` ✓
+                                       （**不**用 `0` 冒充 ✗✓）。 -->
                                 <div>
                                     <h5 style="margin-bottom:12px; color:#374151; font-size:14px;">交易明细</h5>
                                     <div class="table-container" style="border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
@@ -1137,9 +1397,12 @@
                                                     <th scope="col">股票代码</th>
                                                     <th scope="col">股票名称</th>
                                                     <th scope="col">买入日期</th>
+                                                    <th scope="col">买入价格</th>
                                                     <th scope="col">卖出日期</th>
+                                                    <th scope="col">卖出价格</th>
                                                     <th scope="col">持有天数</th>
                                                     <th scope="col">收益率</th>
+                                                    <th scope="col">交易类型</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="backtest-trades-body">
@@ -2209,14 +2472,63 @@
         </div>
     </div>
 
-    <script src="/static/js/dashboard_stats.js?v=20260920"></script>
-    <!-- 【2026-09-20】v=15：强制刷新模块图（含 modules/backtest.js 等图表自愈逻辑） -->
-    <script type="module" src="/static/js/app.js?v=15"></script>
-    <script src="/static/js/kline_chart.js?v=20260920"></script>
-    <!-- ⚠️ 版本号：改动 init_simple.js 后**必须**同步 bump ✓（否则浏览器沿用旧缓存 ✗ → 页面"看起来没变化"✗） -->
-    <script src="/static/js/init_simple.js?v=4"></script>
-    <script src="/static/js/trading.js"></script>
-    <script src="/static/js/data_update.js?v=2"></script>
+    <!-- ★★★★【2026-10-04 用户要求 ✓】**全站前端统一版本号** ✗→✓ ★★★★
+         用户原话 ✓："**所有前端模块统一版本号**" ✓
+
+         规则 ✓（只有一条 ✗✓）：**本页所有「我们自己的」`/static/js/*.js` 共用同一个 `?v=NN`** ✓
+           · `app.js?v=NN` 是**唯一源头** ✓：
+             `app.js` 从自身 URL 读出 `?v=28` ⇒ import 的每个模块都自动带 `?v=28` ✓
+             ⇒ 每个模块再读自身 URL ⇒ 继续往下传 ✓ ⇒ **整张依赖图共用同一个号** ✓✓
+             （全站**没有静态 `import`** ✓，所以这条传播链**没有缺口** ✓）
+           · 非模块的经典脚本（`dashboard_stats.js` ✓ / `kline_chart.js` ✓ / `init_simple.js` ✓ /
+             `trading.js` ✓ / `data_update.js` ✓）**不能**自读 URL ✗ ⇒ 就在**本页**写同一个号 ✓
+           · ⚠️ **第三方库不参与** ✗（`/static/js/lib/*` ✓ —— 文件名已自带版本 ✓：
+             `chart.umd.min.js` ✓ / `lightweight-charts.standalone.production.js` ✓ /
+             `socket.io.min.js` ✓；给它们挂 `?v=` 只会每次全站 bump 都重下几百 KB ✗ 且无意义 ✗）
+
+         ⇒ **以后改任何前端文件，只改本页这一处** ✓（把下面所有 `?v=29` 一起改成 `?v=30` ✓）；
+           模块内部的 `?v=` 一律**不要**手写 ✗（必须走 `imp('./x.js')` ✓，
+           回归测试 `test_frontend_asset_version.py` 会拦 ✗✓）。
+           也不需要重启服务 ✓（静态文件 ✓）—— 只需**刷新浏览器** ✓。
+
+         历史沿革 ✓（并入统一号前的旧编号 ✓）：
+         【2026-09-20】v=15：强制刷新模块图（含 modules/backtest.js 等图表自愈逻辑）
+         【2026-09-28】v=16：清理死代码 + 给 modules/navigation.js 加版本号 ⇒ 逐级失效缓存 ✓
+         【2026-09-29】v=17：回测参数页新增「不开新仓时跳过选股」开关 ⇒ bump 失效缓存 ✓
+         【2026-09-29】v=18：再补「高级参数」面板（ADX 口径 / 大盘仓位上限）⇒ 再 bump ✓
+         【2026-09-29】v=19：保存提示写明「**已即时生效、无需重启**」⇒ 再 bump ✓
+         【2026-09-29】v=20：入池模式新增 `direct`（**直通入池** ✓）⇒ 再 bump ✓
+         【2026-09-29】v=21：入场区间支持**两段并集**（`15<ADX<18 ∪ 23<ADX<42` ✓）⇒ 再 bump ✓
+         【2026-09-29】v=22：普通回测「交易明细」照自适应回测补齐三列（买入/卖出价格、交易类型 ✓）⇒ 再 bump ✓
+         【2026-09-30】v=23：仓位上限规则2 新增「收盘>MA20」附加条件（开关 + MA 周期）⇒ 再 bump ✓
+         【2026-09-30】v=24：个股放行新增「首仓 close(T-1)>MA20」（开关 + MA 周期）⇒ 再 bump ✓
+         【2026-10-03】v=25：回测结果详情新增「本次回测的参数设置」（参数快照 ✓）⇒ 再 bump ✓
+         【2026-10-04】v=26：修复 modules/backtest.js **模板串内反引号**导致的语法错误 ✗→✓
+                （症状：浏览器报「加载模块失败，请刷新页面重试」✗；必须 bump 才能让浏览器丢弃坏缓存 ✓）
+         【2026-10-04】v=27：个股放行「加仓也判 close(T-1)>MA20」（独立开关 ✓）⇒ 再 bump ✓
+         【2026-10-04】v=28：★ **统一版本号** ✗→✓（本页一处，管全站 ✓；此后只需改这一处 ✓）
+         【2026-10-05】v=29：大盘「指数代码」加**候选下拉**（中证全指 / 创业板指 / 科创50 ✓，
+                均可自由填别的 ✓）⇒ 全站同一个号一起 bump ✓（**只改了本文件** ✓ 即证统一版本号有效 ✓）
+         【2026-10-05】v=30：★「**板块回退**」✗→✓（全A 不放行 ⇒ 双创各按板块指数**部分放行** ✓，
+                且**只买对应板块**的票 ✓；含开关 + 两个指数代码 ✓）
+         【2026-10-05】v=31：修复「市场 ADX」卡片**取错指数** ✗→✓（多指数后未筛 index_code ✗ ⇒
+                显示 17.3=科创50 而文案写全A ✗）⇒ 后端**显式按配置指数**取数 ✓ + 卡片/弹窗**标出实际指数** ✓
+         【2026-10-05】v=33：★★ 板块回退**保留** ✓ 并加细则 ✗→✓：
+                **双创同时放行 ⇒ 整体不放行** ✓（用户口径 ✓；后端判定层 ✓，界面无新控件 ✗）
+                （⚠️ v=32 那轮"去除"✗ 已按用户当天二次口径**整体回滚** ✓ —— 3 个控件仍在 ✓）
+         【2026-10-05】v=34：修「回测参数**看着没保存**」✗→✓ ——
+                ① 前端回填 **id 写错** ✗（`params-add-open-rise` ✗ → `params-enable-add-open-rise-check` ✓）
+                   ⇒ 「加仓开盘限幅」下拉保存后永远显示默认 ✓ 已修 ✓；
+                ② 后端 `GET /backtest/configs` 改为**无条件**返回 yaml 值 ✓（DB 无行也返回 ✓）；
+                ③ 后端写 yaml 被拒时**不再假成功** ✗ ⇒ 返回 `success:false` + 原因 ✓ --> 
+    <script src="/static/js/dashboard_stats.js?v=36"></script>
+    <!-- ★【2026-10-07】v=36：初始化页新增「**大盘指数 ADX**」维度（页面/JS/后端三处同步 ✓）；
+         并补齐全新安装的两处结构缺口：`trading_plan` 表（DDL ✓）+ `khunter.key_date` 列（DDL ✓ 与老库迁移 ✓）-->
+    <script type="module" src="/static/js/app.js?v=36"></script>
+    <script src="/static/js/kline_chart.js?v=36"></script>
+    <script src="/static/js/init_simple.js?v=36"></script>
+    <script src="/static/js/trading.js?v=36"></script>
+    <script src="/static/js/data_update.js?v=36"></script>
     
     <!-- 回测结果模态框 -->
     <div id="backtest-result-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
