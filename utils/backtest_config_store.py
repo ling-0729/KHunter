@@ -54,6 +54,56 @@ SECTION_KEYS: Tuple[str, ...] = (
 EXTRA_KEYS: Tuple[str, ...] = (
     'backtest_mode', 'enable_stock_adx_filter',
     'enable_add_open_rise_check', 'pool_entry_mode',
+    # ★【2026-09-28 用户口径 ✓】**个股入场口径与区间阈值** ✗→✓
+    #   动机 ✗✓（用户问"上限/下限在哪儿配置"✓）：此前**不在白名单** ✗ ⇒
+    #   前端"回测配置"页存这 4 个键会被 `save()` **静默过滤** ✗（只能手改 yaml ✓）。
+    #   ⚠️ 它们**只在 yaml 有**（DB 无对应列 ✓ ⇒ 不镜像 ✓，同上面 4 键 ✓）。
+    'adx_entry_mode',      # range（默认 ✓）/ band ✓
+    'adx_entry_range',     # ★ **[下限, 上限]** ✓（默认 [21, 30] ✓，**开区间** ✓）
+    'adx_entry_bands',     # 仅 `band` 口径用 ✓（默认 ['明确'] ✓）
+    'adx_dir_mode',        # 方向口径 ✓（默认 two_day ✓）
+    # ★★【2026-09-30 用户要求 ✓】**个股放行新增「`close(T-1) > MA20`」** ✗→✓ ★★
+    #   用户原话 ✓："**个股放行过滤增加 t-1(close) > ma20**" ✓
+    #   ⚠️ **只约束首仓** ✗✓（加仓仍只看 `dir=上升` ✓ —— 用户 2026-09-29 定稿 ✓）
+    #   ⚠️ 默认 **true** ✓（= 用户要的口径 ✓）；置 `false` = **旧行为** ✓（A/B 对比用 ✓）
+    'adx_entry_require_above_ma',
+    'adx_entry_ma_period',         # ★ MA 周期 ✓（默认 20 ✓ = 用户原话 `MA20` ✓；2~250 ✓）
+    # ★★【2026-10-04 用户要求 ✓】**加仓也判 `close(T-1) > MA20`** ✗→✓（用户答"需要" ✓）★★
+    #   ⚠️ **独立于首仓** ✗✓（`adx_entry_require_above_ma` ✓）——
+    #     加仓口径你 2026-09-29 定稿过"只看 `dir=上升`" ✓ ⇒ 必须能**各自 A/B / 各自回退** ✓
+    'adx_add_require_above_ma',
+    # ★【2026-09-28 用户口径 ✓】**大盘（指数）参数** ✓（供「当日仓位上限」用 ✓）
+    #   ⚠️ 原「大盘 ADX 硬闸门」**已整体取消** ✗（"由仓位上限总控"✓）
+    #     ⇒ `enable_index_adx_filter` / `index_adx_entry_threshold` 两键**已删除** ✗
+    'index_adx_code',               # 指数代码 ✓（默认与大盘路由同指数 ✓）
+    'index_adx_dir_mode',           # 大盘方向口径 ✓（默认回落 `adx_dir_mode` ✓）
+    # ★【2026-09-28 用户口径 ✓】**当日仓位上限** ✓（**仅开新仓** ✓；阈值/比例可配 ✓）
+    'enable_index_position_cap',    # 总开关 ✓（默认关 ✗；`adx` 模式预设开 ✓）
+    # ★【2026-09-29 用户要求 ✓】**不开新仓当日是否跳过"选股执行"**（**性能开关** ✓，
+    #   `true`（默认 ✓）= 直接返回选股结果 0 ✓；`false` = 旧行为（选股/评分照跑、结果置 0 ✓）
+    #   ⇒ **A/B 对比用** ✗✓（跳过会让当日本该入池的候选不进池 ✗ ⇒ 次日买入集可能不同 ✓）
+    'skip_selection_when_no_new_position',
+    'index_cap_high_adx',           # 规则1：ADX > 25 ✓
+    'index_cap_high_ratio',         # 规则1：上限 100% ✓
+    'index_cap_low_adx',            # 规则2：ADX < 18 ✓
+    'index_cap_low_ratio',          # 规则2：上限 50% ✓
+    'index_cap_other_ratio',        # 兜底上限 ✓（18~25 / dir≠上升 / 缺数据 ✓）
+    # ★★【2026-09-30 用户要求 ✓】**规则2 的附加条件** ✗→✓ ★★
+    #   用户原话 ✓："大盘仓位控制规则：**adx<18 时增加条件，dir 上升，而且 >ma20**" ✓
+    #   ① 满足 ⇒ 规则2 的 50% 档 ✓；② 不满足（**收盘 ≤ MA20** ✓ / MA 不足 ✓）⇒ 落**兜底**档 ✓
+    #   ⚠️ 默认 **true** ✓（= 用户要的口径 ✓）；置 `false` = **旧行为** ✓（`ADX<18 ∧ 上升` 即 50% ✓）
+    #      —— 供 **A/B 对比** ✓
+    'index_cap_low_require_above_ma',
+    'index_cap_ma_period',          # ★ MA 周期 ✓（默认 20 ✓ = 用户原话 `MA20` ✓；2~250 ✓）
+    # ★★【2026-10-05 用户要求 ✓】**板块回退**（全A 不放行 ⇒ 看科创板/创业板）✗→✓ ★★
+    #   用户原话 ✓："全a 不放行（兜底为 0）时，如果科创板或者创业板 adx 符合放行规则，
+    #     则按部分放行（规则2）执行，但买入股票需要符合对应的指数" ✓
+    #   ★ **同日二次调整** ✓："**保留规则，但科创板和创业板同时放行时 ⇒ 整体不放行**" ✓
+    #     （该细则在判定层实现 ✓：`board_release_cap` / `any_board_release` ✓，
+    #       **不引入新配置** ✗ ⇒ 白名单无需增减 ✓）
+    'index_cap_board_fallback',     # ★ 开关 ✓（默认 **开** ✓；false ⇒ 旧行为 ✓ = 全部不买 ✓）
+    'index_cap_star_code',          # ★ 科创板用哪个指数 ✓（默认 000688.SH 科创50 ✓）
+    'index_cap_chinext_code',       # ★ 创业板用哪个指数 ✓（默认 399006.SZ 创业板指 ✓）
 )
 
 #: 允许出现在**节外（顶层 ✓ 缩进 0）**的键 ✓（`backtest_mode` 顶部那个 ✓）
@@ -230,7 +280,18 @@ def _update_block(text: str, values: Dict) -> Tuple[str, list]:
         rest = m.group(3)
         cm = re.search(r'\s+#', rest)
         comment = rest[cm.start():] if cm else ''
-        new_line = f'{key}{m.group(2)}{token}{comment}'
+        # ★★【2026-10-05 修复 ✓】**必须保留行尾换行** ✗→✓ ★★
+        #   事故 ✗✓（今日实测 ✓）：本分支**漏了 `eol`** ✗ —— 而 `re.match(..., ln)` 里
+        #     `.` **不匹配换行**且 `$` 落在换行前 ✗ ⇒ `m.group(3)`（连同 `comment`）
+        #     **永远不含 `\n`** ✗✓ ⇒ 写出的 `new_line` **没有换行** ✗
+        #     ⇒ 下一次保存时**把下面一行粘上来** ✗ ⇒ 每保存一次粘一行 ✗✓✓
+        #     ⇒ 实测把 `backtest_mode:` 后面的**整段注释**逐次粘成一行 ✗，
+        #       最后连 `backtest:` 行也被吞进注释 ✗ ⇒ **整份 YAML 解析失败** ✗
+        #       ⇒ 批量回测两个任务全 failed ✗（报错坐标 24,1 / 25,3 ✓）。
+        #   ⚠️ 为什么只有顶层键中招 ✗✓：缩进分支（`_update_block` ①）**本来就有 `eol`** ✓
+        #     ⇒ **只有 `backtest_mode` 这一个顶层键会粘行** ✗✓（与被粘位置完全吻合 ✓）。
+        eol = '\n' if lines[i].endswith('\n') else ''    # ⚠️ **必须保留行尾换行** ✗✓
+        new_line = f'{key}{m.group(2)}{token}{comment}{eol}'
         if new_line != lines[i]:
             lines[i] = new_line
             changed.append(key)
@@ -256,6 +317,30 @@ def save(values: Dict, mirror_db: bool = True) -> Dict:
         text = _read_text()
         new_text, changed = _update_block(text, vals)
         if changed and new_text != text:
+            # ★★【2026-10-05 加固 ✓】**写坏就绝不落盘** ✗→✓（宁可失败，也不写坏配置 ✗✓）★★
+            #   事故 ✗✓（今日 ✓）：写入方**吃掉换行** ⇒ 把注释一行行粘上来 ✗ ⇒
+            #     最后连 `backtest:` 行都被吞进注释 ✗ ⇒ **整份 YAML 解析失败** ✗
+            #     ⇒ `load_engine_yaml()` 返回空 ✗ ⇒ 回测**全失败** ✗（用户侧只看到
+            #       "while parsing a block mapping" ✗，与"参数没生效"✗ 两种症状并存 ✗）。
+            #   ⇒ 与本项目既有取向一致（同 `utils/backtest_data_gate.py` 的
+            #     "**宁可失败，也不产出看起来正常的结果**" ✗✓）：
+            #     写盘**前**先 `yaml.safe_load` 校验新文本 ✓ —— **解析不过 ⇒ 直接拒绝写入** ✗
+            #     （原文件**一字不动** ✓，并把原因如实报回 ✓），而不是"写进去、事后才发现"✗。
+            #   ⚠️ 校验失败时**同时跳过 DB 镜像** ✗✓：否则 yaml（旧值 ✓）与 DB（新值 ✗）
+            #     会**静默不一致** ✗ —— 那是最难查的一类问题 ✗✓。
+            ok, err = True, ''
+            try:
+                import yaml as _yaml
+                _yaml.safe_load(new_text)
+            except Exception as e:                     # noqa: BLE001 —— 任何解析失败都拒写 ✓
+                ok, err = False, str(e)
+            if not ok:
+                res['error'] = (f'新写入的 yaml **无法解析** ✗ ⇒ **已拒绝写入**（原文件未改 ✓）：'
+                                f'{err}')
+                logger.error(f'【回测参数】写入前 YAML 校验失败 ✗ ⇒ **拒绝落盘**（原文件未改 ✓）：'
+                             f'{err}\n  ⚠️ 这不是你的操作问题 ✓ —— 请把本条日志反馈给开发者 ✗✓'
+                             f'（历史上"吃掉换行 ⇒ 粘行 ⇒ `backtest:` 被吞"✗ 正是这一类 ✗）。')
+                return res                             # ★ 早退：不写文件、不镜像 DB ✓
             try:
                 fd, tmp = tempfile.mkstemp(dir=str(YAML_PATH.parent),
                                            prefix='.btcfg-', suffix='.tmp')

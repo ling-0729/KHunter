@@ -53,8 +53,70 @@ def load_gaps(path: Optional[str] = None) -> Dict[str, Dict[str, Dict]]:
 
 
 def known_gap_dates(domain: str, path: Optional[str] = None) -> set:
-    """某采集器的**已登记源侧缺口日期**集合 ✓"""
-    return set((load_gaps(path).get(domain) or {}).keys())
+    """某采集器的**已登记源侧缺口日期**集合 ✓（**整日**口径 ✓）
+
+    ⚠️【2026-09-28】只取 `YYYY-MM-DD` 形态的键 ✓ —— 登记表已扩展**个股级**区间
+    （`stock_gap_ranges:` ✓，见 `is_stock_source_gap` ✓），若不过滤 ✗ ⇒
+    那个**块名**会被当成"一个日期"✗ ⇒ 污染整日口径 ✗✓。
+    """
+    import re as _re
+    _is_date = _re.compile(r'^\d{4}-\d{2}-\d{2}$').match
+    return {k for k in (load_gaps(path).get(domain) or {}) if _is_date(str(k))}
+
+
+def stock_gap_ranges(domain: str, path: Optional[str] = None) -> List[Dict]:
+    """**个股级**源侧缺口区间 ✓（`<domain>: stock_gap_ranges: [...]` ✓）
+
+    ★【2026-09-28 新增 ✓】背景 ✗✓（用户实测 ✓，连续三只：`000862` / `000852` / `000893`）：
+      该批 **92 只**个股（`000004 … 000920`）在**同花顺**侧**整段断档** ✗：
+        · 本地**形态完全同构** ✓ —— 每只 **52 行**（`2024-12-24 ~ 2025-03-14` ✓）、
+          `2025-03-15 ~ 2026-03-09` **整段为空** ✗、`2026-03-10` 起恢复 ✓；
+        · **直连源探测**（2026-09-28 ✓）3 只 × 3 时点 ✓：
+          `20250110~0117` ⇒ **6 行** ✓、`20250610~0617` ⇒ **0 行** ✗、
+          `20260224~0309` ⇒ **0 行** ✗ ⇒ **源端本就没有** ✗（**不可补采** ✗）。
+      ⇒ 既有"整日"登记**表达不了个股** ✗（登记那 6 天会**连累**另外 5000 只 ✗✗），
+        故扩出本结构 ✓。
+
+    Returns:
+        `[{'from': 'YYYY-MM-DD', 'to': 'YYYY-MM-DD', 'codes': [...], 'reason': …,
+           'evidence': …}, …]` ✓（**保持登记顺序** ✓；结构非法项**跳过** ✗ 并告警 ✓）
+    """
+    raw = (load_gaps(path).get(domain) or {}).get('stock_gap_ranges')
+    out: List[Dict] = []
+    for item in (raw if isinstance(raw, list) else []):
+        if not isinstance(item, dict):
+            continue
+        _from, _to = str(item.get('from') or '')[:10], str(item.get('to') or '')[:10]
+        codes = [str(c).split('.')[0] for c in (item.get('codes') or []) if c]
+        if not (_from and _to and codes):
+            logger.warning(f'个股级缺口登记项结构非法（已跳过 ✗）: {item}')
+            continue
+        out.append({'from': _from, 'to': _to, 'codes': codes,
+                    'reason': item.get('reason') or '',
+                    'evidence': item.get('evidence') or ''})
+    return out
+
+
+def is_stock_source_gap(domain: str, code: str, date_str: str,
+                        path: Optional[str] = None) -> bool:
+    """该 `(股票, 日期)` 是否属**已登记**的个股级源侧缺口 ✓（**只读** ✓，永不抛 ✗）"""
+    c = str(code or '').split('.')[0]
+    d = str(date_str or '')[:10]
+    if not c or not d:
+        return False
+    for r in stock_gap_ranges(domain, path):
+        if r['from'] <= d <= r['to'] and c in r['codes']:
+            return True
+    return False
+
+
+def describe_stock_gap(domain: str, date_str: str, path: Optional[str] = None) -> str:
+    """取覆盖该日期的**个股级**登记说明 ✓（供日志 ✓；无则 `''` ✓）"""
+    d = str(date_str or '')[:10]
+    for r in stock_gap_ranges(domain, path):
+        if r['from'] <= d <= r['to']:
+            return f'{r["from"]} ~ {r["to"]}（{len(r["codes"])} 只）: {r["reason"] or "未说明"}'
+    return ''
 
 
 def describe(domain: str, date_str: str, path: Optional[str] = None) -> str:

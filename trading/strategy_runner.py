@@ -296,9 +296,10 @@ class StrategyRunner:
             
             # 保存资金流向规则配置
             self._fund_flow_rules = yaml_config.get('fund_flow_rules', {})
-            logger.info(f"加载资金流向移除规则: enabled={self._fund_flow_rules.get('is_enabled', False)}, "
-                       f"min_hold_days={self._fund_flow_rules.get('min_hold_days', 1)}"
-                       f"（判定条件与资金面一票否决一致，net_flow_threshold 已废弃）")
+            # 【2026-09-28 减噪 ✗→✓】配置装载属细节 ⇒ 降 `debug` ✓（含"已废弃"字样 ✓）
+            logger.debug(f"加载资金流向移除规则: enabled={self._fund_flow_rules.get('is_enabled', False)}, "
+                         f"min_hold_days={self._fund_flow_rules.get('min_hold_days', 1)}"
+                         f"（判定条件与资金面一票否决一致，net_flow_threshold 已废弃）")
             
             config_map = {}
             strategies = yaml_config.get('removal_strategies', {})
@@ -942,17 +943,23 @@ class StrategyRunner:
         strategy_display_name = strategy.name if strategy else strategy_name
         
         # 入池规则：简化模式下评分器只判一票否决（跳过所有维度打分）
-        from trading.pool_entry_rules import resolve_pool_entry_simplified
+        from trading.pool_entry_rules import (POOL_ENTRY_MODE_VETO_ONLY,
+                                              resolve_pool_entry_mode,
+                                              resolve_pool_entry_simplified)
 
-        _simplified = resolve_pool_entry_simplified(
-            getattr(self, 'config', None) or {}, self._load_engine_config())
+        _cfg = getattr(self, 'config', None) or {}
+        _ec = self._load_engine_config()
+        _simplified = resolve_pool_entry_simplified(_cfg, _ec)
+        # ★【2026-09-27 用户口径 ✓】`veto_only` ⇒ **真的不算分** ✗（与回测**同口径** ✓）
+        _veto_only = (resolve_pool_entry_mode(_cfg, _ec) == POOL_ENTRY_MODE_VETO_ONLY)
 
         # 使用回测评分器进行批量评分
         scored_stocks = self.score_calculator.calculate_batch_scores(
             stocks=stocks,
             score_date=current_date,
             strategy_name=strategy_display_name,
-            simplified=_simplified
+            simplified=_simplified,
+            veto_only=_veto_only,
         )
         
         return scored_stocks
@@ -998,23 +1005,49 @@ class StrategyRunner:
         
         logger.info(f"【停牌过滤】过滤后剩余 {len(active_stocks)} 只可交易股票")
         
-        # 评分（仅对可交易股票评分）
-        logger.info(f"开始对 {len(active_stocks)} 只可交易股票进行评分")
-        scored_stocks = self._score_stocks(active_stocks, strategy_name, current_date)
-        
-        # 记录每只股票的综合评分（与回测引擎一致）
-        logger.info("\n股票评分详情:")
-        for stock in scored_stocks:
-            logger.info(f"  - {stock['stock_code']} {stock['stock_name']}: 综合评分={stock['score']}，否决标志={stock.get('veto_flag', False)}")
-        
         # 筛选：入池规则（与回测共用，见 trading/pool_entry_rules.py）
-        from trading.pool_entry_rules import filter_candidates, resolve_pool_entry_simplified
+        from trading.pool_entry_rules import (filter_candidates,
+                                              resolve_pool_entry_mode,
+                                              resolve_pool_entry_simplified,
+                                              should_skip_scoring)
 
-        _simplified = resolve_pool_entry_simplified(
-            getattr(self, 'config', None) or {}, self._load_engine_config())
-        candidate_stocks = filter_candidates(scored_stocks, score_threshold, _simplified)
-        logger.info("【入池规则】" + ("简化：只剔除一票否决"
-                                     if _simplified else f"标准：评分>={score_threshold}"))
+        _cfg = getattr(self, 'config', None) or {}
+        _ec = self._load_engine_config()
+        _simplified = resolve_pool_entry_simplified(_cfg, _ec)
+        # ★【2026-09-27】实盘此前**漏传 `mode`** ✗ ⇒ `veto_only` 在实盘**不生效** ✗
+        #   （仍卡 `score_threshold` ✗，与"回测/实盘共用同一份配置 ✓"的既定口径矛盾 ✗）
+        _mode = resolve_pool_entry_mode(_cfg, _ec)
+
+        # ★★【2026-09-29 用户要求 ✓】`direct` ⇒ 实盘同样**跳过评分 + 不判否决** ✗→✓ ★★
+        #   ⚠️ **必须与回测同步** ✗✓：否则"回测直通、实盘仍被否决"✗ ⇒ 同一策略两种口径 ✗✓
+        #     （实盘与回测共用同一份 `config/backtest_engine_config.yaml` ✓，本就该一致 ✓）。
+        if should_skip_scoring(_cfg, _ec):
+            scored_stocks = []
+            for _s in active_stocks:
+                _s = dict(_s)                      # 不改调用方对象 ✓
+                _s['score'] = 0.0                  # 未评分 ⇒ 占位 0 ✓
+                _s['veto_flag'] = False            # 未判否决 ⇒ False ✓
+                scored_stocks.append(_s)
+            logger.info(f"【跳过评分】`pool_entry_mode=direct` ✓ ⇒ {len(scored_stocks)} 只"
+                        f"**不做五维评分、不判一票否决** ✗ ⇒ **直接入池** ✓")
+        else:
+            # 评分（仅对可交易股票评分）
+            logger.info(f"开始对 {len(active_stocks)} 只可交易股票进行评分")
+            scored_stocks = self._score_stocks(active_stocks, strategy_name, current_date)
+
+            # 记录每只股票的综合评分（与回测引擎一致）
+            logger.info("\n股票评分详情:")
+            for stock in scored_stocks:
+                logger.info(f"  - {stock['stock_code']} {stock['stock_name']}: 综合评分={stock['score']}，否决标志={stock.get('veto_flag', False)}")
+
+        candidate_stocks = filter_candidates(scored_stocks, score_threshold, _simplified,
+                                             mode=_mode)
+        logger.info("【入池规则】" + (
+            '`direct`（**直通入池** ✓）：策略选出**全部入池** ✓（无评分 ✗、无一票否决 ✗）'
+            if _mode == 'direct' else
+            ('`veto_only`（**去除评分** ✗）：只排除一票否决 ✓'
+             if _mode == 'veto_only' else
+             ("简化：只剔除一票否决" if _simplified else f"标准：评分>={score_threshold}"))))
         
         logger.info(f"\n筛选后待买入股票数: {len(candidate_stocks)}")
         if candidate_stocks:
@@ -1257,22 +1290,18 @@ class StrategyRunner:
             removal_config = self._get_strategy_removal_config(strategy_name)
             min_hold_days = removal_config.get('min_hold_days', 2)
             
-            # 计算持有天数
+            # 计算持有天数（★ **交易日** ✓ —— 2026-09-28 用户要求"**统一改为交易日**"✓；
+            #   ⚠️ 原为**日历天** ✗ ⇒ 跨周末/节假日"虚高"✗ —— 实测 `2025-12-31` 入池、
+            #   `2026-01-05` 检查 ⇒ 旧口径 **5** ✗（元旦 + 周末）vs 新口径 **1** ✓。
+            #   用 `_sorted_trading_dates` ✓ ⇒ **零联网** ✓、与前端 `days_in_pool` 同口径 ✓）
+            from utils.trade_date_utils import count_trading_days_between
             added_date = candidate.get('added_date', '')
-            # 计算持有天数：从加入日期到今天（不含加入当天）
-            # 例如：5月13日加入，5月14日检查，hold_days = 1
             if added_date:
                 if isinstance(added_date, datetime.datetime):
                     added_date = added_date.strftime('%Y-%m-%d')
-                try:
-                    added_dt = datetime.datetime.strptime(added_date, '%Y-%m-%d')
-                    if isinstance(current_date, datetime.datetime):
-                        hold_days = (current_date - added_dt).days
-                    else:
-                        current_dt = datetime.datetime.strptime(current_date, '%Y-%m-%d')
-                        hold_days = (current_dt - added_dt).days
-                except:
-                    hold_days = 0
+                hold_days = count_trading_days_between(
+                    added_date, current_date,
+                    getattr(self, '_sorted_trading_dates', None))
             else:
                 hold_days = 0
             
@@ -1653,16 +1682,43 @@ class StrategyRunner:
         Returns:
             引擎配置字典；文件缺失或读取失败时返回空字典，由调用方取默认值
         """
-        if getattr(self, '_engine_config_cache', None) is not None:
-            return self._engine_config_cache
-        
+        # ★★★★【2026-10-07 修复 ✓】**按文件 mtime 失效** ✗→✓ ★★★★
+        #   事故 ✗✓（用户反馈："**实盘模式下，入池方式和设置的参数不一致**"✗）：
+        #     · 本缓存原先**只写、从不失效** ✗ ⇒ 服务启动后**永久**用第一份内容 ✗；
+        #     · 用户在前端改了 `pool_entry_mode` / ADX 开关等 ✓ ⇒ **实盘仍按旧值跑** ✗✓
+        #       （本例：yaml 已是 `direct` ✓，实盘却仍 `veto_only` ✗ —— 与"不一致"完全吻合 ✓）；
+        #     · ⚠️ 保存配置时清的只是 `utils.backtest_mode._ENGINE_YAML_CACHE` ✓（**另一份**缓存 ✗）
+        #       ⇒ **清不到这里** ✗✓ ⇒ 只有重启才生效 ✗（这正是"改了看不到效果"的老坑 ✓）；
+        #     · ⚠️ 影响面比"入池"更广 ✗✓：本方法同时喂 **ADX 闸门** ✓ / **仓位上限** ✓ /
+        #       涨停检查等 ✓ ⇒ 缓存陈旧会**连带**让这些也停在旧值 ✗。
+        #   ⇒ 现每次调用比对 mtime ✓：变了就重读 ✓（`stat` 微秒级 ✓）
+        #     ⇒ **页面上改完即生效** ✓（不必重启 ✓），且日志（`describe` ✓）与实际一致 ✓。
         config_path = Path(__file__).resolve().parent.parent / "config" / "backtest_engine_config.yaml"
+        try:
+            _mtime = config_path.stat().st_mtime if config_path.exists() else None
+        except Exception:                    # ⚠️ stat 失败 ⇒ 当作"未知"⇒ 走缓存 ✓（不阻断 ✓）
+            _mtime = None
+        _cached = getattr(self, '_engine_config_cache', None)
+        if _cached is not None and getattr(self, '_engine_config_mtime', None) == _mtime:
+            return _cached
         
         if config_path.exists():
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     yaml_config = yaml.safe_load(f) or {}
                 self._engine_config_cache = yaml_config
+                self._engine_config_mtime = _mtime      # ★ 记下这份缓存对应的 mtime ✓
+                # ★【2026-09-28 用户要求 ✓】**实盘**也要把"模式生效值"留痕 ✗→✓
+                #   背景 ✗✓：回测侧有 `log_backtest_params` ✓（打出三开关的生效值与来源 ✓），
+                #   而**实盘此前一行都没有** ✗ ⇒ 无法确认"实盘到底有没有按 `adx` 模式跑" ✗✓。
+                #   口径 ✓：① `self.config`（DB + yaml 节覆盖 ✓）> ② 本 yaml > ③ 模式预设 > ④ 硬默认 ✓。
+                #   ⚠️ 大盘路由**不在**本模式内 ✗（用户 2026-09-28 决定 ✓：仅自适应回测使用 ✓）。
+                try:
+                    from utils.backtest_mode import describe as _describe_mode
+                    logger.info('【实盘·模式】' + _describe_mode(
+                        getattr(self, 'config', None), yaml_config))
+                except Exception as _e:                    # 纯日志 ✓ ⇒ 绝不阻断启动 ✗
+                    logger.debug(f'模式日志输出失败（忽略 ✓）: {_e}')
                 logger.info(
                     f"加载回测引擎配置成功（{config_path}）: "
                     f"enable_limit_up_check="
@@ -1674,6 +1730,7 @@ class StrategyRunner:
             logger.warning(f"回测引擎配置文件不存在: {config_path}，使用默认值")
         
         self._engine_config_cache = {}
+        self._engine_config_mtime = _mtime                  # ★ 失败分支同样记 mtime ✓
         return self._engine_config_cache
     
     # 买入执行方式默认配置（与回测引擎 BacktestEngine.DEFAULT_BUY_EXECUTION 保持一致，
@@ -1860,6 +1917,13 @@ class StrategyRunner:
         """
         if not buy_date or not current_date:
             return 0
+        from utils.trade_date_utils import count_trading_days_between
+        # ★【2026-09-28 用户要求 ✓】**统一为交易日** ✓：
+        #   优先用**已加载**的交易日历 `_sorted_trading_dates` ✓（**零联网** ✓、且与
+        #   回测引擎 / 前端池页面 / 池移除**完全同口径** ✓）。
+        _seq = getattr(self, '_sorted_trading_dates', None)
+        if _seq:
+            return count_trading_days_between(buy_date, current_date, _seq)
         try:
             from utils.trade_date_utils import get_trading_days
             trading_days = get_trading_days(buy_date, current_date)
@@ -1867,10 +1931,10 @@ class StrategyRunner:
             return max(0, len(trading_days) - 1)
         except Exception as e:
             logger.debug(f"计算持有天数失败: {e}")
-            # 回退到简单日历天数计算
+            # ⚠️ 兜底（仅日历完全不可用时）：日历天 —— 会跨周末虚高 ✗，故**仅在最后**使用 ✓
             try:
-                buy_dt = datetime.datetime.strptime(buy_date, '%Y-%m-%d').date()
-                current_dt = datetime.datetime.strptime(current_date, '%Y-%m-%d').date()
+                buy_dt = datetime.datetime.strptime(str(buy_date)[:10], '%Y-%m-%d').date()
+                current_dt = datetime.datetime.strptime(str(current_date)[:10], '%Y-%m-%d').date()
                 return max(0, (current_dt - buy_dt).days)
             except:
                 return 0
@@ -4583,6 +4647,81 @@ class StrategyRunner:
                     #   开关 ✓：`enable_stock_adx_filter`（**默认关** ✗）+ `enable_add_open_rise_check`（默认开 ✓）
                     #   ⚠️ 与回测两处（`backtest_engine` / `regime_backtest_engine` ✓）**口径一致** ✓
                     _adx_cfg = self._load_engine_config()
+                    # ★★★★【2026-10-07 用户口径 ✓】**实盘用「信号日当天收盘」判大盘档位** ✗→✓ ★★★★
+                    #   用户原话 ✓①："实盘模式下，应该根据**当日收盘的 adx** 判定仓位，
+                    #     **现在是 t-1 的**" ✓
+                    #   用户原话 ✓②（时序定稿 ✓）："**T 日出信号，T+1 实盘时按即时价格成交**，
+                    #     **和回测一致**，信号的价格只是**参考价**" ✓
+                    #   ⇒ 两边**本质同一条** ✗✓（都是"**信号日当天收盘**"✓）：
+                    #     · **回测**：信号日 = T−1 ✓（内部取"严格早于执行日"✓），成交 = T 日开盘 ✓；
+                    #     · **实盘**：信号日 = T ✓，成交 = **T+1 即时价** ✓（信号价仅参考 ✓）。
+                    #   ⚠️ **只注入实盘这一处** ✗✓：普通回测 / 自适应回测**不注入** ✓
+                    #     ⇒ 它们**逐字不变** ✓（零回归 ✓，且**不会前视** ✗✓）。
+                    #   ⚠️ 且**尊重 yaml 显式值** ✗✓：若 yaml（**顶层**或 `backtest:` **节** ✓）
+                    #     已写 `index_cap_use_signal_day` ⇒ **以它为准** ✓（`is_explicit` 判 ✓，
+                    #     绝不硬覆盖 ✗）⇒ 想 A/B 回"前一根" ⇒ yaml 写 `false` ✓（免重启 ✓）。
+                    try:
+                        from trading.index_adx_filter import (
+                            DEFAULT_CAP_USE_SIGNAL_DAY as _CAP_TODAY)
+                        from utils.backtest_mode import is_explicit as _is_explicit
+                        if not _is_explicit('index_cap_use_signal_day', None, _adx_cfg):
+                            _adx_cfg = {**_adx_cfg,
+                                        'index_cap_use_signal_day': _CAP_TODAY}
+                    except Exception as _e:      # ⚠️ 注入失败 ⇒ 保持 T-1 ✓（绝不因此阻断 ✓）
+                        logger.debug(f'注入"实盘 T 日口径"失败（保持 T-1 ✓）：{_e}')
+                    # ---------- ★【2026-09-28 用户口径 ✓】**开新仓只由「当日仓位上限」总控** ----------
+                    #   原「大盘 ADX 硬闸门」**已整体删除** ✗（用户："这个规则取消，
+                    #     **由仓位上限总控**" ✓）；与回测**同一实现** ✓（`index_adx_filter` ✓）：
+                    #     大盘 `ADX>25 ∧ dir上升` ⇒ 100% ✓；`ADX<18 ∧ dir上升` ⇒ 50% ✓；
+                    #     **其他 ⇒ 0% ⇒ 不允许开仓** ✓；**持仓 ≥ 上限 ⇒ 停开新仓** ✓
+                    if timing_result.trade_type != 'add':
+                        # ★【2026-09-28 用户口径 ✓】**当日仓位上限** ✓（**仅约束开新仓** ✗加仓）
+                        #   ⚠️ **加仓不检查** ✗（`trade_type != 'add'` ✓ = 首仓 ✓，用户明确 ✓）
+                        #   ⚠️ 比例口径 ✓ 走**既有** `_calculate_current_position_ratio()` ✓
+                        #     （与实盘"连续温度风控"**同一口径** ✓；分母为 PTrade 权威总资产 ✓）
+                        from trading.index_adx_filter import (
+                            format_index_position_cap_result as _fmt_cap,
+                            index_position_cap_gate as _cap_gate_fn,
+                            is_index_position_cap_enabled as _cap_on)
+                        if _cap_on(_adx_cfg):
+                            # ★★【2026-10-07 修复 ✓】**改用"上限专用"口径** ✗→✓ ★★
+                            #   缘由 ✗✓：原先直接调 `_calculate_current_position_ratio()` ✓，
+                            #     而它在**拿不到 PTrade 权威总资产**时返回 **0.0（空仓）** ✗
+                            #     ⇒ 逐票闸门看到"空仓"⇒ **反而放行开新仓** ✗✓；
+                            #     而**回测**同场景返回 **1.0（满仓 ✓）** ⇒ 只**拦买** ✓
+                            #     ⇒ 两边**方向相反** ✗（回测/实盘口径分裂 = 本项目大忌 ✓）。
+                            #   ⚠️ 只改**上限这条路** ✗✓ —— "连续温度风控"仍用它原来的
+                            #     `_calculate_current_position_ratio()` ✓（不静默改别的行为 ✗；
+                            #     那一处的"失败⇒放松"✗ 另行记录 ✓，需要时单独决定 ✓）。
+                            _cur_ratio = self._current_position_ratio_for_cap()
+                            # ★【2026-10-07 ✓】口径**自证** ✓（日志能直接看出用的是 T 还是 T-1 ✓）
+                            try:
+                                from trading.index_adx_filter import (
+                                    resolve_cap_use_signal_day as _rsd)
+                                logger.info(
+                                    "【实盘·仓位上限口径】大盘档位 = **信号日当天收盘**"
+                                    f"{'（✓ 本次口径）' if _rsd(_adx_cfg) else '✗ 已关（取前一根 ✓）'}"
+                                    "｜实盘：T 日出信号 → **T+1 即时价成交**（信号价仅参考 ✓）；"
+                                    "回测：信号日 T−1 → T 日开盘成交 ✓ —— **两边同一条** ✓"
+                                    "；yaml `index_cap_use_signal_day: false` ⇒ 取前一根 ✓")
+                            except Exception:
+                                pass
+                            _capg = _cap_gate_fn(trade_date, _cur_ratio, _adx_cfg,
+                                                 stock_code=stock_code)   # ★ 板块回退 ✓
+                            if not _capg['passed']:
+                                logger.info(f"【买入检查】{trade_date} {stock_code} "
+                                            f"{stock_name} {_fmt_cap(_capg)}")
+                                # ★【2026-10-07 用户口径 ✓】把"**仅出加仓信号**"写进日志 ✓：
+                                #   仓位 ≥ 上限 或 档位 0% ⇒ **本次不开新仓** ✓，
+                                #   但**加仓不受本规则限制** ✓（`trade_type == 'add'` 不走
+                                #   本分支 ✓）⇒ 同一票若出加仓信号**照常执行** ✓。
+                                logger.info(
+                                    f"【仓位上限·仅加仓】{trade_date} {stock_code} "
+                                    f"{stock_name}：本票**本次不开新仓** ✗（上限已满/档位 0%）"
+                                    f"；**加仓不受本规则限制** ✓ ⇒ 若出加仓信号照常执行 ✓")
+                                continue
+                            logger.info(f"【仓位上限】{trade_date} {stock_code} "
+                                        f"{stock_name}: {_fmt_cap(_capg)}")
                     from trading.stock_adx_filter import (add_entry_gate,
                                                           adx_entry_gate)
                     _adx_gate = (add_entry_gate(df_to_date, stock_code, _adx_cfg,
@@ -4591,9 +4730,15 @@ class StrategyRunner:
                                  else adx_entry_gate(df_to_date, stock_code, _adx_cfg,
                                                      signal_date=trade_date))
                     if not _adx_gate['passed']:
+                        # ★【2026-09-28】实盘侧未通过也带 `ADX(T-1)` ✓（三处同口径 ✓）
+                        from trading.stock_adx_filter import format_gate_result
                         logger.info(f"【买入检查】{trade_date} {stock_code} {stock_name} "
-                                    f"ADX 闸门未通过 - {_adx_gate['reason']}")
+                                    f"{format_gate_result(_adx_gate)}")
                         continue
+                    # ★【2026-09-27 用户要求 ✓】**通过也要留痕** ✗✓（三处同口径 ✓）
+                    from trading.stock_adx_filter import format_gate_result
+                    logger.info(f"【ADX 闸门】{trade_date} {stock_code} {stock_name}: "
+                                f"{format_gate_result(_adx_gate)}")
 
                     # 根据交易类型决定买入数量计算方式
                     if timing_result.trade_type == 'add':
@@ -4865,6 +5010,32 @@ class StrategyRunner:
                 'position_ratio': 1.0
             }
     
+    def _current_position_ratio_for_cap(self) -> float:
+        """★【2026-10-07 新增 ✓】**仓位上限专用**的当前仓位比例 ✓（与**回测同口径** ✗✓）
+
+        用户口径 ✓（2026-10-07）：
+          · **仓位超过上限 ⇒ 仅出加仓信号** ✓；**低于上限 ⇒ 正常出信号** ✓
+            （⇒ 首次建仓须过 `index_position_cap_gate` ✓；加仓**不看上限** ✓）——
+            该行为实盘早已接好 ✓（见买入分支 `timing_result.trade_type != 'add'` ✓）；
+          · 本次补的是**口径一致性** ✗→✓：实盘原先直接复用
+            `_calculate_current_position_ratio()` ✓，而它**拿不到 PTrade 权威总资产时
+            返回 `0.0`（空仓）** ✗ ⇒ 闸门会**放行开新仓** ✗✓；
+            而**回测** `backtest_engine._current_position_ratio()` 在估值失败时返回
+            **`1.0`（满仓）** ✓ ⇒ **只拦买** ✓（源码注释写明"**只会拦买，不会误放行**"✓）
+            ⇒ 两边方向相反 ✗（回测/实盘分裂 ✓）。
+
+        ⇒ 现口径 ✓：**缺权威总资产 ⇒ 返回 `1.0`（满仓 ✓）** ⇒ **只拦新仓 ✓，绝不误放行** ✗✓
+          （与回测一致 ✓；并打 ERROR 便于归因 ✓）。
+        ⚠️ 只服务**仓位上限**这一条 ✗✓；"连续温度风控"仍走原方法 ✓（不静默改别的行为 ✗）。
+        """
+        total_assets = getattr(self, 'current_total_asset', None)
+        if not total_assets or total_assets <= 0:
+            logger.error(
+                "【仓位上限】未获取到 PTrade 权威总资产 ✗ ⇒ 按 **满仓 1.0** 处理 ✓"
+                "（保守：**只拦开新仓** ✓，绝不因缺数据误放行 ✗；与回测同口径 ✓）")
+            return 1.0
+        return self._calculate_current_position_ratio()
+
     def _calculate_current_position_ratio(self) -> float:
         """
         计算当前实际仓位比例
@@ -5009,6 +5180,33 @@ class StrategyRunner:
             config['score_threshold'] = score_threshold
             config['take_profit'] = take_profit
             config['stop_loss'] = stop_loss
+
+            # ★★【2026-09-28 用户要求 ✓】**实盘运行参数快照** ✗→✓（与回测**对称** ✓）★★
+            #   动机 ✗✓：回测有 `log_backtest_params`（本轮又加了 ADX 摘要 ✓），
+            #     而**实盘此前只有"模式"一行** ✗ ⇒ "回测/实盘参数不一致"只能靠猜 ✗
+            #     （用户要求："回测和实盘时都打印参数日志" ✓）。
+            #   · 非 ADX 项**在此显式**列出 ✓ —— 它们此刻**已解析完毕** ✓，是**真值** ✓
+            #     （不是在"有没有设置"✗）；
+            #   · ADX 一族调**共享** `describe_adx_params` ✓ ⇒ 与回测日志**逐字可比** ✓。
+            #   ⚠️ 纯日志 ✓ ⇒ 任何异常只记 `debug` ✗，**绝不**阻断实盘 ✓。
+            try:
+                logger.info('【实盘参数】' + ' | '.join([
+                    f'任务数={len(tasks)}',
+                    f'择时={tasks[0].get("timing_strategy", "support") if tasks else "-"}',
+                    f'initial_capital={initial_capital}',
+                    f'max_daily_buys={max_daily_buys}',
+                    f'score_threshold={score_threshold}',
+                    f'take_profit={take_profit}',
+                    f'stop_loss={stop_loss}',
+                    f'运行模式={getattr(self, "run_mode", "manual")}']))
+                from trading.stock_adx_filter import describe_adx_params as _desc_adx
+                logger.info('【实盘·ADX】' + _desc_adx(config))
+                # ★【2026-09-28 用户口径 ✓】**当日仓位上限** ✓（与回测**同一函数** ✓ ⇒ 逐字可比 ✓）
+                from trading.index_adx_filter import (
+                    describe_index_position_cap_params as _desc_cap)
+                logger.info('【实盘·仓位上限】' + _desc_cap(config))
+            except Exception as _e_snap:
+                logger.debug(f'实盘参数快照输出失败（忽略 ✓）: {_e_snap}')
             
             # 确定工作日期
             working_date = self.get_working_date()
@@ -5281,6 +5479,7 @@ class StrategyRunner:
             buy_signals = self._execute_buy_operations(working_date, initial_capital)
             
             # 构建当日记录
+            from utils.trade_date_utils import count_trading_days_between   # ★ 池内天数=交易日 ✓
             signals = sell_signals + buy_signals
             daily_record = {
                 "date": working_date,
@@ -5302,8 +5501,13 @@ class StrategyRunner:
                         "code": candidate['stock']['stock_code'],
                         "name": candidate['stock']['stock_name'],
                         "score": candidate['stock'].get('score', 0),
-                        "days": (datetime.datetime.strptime(working_date, '%Y-%m-%d') - 
-                                datetime.datetime.strptime(candidate.get('added_date', working_date), '%Y-%m-%d')).days + 1,
+                        # ★【2026-09-28】池内天数**统一为交易日** ✓（含**入池当天** ⇒ `+1` ✓）
+                        #   —— 与前端池页面 `days_in_pool`（`web_server.py` ✓）**同口径** ✓；
+                        #   原为"**日历天 + 1**"✗ ⇒ 跨周末/假期虚高 ✗（实测：`2025-12-31`
+                        #   入池 → `2026-01-05` ⇒ 旧 **6** ✗ vs 新 **2** ✓）。
+                        "days": count_trading_days_between(
+                            candidate.get('added_date', working_date), working_date,
+                            getattr(self, '_sorted_trading_dates', None)) + 1,
                         "added_date": candidate.get('added_date', working_date),
                         "support_level": candidate.get('support_level', 0),
                         "support_method": candidate.get('support_method', ''),

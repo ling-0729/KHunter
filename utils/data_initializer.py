@@ -111,7 +111,12 @@ class DataInitializer:
                 logger.info(f"基础数据保存完成: 成功 {success_count} 只, 失败 {failed_count} 只")
         
         except Exception as e:
-            logger.error(f"初始化基础数据失败: {e}")
+            # ★【2026-10-07 用户要求 ✓】**无权限 ⇒ 跳过** ✗→✓（不要表现为"故障 ✗"）
+            from utils.online_guard import is_permission_error
+            if is_permission_error(e):
+                logger.warning(f"⏭ 跳过基础数据初始化：**数据源无权限** ✗（不中断 ✓）: {e}")
+            else:
+                logger.error(f"初始化基础数据失败: {e}")
     
     # ==================== K线数据初始化 ====================
     

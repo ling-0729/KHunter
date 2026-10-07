@@ -237,6 +237,10 @@ def build_turtle_family_params(config: Dict, timing_params: Dict,
 TURTLE_CONFIG_BLOCK = 'TurtleStrategy'
 
 # 代码内兜底默认（yaml 缺失/读取失败时使用）＝ 短线海龟 10/5/10 ✓
+# ★【2026-10-01 用户要求 ✓】"**改回 10/5/10**" ✓（12/6/12 试过一版 ⇒ 已回退 ✓）
+#   ⚠️ 必须与 `config/strategy_params.yaml` 的 `TurtleStrategy.params` ✓ 与
+#     `turtle_strategy.SHORT_TURTLE_PRESET` ✓ **三层保持一致** ✗✓
+#     —— 项目历史上正是"三层不一致"✗ 导致批量回测与单次回测收益差一倍 ✗✓（见上方背景 ✓）。
 TURTLE_DEFAULT_PARAMS = {
     'n_entry': 10, 'n_exit': 5, 'atr_period': 10,
     'entry_atr': 0.02, 'add_atr': 0.5, 'exit_atr': 2.0,
@@ -265,7 +269,7 @@ def load_turtle_family_params(timing_strategy: str, config_manager=None) -> Dict
       · turtle / turtle_plus → yaml 的 `TurtleStrategy.params`（**同一份** ✓）
       · low_turtle           → 自身固定口径（1/6/12、无 MA20 过滤 ✓），不参与共享块 ✓
       · 非海龟类             → 返回 {}（调用方忽略注入 ✓）
-      · 读取失败 / 块缺失    → 退回 TURTLE_DEFAULT_PARAMS（10/5/10 ✓），并告警 ✓
+      · 读取失败 / 块缺失    → 退回 TURTLE_DEFAULT_PARAMS（**10/5/10** ✓），并告警 ✓
 
     Args:
         timing_strategy: 择时策略名（turtle / low_turtle / turtle_plus / 其它）

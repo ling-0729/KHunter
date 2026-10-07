@@ -30,6 +30,17 @@ _CACHE_LOCK = threading.RLock()
 _AUTHORITY_CACHE = {'dates': None, 'fetched_at': 0.0}
 _AUTHORITY_TTL = 6 * 3600  # 权威日历进程内缓存 6 小时
 
+#: ★【2026-09-27 用户口径】权威日历**只保留最近 N 年** ✓
+#:   · 原行为 ✗：直接吃 `ak.tool_trade_date_hist_sina()` 全量（**1990-12-19 起 8797 日** ✗）
+#:   · 动机 ✗✓：系统回测/校验只涉及近年 ✓ ⇒ 全量列表在**内存 / 校验 / 日志**上都无谓 ✗
+#:   · ⚠️ 该接口**只提供全量** ✗（无法按区间下载 ✗）⇒ 本常量只裁**保留窗口** ✓，
+#:     **网络与接口耗时不变** ✗（仅省内存与日志噪音 ✓）
+#:   · ⚠️ 若请求区间**早于**本窗口 ⇒ 权威源无数据 ⇒ 退化为「**无法校验**」✓
+#:     （WARNING ✓ **不静默通过** ✓），仍可落到 `tushare` / 本地缓存 ✓
+AUTHORITY_YEARS = 3
+#: 权威日历**取数互斥** ✓ —— 实测首载会被并发调用 3 次（同秒 3 条相同 INFO ✗）
+_AUTHORITY_LOCK = threading.Lock()
+
 
 def _get_cache_file() -> str:
     """获取交易日历缓存文件路径"""
@@ -259,12 +270,16 @@ def is_trading_day(date_str: str) -> bool:
     #    冷却池天数、持仓天数、前一交易日等）。现改为：权威日历优先；确实查不到
     #    任何来源时**报错**，绝不静默返回 False ✓
     authority, auth_src = get_authoritative_dates(display_str, display_str)
-    if authority:
+    # ★【2026-09-27 修复】权威源**明确回答**"该日无交易"（空列表 ✓，如**周末/节假日** ✓）
+    #   时必须**返回 False** ✗ —— 此前把"空"一律当"权威不可用"✗ ⇒ 每逢节假日
+    #   （实测 `2026-09-25` 中秋 ✓）都会落到 Tushare ✗ 并因**返回空**再报错 ✗✗。
+    #   ⇒ 只有 `cache`/`none`（= **真的无法服务** ✓）才继续走 Tushare ✓。
+    if authority or auth_src in ('akshare', 'tushare'):
         if display_str in set(authority):
             save_trading_dates([display_str], source=f'is_trading_day:{auth_src}')
             logger.debug(f"{auth_src} 确认 {display_str} 是交易日")
             return True
-        logger.debug(f"{auth_src} 确认 {display_str} 不是交易日")
+        logger.debug(f"{auth_src} 确认 {display_str} 不是交易日（含周末/节假日 ✓）")
         return False
 
     # 3. 权威日历不可用 → 退回 Tushare 单日查询
@@ -339,15 +354,43 @@ def _fetch_tushare_dates(start_str: str, end_str: str) -> Optional[List[str]]:
         return None
 
 
+def _trim_recent_years(dates: List[str], years: int = AUTHORITY_YEARS,
+                       today: Optional[str] = None) -> List[str]:
+    """只保留**最近 `years` 年**（`>= today − years` ✓，含边界 ✓）
+
+    · `years <= 0` / 空输入 ⇒ **原样返回** ✓（可关闭裁剪 ✓）
+    · `today` 可注入 ✓ ⇒ **可单测** ✓（不依赖当前日期 ✓）；非法日期 ⇒ 原样返回 ✓
+    · 纯函数 ✓：不触网、不读缓存 ✓
+    """
+    if not dates or not years or int(years) <= 0:
+        return list(dates or [])
+    anchor = (today or datetime.now().strftime('%Y-%m-%d'))[:10]
+    try:
+        d0 = datetime.strptime(anchor, '%Y-%m-%d')
+        try:
+            # ★ 按**日历年**精确回溯 ✓（不用 `365.25×N` ✗ —— 那会差 1 天 ✗，实测踩过 ✓）
+            cut = d0.replace(year=d0.year - int(years))
+        except ValueError:            # 2-29 落在非闰年 ✓ ⇒ 收敛到 2-28 ✓
+            cut = d0.replace(year=d0.year - int(years), day=28)
+        cutoff = cut.strftime('%Y-%m-%d')
+    except Exception:
+        return list(dates)
+    return [d for d in dates if d >= cutoff]
+
+
 def get_akshare_dates(force: bool = False) -> Optional[List[str]]:
-    """获取 **akshare 全量交易日历**（权威源，无需 token；已含法定节假日）
+    """获取 **akshare 交易日历**（权威源，无需 token；已含法定节假日）
 
     用作"完整性基准"：任何来源的区间结果都可与它比对，检出**局部缺日** ✗
     （这是此前 `_calendar_coverage_insufficient` 那种"只看总数占比"判据
       检不出来的失败模式 ✗ —— 本次 2026-01 空洞类问题即属此类）。
 
+    ★【2026-09-27 用户口径 ✓】**只保留最近 `AUTHORITY_YEARS`（3）年** ✓
+      —— 接口只提供全量 ✗ ⇒ 收到后**裁窗口** ✓（详见常量注释 ✓）。
+
     Args:
         force: 是否强制刷新（忽略进程内 6 小时缓存）
+        （并发安全 ✓：`_AUTHORITY_LOCK` 双检 ✓，避免首载被并发拉多次 ✗）
 
     Returns:
         List[str] 或 None（akshare 不可用）
@@ -356,20 +399,31 @@ def get_akshare_dates(force: bool = False) -> Optional[List[str]]:
     if (not force and _AUTHORITY_CACHE['dates']
             and (now - _AUTHORITY_CACHE['fetched_at']) < _AUTHORITY_TTL):
         return _AUTHORITY_CACHE['dates']
-    try:
-        import akshare as ak
-        df = ak.tool_trade_date_hist_sina()
-        raw = [str(x) for x in df['trade_date'].tolist()]
-        dates = sorted({x if '-' in x else f"{x[:4]}-{x[4:6]}-{x[6:8]}" for x in raw})
-        if dates:
-            _AUTHORITY_CACHE['dates'] = dates
-            _AUTHORITY_CACHE['fetched_at'] = now
-            logger.info(f"权威交易日历（akshare）加载完成: {len(dates)} 日 "
-                        f"({dates[0]} ~ {dates[-1]})")
-            return dates
-    except Exception as e:
-        logger.warning(f"akshare 交易日历不可用（将退回 Tushare/本地缓存校验）: {e}")
-    return None
+    with _AUTHORITY_LOCK:
+        # 双检 ✓：等锁期间别人可能已填好（实测同秒 3 条相同日志 ✗）
+        now = time.time()
+        if (not force and _AUTHORITY_CACHE['dates']
+                and (now - _AUTHORITY_CACHE['fetched_at']) < _AUTHORITY_TTL):
+            return _AUTHORITY_CACHE['dates']
+        try:
+            import akshare as ak
+            df = ak.tool_trade_date_hist_sina()
+            raw = [str(x) for x in df['trade_date'].tolist()]
+            full = sorted({x if '-' in x else f"{x[:4]}-{x[4:6]}-{x[6:8]}" for x in raw})
+            if full:
+                dates = _trim_recent_years(full, AUTHORITY_YEARS)
+                if not dates:              # 极端：窗口内无数据 ⇒ 退回全量 ✓（不空手 ✗）
+                    dates = full
+                _AUTHORITY_CACHE['dates'] = dates
+                _AUTHORITY_CACHE['fetched_at'] = now
+                logger.info(f"权威交易日历（akshare）加载完成: {len(dates)} 日 "
+                            f"({dates[0]} ~ {dates[-1]}) ✓ —— **只保留最近 "
+                            f"{AUTHORITY_YEARS} 年** ✓（原始 {len(full)} 日 / "
+                            f"{full[0]} 起 ✗；接口只提供全量 ⇒ 仅裁保留窗口 ✗）")
+                return dates
+        except Exception as e:
+            logger.warning(f"akshare 交易日历不可用（将退回 Tushare/本地缓存校验）: {e}")
+        return None
 
 
 def get_authoritative_dates(start_date: Optional[str] = None,
@@ -394,7 +448,18 @@ def get_authoritative_dates(start_date: Optional[str] = None,
 
     ak_dates = get_akshare_dates()
     if ak_dates:
-        return _clip(ak_dates), 'akshare'
+        clipped = _clip(ak_dates)
+        # ★【2026-09-27】**先判"窗口是否覆盖请求区间"** ✗✓（实测 `2026-09-25` 中秋 ✓）：
+        #   · **覆盖** ✓ ⇒ 裁剪结果**就是权威答案** ✓ —— **空也采信** ✓
+        #     （区间内确实没有交易日：周末/节假日 ✓；若在此处"空则回退"✗，
+        #      就会把**节假日**误判成"权威不可用"✗ ⇒ `is_trading_day` 直接报错 ✗✗）
+        #   · **不覆盖**（区间早于窗口 ✗）⇒ akshare **无法服务**该区间 ✓ ⇒ 继续 Tushare ✓
+        #     （这是"只保留近 N 年"的必要兜底 ✓）
+        _covered = True
+        if s8 and e8:
+            _covered = (start_date >= ak_dates[0] and end_date <= ak_dates[-1])
+        if clipped or _covered:
+            return clipped, 'akshare'
 
     if s8 and e8:
         ts_dates = _fetch_tushare_dates(s8, e8)
@@ -629,6 +694,51 @@ def get_trading_days_between(start_date: str, end_date: str) -> int:
         return 0
 
 
+def count_trading_days_between(start_date, end_date, trading_dates=None) -> int:
+    """统计 `(start, end]` 内的**交易日个数** ✓ —— 与 `get_trading_days_between` **同口径** ✓
+
+    ★【2026-09-28 用户要求 ✓】**统一改为交易日** ✗→✓：
+
+      · **入池/买入当日 = 0** ✓（例：`2025-12-31` 入池 ✓、`2026-01-05` 检查 ⇒ **1** ✓
+        —— 而旧的"日历天"算法给 **5** ✗✓，正是用户困惑"只加入 1 天却写持 5 日"的根因 ✗）；
+      · `start` **不含** ✓（入池当天不算持有 ✓）、`end` **含** ✓。
+
+    ⚠️ 为什么另写一个 ✗✓：`get_trading_days_between` 内部走 `get_trading_days` ✓，
+    而后者会**先尝试联网**（Tushare）✗ ⇒ **回测 / 离线**场景不可用 ✗（慢、且可能抛错 ✗）。
+    故本函数支持传入**已加载的交易日列表** ✓（回测引擎与实盘运行器的
+    `_sorted_trading_dates` ✓，升序 `YYYY-MM-DD` ✓）⇒ **零取数** ✓、纯内存 ✓、`bisect` ✓。
+
+    Args:
+        start_date: 起点 ✓（**不含** ✓；`date` / `YYYY-MM-DD` / `YYYYMMDD` ✓）
+        end_date: 终点 ✓（**含** ✓）
+        trading_dates: 升序交易日列表 ✓；`None` ⇒ 转调 `get_trading_days_between` ✓
+            （**会取数** ✓，仅用于非回测环境 ✓）
+
+    Returns:
+        int ✓：**不含当日** ✓ 的交易日个数；区间反向 / 取不到 ⇒ `0` ✓（**不抛** ✗）
+    """
+    def _norm(x) -> str:
+        if hasattr(x, 'strftime'):
+            return x.strftime('%Y-%m-%d')
+        s = str(x or '')
+        if '-' in s:
+            return s[:10]
+        return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if len(s) >= 8 else ''
+
+    s, e = _norm(start_date), _norm(end_date)
+    if not s or not e or s >= e:
+        return 0
+    if trading_dates is None:
+        return get_trading_days_between(s, e)
+    seq = sorted({_norm(d) for d in trading_dates if d})
+    if not seq:
+        return 0
+    import bisect
+    lo = bisect.bisect_right(seq, s)      # 第一个 > s ✓（不含起点 ✓）
+    hi = bisect.bisect_right(seq, e)      # 第一个 > e ✓（含终点 ✓）
+    return max(0, hi - lo)
+
+
 def get_previous_trading_day(date_str: str) -> str:
     """
     获取指定日期的前一个交易日
@@ -657,3 +767,56 @@ def get_previous_trading_day(date_str: str) -> str:
         logger.error("获取前一个交易日时出错: {}".format(e))
         # 返回默认值
         return date_str
+
+
+def resolve_end_date_for_data(end_date: str, now=None) -> Tuple[str, str]:
+    """把「**当日数据尚未产出**」的回测/选股终点**回退**到上一交易日 ✓
+
+    背景 ✗✓（2026-09-28 用户实测报障 ✓）：
+      2026-09-28 周一 **08:47**（**开盘前** ✗）跑批量回测 ⇒ 闸门报
+      `个股资金流向(stock_moneyflow_daily)：[moneyflow_ths] 缺 1 天: 2026-09-28` ✗。
+      根因 ✓：`utils/backtest_data_gate.py` 是**逐日**要求 `[起点, 终点]` 每个交易日的
+      **本地**数据齐备 ✓，而**当日**数据（资金流 / K 线 / 大盘 ADX ✓）
+      **收盘后才采集入库** ✗ ⇒ 只要终点 = **今天** ✓ 且现在**未收盘** ✗ ⇒ **必然**失败 ✗。
+      ⚠️ 且原报错文案是"去运行数据更新"✗ —— 08:47 时**根本取不到**当日数据 ✗✓（无效指引 ✗）。
+
+    规则 ✓（**与实盘选股完全同口径** ✓ —— 同规则另见 `web_server.py:989-1016` ✓）：
+      ① 终点 = **今天** 且**未过 15:01** ✓ ⇒ 回退 ✓（原因 `交易时段` ✓；
+         15:00 收盘时刻 K 线未生成 ✓，故 15:01 起才视为收盘后 ✓）
+      ② 终点**非交易日**（周末/节假日 ✓）⇒ 回退 ✓（原因 `非交易日` ✓）
+      ③ 其余 ✓（历史交易日 / 收盘后 ✓）⇒ **原样返回** ✓（原因 `''` ✓）
+         —— 那才是**真缺数据** ✗，继续由闸门硬拦 ✓，**绝不**掩盖 ✗
+
+    ⚠️ **只调终点** ✗：起点不动 ✓（起点早只是更保守 ✓，不会"少数据" ✓）。
+
+    Args:
+        end_date: 回测/选股终点 ✓（`YYYY-MM-DD` / `YYYYMMDD` ✓）
+        now: 测试注入 ✓；`None` ⇒ `datetime.now()` ✓
+
+    Returns:
+        (生效终点 ✓（`YYYY-MM-DD` ✓）, 回退原因 ✓（`''` = **未回退** ✓）)
+    """
+    if not end_date:
+        return end_date, ''
+    now = now or datetime.now()
+    raw = str(end_date)
+    try:
+        d = datetime.strptime(raw, '%Y-%m-%d' if '-' in raw else '%Y%m%d')
+    except Exception:
+        logger.warning("resolve_end_date_for_data 无法解析终点 {!r} ⇒ 原样返回".format(raw))
+        return raw, ''
+    eff = d.strftime('%Y-%m-%d')
+    today = now.strftime('%Y-%m-%d')
+    reason = ''
+    if eff == today and (now.hour < 15 or (now.hour == 15 and now.minute == 0)):
+        reason = '交易时段'
+    elif not is_trading_day(eff):
+        reason = '非交易日'
+    if not reason:
+        return eff, ''
+    prev = get_previous_trading_day(eff)
+    if not prev or prev == eff:
+        # 兜底 ✓：取不到上一交易日 ⇒ **不回退** ✗（交给闸门如实报错 ✓）
+        logger.warning("resolve_end_date_for_data 取不到 {} 的上一交易日 ⇒ 不回退".format(eff))
+        return eff, ''
+    return prev, reason

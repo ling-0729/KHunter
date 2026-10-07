@@ -405,7 +405,14 @@ class BacktestBatchQueue:
                 # 【2026-09-22 修复】同上：补上漏传的 avg_hold_days（否则落库恒为 0 ✗）
                 'avg_hold_days': result.get('performance', {}).get('avg_hold_days', 0),
                 'initial_capital': config.get('initial_capital', 300000),
-                'final_capital': final_capital
+                'final_capital': final_capital,
+                # ★【2026-10-03 用户要求 ✓】批量回测同样落库**主要参数设置情况** ✓
+                #   （与单次回测**同一实现** ✓：`build_param_snapshot` ✓）
+                #   ⚠️ 批量尤其需要 ✓ —— 批量常做**参数网格** ✗✓，若无快照
+                #     事后根本分不清每一行是用哪组参数跑出来的 ✗。
+                'param_snapshot': result.get('param_snapshot'),
+                'data_fingerprint': result.get('data_fingerprint'),
+                'data_gate': result.get('data_gate'),
             }
 
             # 直接保存新回测结果，不检查是否已存在

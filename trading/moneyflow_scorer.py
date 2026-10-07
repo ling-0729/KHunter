@@ -173,8 +173,10 @@ class MoneyflowScorer:
         #   · 覆盖：同花顺自 **2024-12-24** 起 ✓（实测 ✓）
         #     ⇒ 更早区间**暂不支持回测** ✗ —— 由数据闸门**明确拒绝** ✓，不静默出结果 ✗
         self.moneyflow_source = self._resolve_moneyflow_source()
-        # 记录初始化日志（改为debug级别，避免频繁输出）
-        logger.debug("资金面评分器初始化完成")
+        # 【2026-09-28 减噪 ✗→✓】原有一行"资金面评分器初始化完成"✗（先 INFO 后降 DEBUG ✗）——
+        #   实测**每个评分器实例都打一次** ✗ ⇒ 单日日志 **19,907 行** ✗✓（占全天 7% ✗）。
+        #   该行**零信息量** ✓（构造成功本就无需宣告 ✓，失败会直接抛错 ✗）
+        #   ⇒ **整行删除** ✓（DEBUG 级也删 ✗ —— 你的日志本就开着 DEBUG ✗，降级等于没降 ✗）。
 
     @staticmethod
     def _resolve_moneyflow_source() -> str:
@@ -199,7 +201,9 @@ class MoneyflowScorer:
                 config = json.load(f)
             # 优先使用 token 字段，兼容 api_key 字段
             token = config.get("token") or config.get("api_key", "")
-            logger.debug("Tushare token 加载成功")
+            # 【2026-09-28 减噪 ✗→✓】原 `logger.debug("Tushare token 加载成功")`✗ ——
+            #   实测**每实例一行**✗ ⇒ 单日 **19,922 行** ✗（DEBUG 级照样刷 ✗）⇒ 删除 ✓；
+            #   读取**失败**仍在下面 `warning` ✗（该留的信号一个不少 ✓）。
             return token
         except Exception as e:
             # 配置文件读取失败，返回空字符串
@@ -357,6 +361,7 @@ class MoneyflowScorer:
         #   故按登记表豁免 ✓，但：① WARNING 打印具体日期 ✓；② 期望天数同步下调 ✓；
         #   ③ 真漏采（未登记）**依旧报错** ✗ —— 豁免范围严格限定在登记表内 ✓
         from utils.data_collectors.source_gaps import split_window
+        self._last_gap_known_source = False      # ★ 每次**先复位** ✓，防上一次的判定泄漏 ✗
         expected_dates, gaps_in_window = split_window(window, self.moneyflow_source)
         if gaps_in_window:
             logger.warning(
@@ -366,10 +371,29 @@ class MoneyflowScorer:
         expected_dates = [d for d in window if d not in gaps_in_window]
         rows = load_window_rows(conn, code6, window, source=self.moneyflow_source)
         if len(rows) < len(expected_dates):
-            logger.warning(
-                f'本地资金流数据不足: {stock_code}@{score_date} '
-                f'期望 {len(expected_dates)} 日，实际 {len(rows)} 日 '
-                f'(缺失 {[d for d in expected_dates if d not in {r["trade_date"] for r in rows}]}) ✗')
+            _missing = [d for d in expected_dates if d not in {r['trade_date'] for r in rows}]
+            # ★【2026-09-28】**个股级**上游源侧缺口 ✓（实测 92 只 × `2025-03-15 ~ 2026-03-09` ✗）
+            #   ⇒ 属**已登记**的**永久**缺口 ✓ ⇒ 降为 **INFO** ✓（登记 ≠ 忽略 ✗：仍打日志 ✓、
+            #   仍**不参与**否决 ✓），并给上层留标记 ✓ 供其同样降级 ✓。
+            _known = False
+            try:
+                from utils.data_collectors.source_gaps import (describe_stock_gap,
+                                                               is_stock_source_gap)
+                _known = bool(_missing) and all(
+                    is_stock_source_gap(self.moneyflow_source, code6, d) for d in _missing)
+                if _known:
+                    logger.info(
+                        f'本地资金流缺失属**已登记上游源侧个股缺口** ✓ '
+                        f'{stock_code}@{score_date} 缺 {len(_missing)} 日 ⇒ 跳过资金流否决 ✓'
+                        f'（{describe_stock_gap(self.moneyflow_source, _missing[0])}）')
+            except Exception as _e:
+                logger.debug(f'个股级缺口判定异常（按未登记处理 ✗）: {_e}')
+            self._last_gap_known_source = _known
+            if not _known:
+                logger.warning(
+                    f'本地资金流数据不足: {stock_code}@{score_date} '
+                    f'期望 {len(expected_dates)} 日，实际 {len(rows)} 日 '
+                    f'(缺失 {_missing}) ✗')
             return None
         df = _pd.DataFrame(rows)
         # 【2026-09-26 方案 C ✓】**保留** `net_d5_amount` ✗→✓（此前 M1 会剔除它 ✗）
@@ -387,6 +411,32 @@ class MoneyflowScorer:
         s = str(date_str).strip()
         return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if (len(s) == 8 and s.isdigit()) else s[:10]
 
+    def _gap_missing_dates(self, stock_code: str, score_date: str, window: int = 5) -> list:
+        """尽力算出"本地缺哪几天"✓（**只读查询** ✓；任何异常 ⇒ `[]` ✓，**绝不**阻断报错 ✗）
+
+        ★ 2026-09-28 新增 ✓：给 `gap_fix_hint` 提供"缺口日期" ✓ ——
+        只有知道**缺的是哪几天** ✓，才能判断"滚动 3 日更新"是否够 ✗✓
+        （实测 `000862`：缺的是 6 个月前的历史日 ⇒ 滚动更新**永远补不到** ✗）。
+        """
+        try:
+            from utils.global_db import get_global_db
+            from utils.local_calendar import recent_trade_dates_local
+            _sd = str(score_date)[:10]
+            if '-' not in _sd:
+                _sd = f'{_sd[:4]}-{_sd[4:6]}-{_sd[6:8]}'
+            conn = get_global_db()
+            dates = recent_trade_dates_local(conn, _sd, window=window)
+            code = str(stock_code).split('.')[0]
+            rows = conn.query(
+                'SELECT trade_date FROM stock_moneyflow_daily WHERE stock_code=? '
+                'AND source=? AND trade_date BETWEEN ? AND ?',
+                (code, self.moneyflow_source, dates[0], dates[-1]))
+            have = {str(r['trade_date'])[:10] for r in rows}
+            return [d for d in dates if d not in have]
+        except Exception as e:
+            logger.debug(f'缺口日期推算失败（不影响报错 ✓）: {e}')
+            return []
+
     def _fetch_moneyflow_data(
         self, stock_code: str, score_date: str
     ) -> Optional[pd.DataFrame]:
@@ -400,6 +450,7 @@ class MoneyflowScorer:
         if local is not None and not local.empty:
             return local
         if not self.allow_online_fallback:
+            from utils.moneyflow_source import gap_fix_hint
             from utils.online_guard import require_local_data
             require_local_data(
                 f'资金流向(近5个交易日, 源={self.moneyflow_source})',
@@ -407,7 +458,15 @@ class MoneyflowScorer:
                 detail=(f'{stock_code} @ {score_date}：本地表 '
                         f'stock_moneyflow_daily 窗口不足 ✗\n'
                         f'  说明：回测只读本地数据，不联网、不回退其它源 ✗\n'
-                        f'  修复：运行数据更新（滚动 3 日）或初始化（2023-09-11 起）✓'))
+                        # ★【2026-09-28】已登记的**个股级上游缺口** ⇒ 明确标记 ✓
+                        #   （上层据此把日志降为 INFO ✓；属**永久缺口** ✗ ⇒ 无需补采 ✓）
+                        + ('  **[已知上游源缺口]** ✓ 已登记 config/data_source_gaps.yaml ✓ ⇒ '
+                           '这些 (股, 日) 源端本就没有 ✗（**永久缺口** ✗，补采也补不上 ✓）、'
+                           '跳过资金流否决 ✓（不误判 ✓）\n'
+                           if getattr(self, '_last_gap_known_source', False) else '')
+                        # 按缺口**新 / 旧**给**真能补上**的指引 ✗→✓（旧文案一律"滚动 3 日"✗）
+                        + gap_fix_hint(self._gap_missing_dates(stock_code, score_date),
+                                       src=self.moneyflow_source)))
         return self._fetch_moneyflow_data_online(stock_code, score_date)
 
     def _fetch_moneyflow_data_online(
@@ -1285,7 +1344,11 @@ class MoneyflowScorer:
                 if lgr < -th and smr > th:
                     return True, (f"出货信号：大单净流入占比 {lgr:.2f}% < -{th}% 且 "
                                   f"小单净流入占比 {smr:.2f}% > {th}%")
-                logger.info(
+                # 【2026-09-28 减噪 ✗→✓】原为 `logger.info` ✗ —— 实测单日 **18,464 行** ✗✓
+                #   （回测里逐日逐票都打 ✗，占全天 6.5% ✗）。"**未达阈值**"本质是
+                #   "无事发生" ✗ ⇒ 属细节 ⇒ 降 `debug` ✓；
+                #   ⚠️ **触发否决**时的 INFO 一条都没动 ✓（那是真信号 ✓）。
+                logger.debug(
                     f"出货信号未达阈值（大单净流入占比 {lgr:.2f}%、小单净流入占比 "
                     f"{smr:.2f}%；需 大单<-{th}% 且 小单>+{th}%）→ 不触发否决")
                 return False, ""

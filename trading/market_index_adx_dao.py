@@ -109,8 +109,34 @@ class MarketIndexADXDAO:
             logger.error(f"查询区间指数ADX数据失败: {e}")
             return []
 
+    def _warn_if_multi_index(self, index_code) -> None:
+        """⚠️【2026-10-05 护栏 ✓】未指定指数 + 表内**多指数** ⇒ **明确告警** ✗✓
+
+        为什么必须有它 ✗✓（今天真事故 ✓）：本 DAO 的"不传 `index_code`"语义是
+          **跨全部指数、按 `trade_date` 倒序 `LIMIT`** ✗ ⇒ 多指数后**同一天有多行** ✗
+          ⇒ 取到**任意指数** ✗（实测：首页「市场 ADX」卡片显示 17.3 = 科创50 ✗，
+            而文案写着全A ✗✓；飞书通知同病 ✓）。
+        ⚠️ 行为**保持不变** ✗✓（不抛错、不改返回 ✓，避免打断既有调用 ✓），只加**告警** ✓
+          ⇒ 任何**将来新增**的调用若漏传指数 ✗ ⇒ 日志里**立刻可见** ✓（不再静默复发 ✗✓）。
+        """
+        if index_code:
+            return
+        try:
+            row = self.db.query_one(
+                f'SELECT COUNT(DISTINCT index_code) AS n FROM {self.TABLE}') or {}
+            n = int(row.get('n') or 0)
+            if n > 1:
+                logger.warning(
+                    '【市场指数ADX ✗】调用未指定 `index_code` ⇒ 将**跨 %d 个指数**取数 ✗ '
+                    '（结果可能来自**任意**指数 ✗；2026-10-05 已因此发生过'
+                    '「卡片数字与文案不符」✗✓）。请显式传入指数 ✓，例如 '
+                    '`resolve_index_adx_code()` ✓ / `resolve_board_index_code(...)` ✓。', n)
+        except Exception:
+            pass                                     # 护栏本身绝不影响主流程 ✗✓
+
     def get_latest(self, index_code: str = None) -> Optional[Dict]:
         """获取最新一条"""
+        self._warn_if_multi_index(index_code)
         try:
             if index_code:
                 return self.db.query_one(
@@ -124,6 +150,7 @@ class MarketIndexADXDAO:
 
     def get_trend(self, days: int = 10, index_code: str = None) -> Dict:
         """获取最近 N 天的 ADX 趋势"""
+        self._warn_if_multi_index(index_code)        # ★ 同 `get_latest` ✓（多指数护栏 ✓）
         empty = {'trend': [], 'avg_adx': 0.0, 'max_adx': 0.0, 'min_adx': 0.0,
                  'latest_adx': None, 'latest_strength': None, 'latest_trade_date': None}
         try:

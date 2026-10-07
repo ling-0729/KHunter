@@ -37,6 +37,12 @@
 - `config/strategy_name_mapping.yaml` - 策略名称映射
 - `config/support_methods.yaml` - 支撑位计算方法
 - `config/pool_removal_config.yaml` - 股票池移除配置
+- ★ `config/backtest_engine_config.yaml` - **回测引擎行为配置（2026-10-07 起纳入版本管理 ✓）**
+  - 为什么必须入库 ✗→✓：这是**关键回测配置**（`backtest_mode` 模式开关 ✓ / 评分门槛 ✓ / 持有周期 ✓ /
+    止损止盈 ✓ / ADX 闸门与仓位上限各项阈值 ✓）—— 远端缺它 ⇒ 新克隆**拿不到关键回测口径** ✗✓
+  - ⚠️ 已核查 ✓：该文件**不含**任何密钥/凭据 ✓、**不含**本机绝对路径 ✓
+  - ⚠️ 但它仍属"**本地可覆盖**"：运行时按 mtime 失效缓存 ✓ ⇒ 改完**不必重启** ✓
+- ⚠️ `config/config.yaml` - **本地版含真实飞书凭据** ✗ ⇒ **严禁提交** ✗（见下方"不需要发布的文件" ✓）
 
 ### 数据库脚本
 - `data/DataSql.sql` - 数据库结构脚本
@@ -93,13 +99,16 @@
 - `web/static/js/app.js` - 应用主入口
 - `web/static/js/kline_chart.js` - K线图表功能
 - `web/static/js/data_update.js` - 数据更新功能
-- `web/static/js/data_update_simple.js` - 简化数据更新
 - `web/static/js/init_simple.js` - 简化初始化
-- `web/static/js/selection_history.js` - 选股历史
 - `web/static/js/trading.js` - 交易功能
-- `web/static/js/error_handler.js` - 错误处理
-- `web/static/js/retry_policy.js` - 重试策略
 - `web/static/js/dashboard_stats.js` - 看板统计（新增）
+- `web/static/js/lib/chart.umd.min.js` - Chart.js（本地内置，离线可用）
+- `web/static/js/lib/lightweight-charts.standalone.production.js` - K线图库（本地内置）
+- `web/static/js/lib/socket.io.min.js` - Socket.IO（本地内置）
+
+> ★ **2026-09-28 清理**：删除以下**零引用**脚本 —— `data_update_simple.js`（**0 字节**空文件）、
+> `error_handler.js`、`retry_policy.js`、`selection_history.js`（全仓库仅本文档提及，已被 `init_simple.js`
+> 与 `app.js` 内建逻辑取代）。可回滚：均在 git 中。
 
 #### 静态资源 - JavaScript 模块 (modules/)
 - `web/static/js/modules/navigation.js` - 页面导航
@@ -115,12 +124,6 @@
 - `web/static/js/modules/backtest.js` - 回测功能
 - `web/static/js/modules/backtest-batch.js` - 批量回测
 - `web/static/js/modules/backtest-executor.js` - 回测执行器
-- `web/static/js/modules/backtest-api.js` - 回测API
-- `web/static/js/modules/backtest-error-handler.js` - 回测错误处理
-- `web/static/js/modules/backtest-performance.js` - 回测性能
-- `web/static/js/modules/backtest-utils.js` - 回测工具
-- `web/static/js/modules/backtest-ux.js` - 回测用户体验
-- `web/static/js/modules/execution-plan.js` - 执行计划
 - `web/static/js/modules/market_temperature.js` - 市场温度
 - `web/static/js/modules/money_flow.js` - 资金流向
 - `web/static/js/modules/risk.js` - 风险控制（新增）
@@ -129,7 +132,6 @@
 #### 静态资源 - 图片
 - `web/static/images/logo.svg` - 系统Logo
 - `web/static/images/favicon.svg` - 网站图标
-- `web/static/images/logo-preview.html` - Logo预览页面
 
 ## 不需要发布的文件
 
@@ -145,6 +147,16 @@
 ### 测试文件
 - `test/` - 测试目录
 - `test_*.py` - 测试脚本
+  - ⚠️ **策略性不入库** ✗（`.gitignore` 第 178 / 193 行 ✓）：远端**仅保留源码** ✓
+  - ⇒ 本项目的**回归测试是"本地资产"** ✓（如 `test_adx_time_point_parity.py` ✓ /
+    `test_new_install_completeness.py` ✓ / `test_permission_skip.py` ✓ 等 ✓）
+  - ⇒ 同步/克隆后**没有测试**是**预期行为** ✓，不是缺失 ✗
+
+### 本地凭据 / 本机配置（**严禁入库** ✗）
+- `config/config.yaml` - ★ 本地工作区版本**含真实飞书 `app_id` / `app_secret` / `chat_id`** ✗✗
+  ⇒ **绝不提交**（`.gitignore:47-50` 已写明 ✓ + `.git/hooks/pre-commit` 已加防护 ✓）；
+  需修改远端默认配置 ⇒ 改 **`config/config.yaml.template`**（脱敏 ✓）并同步结构 ✓
+- `config/*.json`（`tushare_config.json` / `87659999*.json` 等 ✓）- 同上，**不提交** ✗
 
 ### IDE配置文件
 - `.kiro/` - Kiro IDE配置

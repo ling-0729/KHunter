@@ -111,11 +111,23 @@ class SupportStrategy(TimingStrategy):
                 else:
                     current_date = current_date_str
 
-                hold_days = (current_date - buy_date).days
+                # ★【2026-09-28 用户要求 ✓】**统一改为交易日** ✗→✓
+                #   原为 `(current_date − buy_date).days` ✗ = **日历天** ⇒ 跨周末/假期会
+                #   **提前**触发"持有期满"卖出 ✗（实测口径差：`2025-12-31` 买入 →
+                #   `2026-01-05` 检查 ⇒ 旧 **5** ✗ vs 新 **1** ✓）。
+                #   用**本股 K 线日期序列** ✓（= 该股交易日 ✓，随 `df` 传入 ✓）⇒ **零联网** ✓。
+                from utils.trade_date_utils import count_trading_days_between
+                _seq = None
+                try:
+                    if 'date' in df.columns:
+                        _seq = [str(x)[:10] for x in df['date'].tolist()]
+                except Exception:
+                    _seq = None
+                hold_days = count_trading_days_between(buy_date, current_date, _seq)
                 if hold_days >= 10:
                     result.is_sell = True
                     result.signal_strength = 0.8
-                    result.message = f"持有{hold_days}天，卖出信号"
+                    result.message = f"持有{hold_days}交易日，卖出信号"
                     result.trade_type = 'sell'
                     result.sell_quantity = position.get('quantity', 0)
 

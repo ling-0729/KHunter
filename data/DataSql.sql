@@ -673,6 +673,10 @@ CREATE TABLE IF NOT EXISTS backtest_result (
     -- final_capital: 最终资金，类型REAL，默认0，单位元
     router_config TEXT,
     -- router_config: 自适应回测的"档位路由配置摘要"（文本，2026-09-20 新增，历史详情展示用）
+    params_snapshot TEXT,
+    -- params_snapshot: 本次回测的"主要参数设置情况"（JSON，2026-10-03 新增 ✓）
+    --   ★ 由 trading/backtest_engine.py::build_param_snapshot 生成 ✓（与「回测参数」日志同一份 ✓）
+    --   用途：两次回测结果不同时，**直接定位是哪项参数变了** ✓（含模式/入池/个股ADX/大盘仓位上限/择时参数/资金 ✓）
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     -- created_at: 创建时间，类型TIMESTAMP，默认当前时间
 );
@@ -779,6 +783,14 @@ CREATE TABLE IF NOT EXISTS khunter (
     -- industry: 所属行业，类型VARCHAR(50)，可选，例如银行
     sector VARCHAR(50),
     -- sector: 所属板块，类型VARCHAR(50)，可选，例如金融
+    key_date DATE,
+    -- ★★★★【2026-10-07 补 ✓】**关键日日期（形态实际形成日）** ✗→✓ ★★★★
+    --   ⚠️ 为什么必须有 ✗✓：`trading/khunter_dao.py` 的 SELECT/INSERT/UPDATE **一直在用它** ✗
+    --     （L191 / L207 / L442 / L501 ✓），但**原 DDL 漏了该列** ✗ ⇒
+    --     **全新安装**的库一旦读写狩猎场就会 `no such column: key_date` ✗✗
+    --     （老库大多"当年手工补过"✗ ⇒ 所以线上没暴露 ✗ —— 正是**新用户**才会踩 ✓）。
+    --   ⚠️ 旧库由 `utils/db_migration_helper.py::ensure_database_schema()` **自动 ALTER 补列** ✓
+    --     （两处**必须同时存在** ✗✓：DDL 管新库 ✓、迁移管老库 ✓，漏一处就有一半用户被坑 ✗）
     hunting_date DATE NOT NULL,
     -- hunting_date: 选入日期，类型DATE，必填，格式YYYY-MM-DD
     -- 说明：股票被系统选入股票池的日期（T+N日）
@@ -1039,6 +1051,52 @@ CREATE TABLE IF NOT EXISTS stock_announcement (
 );
 CREATE INDEX IF NOT EXISTS idx_stock_announcement_date ON stock_announcement(ann_date);
 CREATE TABLE IF NOT EXISTS data_fetch_failure (id INTEGER PRIMARY KEY AUTOINCREMENT, data_type TEXT, key TEXT, error TEXT, retry_count INTEGER DEFAULT 0, last_try TEXT, resolved INTEGER DEFAULT 0);
+
+-- ============================================
+-- 33. 交易计划表（trading_plan）★2026-10-07 补 ✓
+-- ============================================
+-- 说明：狩猎场「生成交易计划」的落库结果（买入区间 / 止损止盈 / 建议仓位）
+-- ⚠️ 原 DDL **完全缺失该表** ✗ —— 而 DAO 与接口一直在用（`trading/trading_plan_dao.py`
+--    + `trading/routes.py` 的 `/khunter/generate_plan` ✓）⇒ **全新安装**点"生成交易计划"
+--    必报 `sqlite3.OperationalError: no such table: trading_plan` ✗✓；本次补上。
+-- 列与 `TradingPlanDAO.FIELDS` **逐列对齐** ✓（`plan_date` … `remark` ✓）；
+--   另加 `id` / `created_at` / `updated_at` ✓（DAO 不写这三列 ⇒ 必须有默认值 ✓）。
+CREATE TABLE IF NOT EXISTS trading_plan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- id: 自增主键
+    plan_date DATE NOT NULL,
+    -- plan_date: 计划日期，类型DATE，必填，格式YYYY-MM-DD（`query_by_plan_date` / `delete_by_plan_date` ✓）
+    hunting_date DATE NOT NULL,
+    -- hunting_date: 关联的选入日期（对应 khunter.hunting_date ✓）
+    stock_code VARCHAR(20) NOT NULL,
+    -- stock_code: 股票代码，必填，例如000001
+    stock_name VARCHAR(50),
+    -- stock_name: 股票名称
+    buy_lower_price REAL,
+    -- buy_lower_price: 买入区间下沿（当前价 −1% ✓）
+    buy_upper_price REAL,
+    -- buy_upper_price: 买入区间上沿（当前价 +1% ✓）
+    position_ratio REAL,
+    -- position_ratio: 建议仓位比例，**百分数**（默认 5 = 5% ✓，见 `TradingPlanGenerator` ✓）
+    support_level REAL,
+    -- support_level: 支撑位价格
+    stop_loss_price REAL,
+    -- stop_loss_price: 止损价（支撑位 −5% ✓）
+    take_profit_price REAL,
+    -- take_profit_price: 止盈价（当前价 +20% ✓）
+    hold_days INTEGER,
+    -- hold_days: 建议持有交易日数
+    remark TEXT,
+    -- remark: 备注
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- created_at: 创建时间（DAO 不显式写入 ⇒ 用默认值 ✓）
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    -- updated_at: 更新时间（同上 ✓）
+);
+
+-- 为 trading_plan 表创建索引（`SELECT * FROM trading_plan WHERE plan_date/hunting_date = ? ORDER BY id` ✓）
+CREATE INDEX IF NOT EXISTS idx_trading_plan_plan_date ON trading_plan(plan_date);
+CREATE INDEX IF NOT EXISTS idx_trading_plan_hunting_date ON trading_plan(hunting_date);
 CREATE INDEX IF NOT EXISTS idx_dff_type ON data_fetch_failure(data_type, resolved);
 
 -- ===== 本地化数据表 END =====

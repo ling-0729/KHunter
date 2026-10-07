@@ -136,7 +136,12 @@ full_fix_*.py
 golden_triangle_*.csv
 
 # config 本地配置
-config/backtest_engine_config.yaml
+# ★★【2026-10-07 用户要求 ✓】**`config/backtest_engine_config.yaml` 改为**纳入版本管理** ✗→✓ ★★
+#   缘由 ✗✓：远端**缺这份"关键回测配置"** ✗ ⇒ 新克隆拿不到档位/阈值/开关 ✓
+#     （实测该文件**零敏感键、零绝对路径** ✓ ⇒ 可安全入库 ✓；
+#      ⚠️ 与 `config/config.yaml`（**含飞书凭据** ✗）**完全不同** ⇒ 那份**严禁提交** ✗ ✓）
+#   ⇒ 从本文件移除忽略规则 ✓（保持与仓库现状一致 ✓，避免"看着被忽略其实已跟踪"的误导 ✗）
+
 
 # running 运行时输出目录
 data/running/to_ptrade/

@@ -18,6 +18,9 @@ CLASSIC_PRESET = {
 }
 
 # 短线海龟配置（短期趋势，快进快出）
+# ★【2026-10-01 用户要求 ✓】"**改回 10/5/10**" ✓（先前曾试 12/6/12 ✓ 已回退 ✓）
+#   = `n_entry` 10 / `n_exit` 5 / `atr_period` 10 ✓；本预设是"无配置时的默认口径"✓，
+#   与 `config/strategy_params.yaml` ✓ 和 `TURTLE_DEFAULT_PARAMS` ✓ **三层同步** ✓
 SHORT_TURTLE_PRESET = {
     'n_entry': 10,        # 入场通道：10日高点
     'n_exit': 5,          # 出场通道：5日低点
@@ -43,9 +46,9 @@ class TurtleStrategy(TimingStrategy):
     
     # 预设配置映射
     PRESETS = {
-        'classic': CLASSIC_PRESET,       # 经典海龟：20/10
-        'short': SHORT_TURTLE_PRESET,    # 短线海龟：10/5
-        'ultra_short': ULTRA_SHORT_PRESET,  # 超短海龟：6/3
+        'classic': CLASSIC_PRESET,       # 经典海龟：20/10/20
+        'short': SHORT_TURTLE_PRESET,    # 短线海龟：**10/5/10**（2026-10-01 用户口径 ✓）
+        'ultra_short': ULTRA_SHORT_PRESET,  # 超短海龟：6/3/6
     }
 
     # 是否启用 MA20 趋势过滤（买入与加仓判断均受此开关控制）

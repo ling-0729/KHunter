@@ -154,10 +154,8 @@ class TechnicalScorer:
         """
         # 使用传入的 db_manager 或全局实例
         self.db = db_manager or global_db_manager
-        # 记录初始化日志
-        logger.info("技术面评分器初始化完成")
-        # 记录使用的 DBManager 实例
-        logger.debug(f"使用的 DBManager 实例: {id(self.db)}")
+        # 【2026-09-28 减噪 ✗→✓】原"技术面评分器初始化完成"✗ + "使用的 DBManager 实例: <id>"✗
+        #   均为**每实例一行**的零信息量日志 ✗（DEBUG 级也一样刷 ✗）⇒ 删除 ✓。
 
     def _query_hit_strategies(
         self, stock_code: str, score_date: str

@@ -163,3 +163,84 @@ class MarketIndexADX:
             'data_points': data_points,
             'has_enough_data': 1 if data_points >= self.period * 2 else 0,
         }
+
+
+# ---------------------------------------------------------------------------
+# ★★【2026-10-05 用户要求 ✓】**每日更新要算多个大盘 ADX**（不止全A）★★
+#   用户原话 ✓："**自动更新需要计算三个大盘 adx**" ✓
+#
+#   为什么必须改 ✗✓（实测 ✓）：每日更新原先调 `MarketIndexADX()` —— 它只算**配置里那一个**
+#     指数 ✗ ⇒ 2026-10-05 新入库的 **创业板指（`399006.SZ`）** / **科创50（`000688.SH`）**
+#     **不随日更新** ✗ ⇒ 它们的最后一天**停在回填那天** ✗ ⇒ **板块回退**逐日读到的都是
+#     **陈旧状态** ✗✓（`_state_at` 取"≤ 信号日的最后一行"✓ ⇒ **静默沿用旧档位** ✗，
+#     这种"数据不动了但没人报错"✗ 正是最难查的一类 ✗）。
+#   ⚠️ 即使 `index_cap_board_fallback=false` 也**照算** ✗✓（开关随时可能打开 ✓；
+#     停更后再开 = 直接拿陈旧数据 ✗；代价仅 **3 行/天** ✓，可忽略 ✓）。
+#   ⚠️ 口径 ✓：仍走**同一个** `MarketIndexADX.calculate()` ✓（**不另写计算** ✗✓）。
+# ---------------------------------------------------------------------------
+
+
+def daily_index_codes(config: Optional[Dict] = None) -> list:
+    """★ 每日更新要计算的**指数清单** ✓（**去重、保序** ✓）
+
+    顺序 ✓：① **默认**指数（= 大盘路由 / 当日仓位上限用的那个 ✓ `resolve_index_adx_code()` ✓）
+           ② **科创板**指数 ✓ ③ **创业板**指数 ✓（后两个供**板块回退** ✓）。
+    ⚠️ ②③ 的代码读**同一份配置** ✓（`index_cap_star_code` / `index_cap_chinext_code` ✓）
+      ⇒ 你改配置**不必**再改采集 ✓（否则会"回测按 A 判、采集只算 B"✗ 静默错位 ✗✓）。
+    """
+    codes = []
+    try:
+        from trading.index_adx_filter import resolve_index_adx_code
+        _d = resolve_index_adx_code(config)
+        if _d:
+            codes.append(str(_d).strip())
+    except Exception as e:                          # 解析失败 ⇒ 回退默认 ✓（不影响采集 ✓）
+        logger.warning(f'解析默认指数失败（回退 {MarketIndexADX.DEFAULT_INDEX_CODE} ✓）: {e}')
+        codes.append(MarketIndexADX.DEFAULT_INDEX_CODE)
+    for _board in ('star', 'chinext'):
+        try:
+            from trading.index_adx_filter import resolve_board_index_code
+            _c = resolve_board_index_code(_board, config)
+        except Exception:
+            _c = ''
+        if _c:
+            codes.append(str(_c).strip())
+    out, seen = [], set()
+    for c in codes:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out or [MarketIndexADX.DEFAULT_INDEX_CODE]
+
+
+def update_all_index_adx(trade_date: str, use_cache: bool = False,
+                         config: Optional[Dict] = None, dao=None) -> Dict:
+    """**逐个**计算并落库当日各指数 ADX ✓（返回**逐指数**结果 ✓）
+
+    Returns:
+        `{'trade_date','index_codes','saved':[...],'skipped':[...],'failed':{code:err}}` ✓
+        `skipped` = `DataNotAvailableError` ✓（非交易日 / 接口无数据 ✓ —— **不是错误** ✗）
+        `failed`  = 其它异常 ✓（真失败 ✓）
+
+    ⚠️ **失败隔离** ✗✓：单个指数失败/无数据 ⇒ **只记它** ✗，绝不拖垮其它指数 ✗
+      （若沿用"一个 try 包全部"✗ ⇒ 加指数后一个失败会**静默少算其它** ✗✓）。
+    """
+    from trading.market_index_adx_dao import MarketIndexADXDAO
+
+    codes = daily_index_codes(config)
+    dao = dao or MarketIndexADXDAO()
+    out = {'trade_date': str(trade_date), 'index_codes': codes,
+           'saved': [], 'skipped': [], 'failed': {}}
+    for code in codes:
+        try:
+            data = MarketIndexADX(index_code=code).calculate(trade_date,
+                                                             use_cache=use_cache)
+            dao.save(data)
+            out['saved'].append(code)
+        except DataNotAvailableError as e:           # 非交易日 / 无数据 ⇒ 正常跳过 ✓
+            out['skipped'].append(code)
+            logger.info(f'指数ADX跳过（非交易日或数据不可用 ✓）: {trade_date} {code} - {e}')
+        except Exception as e:                       # ★ 单指数失败 ⇒ 不影响其它 ✓
+            out['failed'][code] = str(e)
+            logger.warning(f'指数ADX计算失败 ✗: {trade_date} {code} - {e}')
+    return out

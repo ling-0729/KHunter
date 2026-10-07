@@ -155,17 +155,29 @@ def get_backtest_configs():
     """
     try:
         # 调用DAO获取所有配置
-        configs = backtest_dao.get_all_configs()
+        configs = backtest_dao.get_all_configs() or []
 
         # 【2026-09-27】**yaml 为源** ✓（`utils/backtest_config_store` ✓ 单一存储层 ✓）：
         #   用 yaml `backtest:` 节的值**覆盖** DB 值 ✓ ⇒ 前端显示的就是 yaml 里的真值 ✓✓
         #   （DB 仅作**兼容镜像** ✗，不再是最新来源 ✓）
+        #
+        # ★★【2026-10-05 修复 ✓】**yaml 值必须"无条件"返回** ✗→✓ ★★
+        #   事故 ✗✓（用户反馈：**"回测参数保存不成功"** ✓，界面「回测模式」永远显示
+        #     `legacy` ✗）：原实现是 `if configs and _y:` ⇒ **DB 里没有记录时压根不合并 yaml** ✗；
+        #     而前端 `loadBacktestParams()` 又要求 `data.data.configs.length > 0` ✗
+        #     ⇒ **整个回填被跳过** ✗ ⇒ 所有控件停在 HTML 默认值 ✗✓ ——
+        #     `params-backtest-mode` 的默认 `<option selected>` 恰好就是 `legacy` ✓✓
+        #     ⇒ 与用户截图**完全吻合** ✓。
+        #   ⇒ 改为 ✓：**yaml 是源** ⇒ 不管 DB 有没有行 ✓，都返回**至少一个**
+        #     "yaml 视图"对象 ✓ ⇒ 前端**一定能回填** ✓（`total_count` 至少为 1 ✓）。
         try:
             from utils.backtest_config_store import load as _load_bt_cfg
-            _y = _load_bt_cfg()
-            if configs and _y:
+            _y = _load_bt_cfg() or {}
+            if configs:
                 for _c in configs:
                     _c.update(_y)
+            elif _y:
+                configs = [dict(_y)]
         except Exception as _e:
             logger.debug(f'yaml 回测配置覆盖失败（继续用 DB 值 ✓）: {_e}')
 
@@ -675,6 +687,19 @@ def create_backtest_config():
             }), 400
         
         # 【2026-09-27】先写 **yaml** ✓（**单一存储层** ✓：yaml 为源 ✓ + DB 镜像 ✗ 兼容 ✓）
+        #
+        # ★★【2026-10-05 修复 ✓】**写 yaml 失败 ⇒ 必须"响亮失败"** ✗→✓ ★★
+        #   事故 ✗✓（用户反馈：**"回测参数保存不成功"** ✓）：`store.save()` 在
+        #     "新文本 `yaml.safe_load` 解析不过"时会**拒绝落盘** ✓（原文件一字不动 ✓），
+        #     并在返回值里给 `yaml_ok=False` + `error` ✓ ——
+        #     但**本路由此前完全忽略返回值** ✗ ⇒ 继续写 DB ✗、还回 `success: true` ✗
+        #     ⇒ 用户看到"保存成功" ✗、**配置文件其实没变** ✗ ⇒ 表现就是"保存不成功" ✓✓
+        #     （与 10-03 / 10-05 两次"参数不生效"✗ 同源 ✓）。
+        #   ⇒ 与 store 的既有取向一致（**宁可失败，也不产出看起来正常的结果** ✗✓）：
+        #     yaml 没写成功 ⇒ **不写 DB** ✗（否则 yaml 旧值 + DB 新值 ⇒ **静默不一致** ✗✓，
+        #     正是 store 里特意早退要避免的那件事 ✓）+ 如实把原因回给前端 ✓。
+        #   ⚠️ 判定用 `changed ∧ ¬yaml_ok`（或带 `error` ✓）⇒ 只针对"**本想写却没写成**"✗，
+        #     不会误伤"**本次没有任何可写的键**"（那种情况 `vals` 为空 ✓、`changed` 也为空 ✓）。
         _store_info = {}
         try:
             from utils.backtest_config_store import save as _save_bt_cfg
@@ -683,6 +708,18 @@ def create_backtest_config():
                         f'（DB 镜像={_store_info.get("db_ok")} ✓）')
         except Exception as _e:
             logger.warning(f'写入 yaml 失败 ✗（DB 仍会写 ✓）: {_e}')
+
+        if _store_info.get('error') or (_store_info.get('changed')
+                                        and not _store_info.get('yaml_ok')):
+            _err = _store_info.get('error') or '（未返回原因 ✗ —— 详见后端日志 ✓）'
+            logger.error(f'【回测参数】**yaml 未写入** ✗ ⇒ 拒绝本次保存（不写 DB ✓，'
+                         f'保持 yaml/DB 一致 ✓）：{_err}')
+            return jsonify({
+                'success': False,
+                'message': (f'回测参数**未保存** ✗：配置文件写入被拒绝 ✓（原文件未改 ✓）。'
+                            f'原因：{_err}'),
+                'data': None
+            }), 500
 
         # 调用DAO保存配置
         config_id = backtest_dao.save_config(data)
@@ -1034,7 +1071,17 @@ def run_backtest():
             #   但此处漏传 → 落库恒为默认 0 ✗（全库 521 行 avg_hold_days 全 0 的原因 ✓）
             'avg_hold_days': result.get('performance', {}).get('avg_hold_days', 0),
             'initial_capital': config.get('initial_capital', 300000),
-            'final_capital': final_capital
+            'final_capital': final_capital,
+            # ★★【2026-10-03 用户要求 ✓】随结果一起落库：**主要参数设置情况** ✗→✓ ★★
+            #   动机 ✗✓：此前单次回测只存绩效 ✗ ⇒ 两次数字不同时无法定位"哪项参数变了" ✗✓
+            #     （本会话只能靠翻日志 + 手查 yaml 才归因出来 ✓）。
+            'param_snapshot': result.get('param_snapshot'),
+            # ⚠️ 顺手补两处**漏传** ✗→✓（引擎早已算出 ✓）：
+            #   `data_fingerprint` ⇒ `save_result` 由它派生 `data_version` ✓
+            #   `data_gate` ✓ ⇒ 少传时版本号恒为空 ✗ ⇒ 两次结果**无法判断是否同数据** ✗✓
+            #   （实测：本次会话对比的两行 `data_version` 都是空 ✓，正是这个原因 ✓）
+            'data_fingerprint': result.get('data_fingerprint'),
+            'data_gate': result.get('data_gate'),
         }
         
         # 每次都创建新记录，不覆盖已有的回测结果
@@ -3235,6 +3282,11 @@ def run_regime_backtest_sync():
                 'final_capital': result.get('final_capital', initial_capital),
                 # 各档位策略配置摘要（文本）→ 回测历史详情展示
                 'router_config': router_config_text,
+                # ★【2026-10-03 用户要求 ✓】自适应回测同样落库**主要参数设置情况** ✓
+                #   （与普通回测同一实现 ✓ ⇒ 两份结果**可直接逐项对比** ✓）
+                'param_snapshot': result.get('param_snapshot'),
+                'data_fingerprint': result.get('data_fingerprint'),
+                'data_gate': result.get('data_gate'),
             }
             result_id = backtest_dao.save_result(save_result)
 

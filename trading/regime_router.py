@@ -28,9 +28,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# 【2026-09-26 §5.8 M6】降温状态机**复用**个股侧原语 ✓（**单一事实源** ✓）
-#   ⇒ 大盘与个股共用同一套 `band`/迟滞/`cooled` 递推 ✓，杜绝"两处各写一份"✗
-from utils.stock_adx_state import COOLED_PEAK, AdxState, is_mid_reversal
+# 【2026-09-26 §5.8】状态机**复用**个股侧原语 ✓（**单一事实源** ✓）
+#   ⇒ 大盘与个股共用同一套 `band`(迟滞 ✓)/`dir`(两日同向 ✓) 递推 ✓，杜绝"两处各写一份"✗
+#   ★【2026-09-28 用户口径 ✓】判定式也**统一** ✓：`regime_of` ✓（= `band + dir` ✓）
+from utils.stock_adx_state import (HIGH_ADX_GUARD, AdxState, is_mid_reversal,
+                                   regime_of)
 from utils.stock_adx_state import step as _adx_step
 
 logger = logging.getLogger(__name__)
@@ -97,13 +99,16 @@ DEFAULT_RULES: Dict[str, Dict] = {
 DEFAULT_CONFIG: Dict = {
     'enabled': False,            # 默认关闭（Q6 决策）
     'confirm_days': 1,           # 连续确认天数；1 = 即时切换（2026-09-11 由 5 调整）
-    # 【2026-09-26 §5.8 M6】降温状态机开关 ✓（用户定稿 ✓）：**默认关** ✗ = 保持现状 ✓
-    #   开启后 ✓：峰值 `> 40` 且**连降两日** ⇒ 强制「震荡」✓（进入）；
-    #             **连升两日** ⇒ 解除降温 ✓（**交回正常分档** ✓，**不再**强制「明确」✗
-    #             —— 2026-09-27 用户修正 ✓；退出门**无** `T-1 > 25` 门槛 ✗ ✓）
-    #   两者均**绕开** `confirm_days` 与 `±BAND_BUFFER` ✗✓（覆盖式 ✓，见 §5.8 ✓）
-    'enable_adx_falloff': False,
+    # ★【2026-09-28 用户口径 ✓】原 `enable_adx_falloff`（降温状态机开关 ✓）**已删除** ✗✓
+    #   —— 机制整体移除 ✓（"过于复杂、很难理解"✗）；档位只由 `band`(缓冲 ✓)+`dir` 决定 ✓
     'index_code': '000985.CSI',
+    # ★【2026-09-28 用户口径 ✓】**首次启用自动预热** ✓（默认 **关** ✗）
+    #   动机 ✗✓：`band`（迟滞 ✓）与 `dir`（两日同向 ＋ 没方向沿用 ✓）都是**路径依赖** ✗
+    #   ⇒ **实盘首次**启用时状态文件是空的 ✗ ⇒ 头 1~2 天「方向」为空 ✗（"无方向"✗）
+    #   ⇒ 置 `true` 时，`decide()` 首次调用会先 `ensure_warmed()` 用**指数 ADX 全历史**
+    #     回放到目标日之前 ✓（**幂等** ✓：状态里已有方向就直接跳过 ✓）。
+    #   ⚠️ 默认关 ✗：单测 / 短任务不应触发 DB 回放 ✗（生产实盘请置 true ✓）。
+    'auto_warmup': False,
     'init_immediate': True,      # 首次运行是否立即生效（否则需等 confirm_days）
     'state_file': None,          # None → data/running/regime_state.json
     'rules': None,               # None → DEFAULT_RULES
@@ -128,12 +133,10 @@ class RouteDecision:
     position_ratio: float = 1.0      # 仓位系数 0.0 ~ 1.0
     buy_execution: str = ''          # 买入执行方式：'open' | 'ma_limit'
     source: str = 'disabled'         # 'auto' | 'manual' | 'stale' | 'pending' | 'disabled'
-    raw_regime: str = ''             # 未平滑的即时 regime（排查用）
+    raw_regime: str = ''             # 纯阈值即时档（仅供排查 ✓）
     confirm_count: int = 0           # 当前连续确认天数
-    downgraded_by: str = ''          # 非空 ⇒ 本次档位被**降温强制**为「震荡」（值 'adx_falloff' ✓）
-    restored_by: str = ''            # 非空 ⇒ 本次**解除**降温（值 'adx_recover' ✓）；
-    #                                   ⚠️ 2026-09-27 起：解除后**交回正常分档** ✓，
-    #                                   `regime` **由阈值+迟滞决定** ✗（不再强制「明确」✗）
+    # ★【2026-09-28 用户口径 ✓】原 `downgraded_by`（降温强制 ✓）/ `restored_by`（解除 ✓）
+    #   **已删除** ✗✓ —— 降温机制整体移除 ✓（见 `utils.stock_adx_state.py` 顶部说明 ✓）
 
     def is_active(self) -> bool:
         return self.source in ('auto', 'manual', 'stale')
@@ -170,17 +173,23 @@ class RegimeRouter:
         self.manual: Dict = cfg.get('manual_override') or {}
         # 【2026-09-26 删除 ✗】原 `self.direction_filter`（-DI>+DI 不开新仓）已整体移除 ✓
         self.state_path = Path(cfg.get('state_file') or _STATE_PATH)
-        # 【2026-09-26 §5.8 M6】降温状态机 ✓（默认关 ✗）
-        self.enable_adx_falloff = bool(cfg.get('enable_adx_falloff', False))
-        # 降温状态内在状态 ✓（由 `decide()` 逐日推进 ✓，并随既有状态文件持久化 ✓）
-        self._adx_falloff_state = AdxState()
-        # ★【2026-09-27 可观测性 ✓】**开关快照**：每次构造都打一行 ✓ ——
-        #   动机 ✗✓（用户反馈 ✓）：A/B 跑测的日志里**看不出** `enable_adx_falloff` 到底开没开 ✗
-        #   （尤其**族 A 普通引擎根本不构造本类** ✗ ⇒ 若把两族混看，会把"没降温"✗误读成"降温没用"✗✗）。
+        # ★【2026-09-28 用户口径 ✓】降温机制**已整体移除** ✗✓
+        #   （原 `enable_adx_falloff` ✓ + `cooled` ✓ + 峰值 40 的记忆 ✓ + 解除条件 ✗）
+        #   现在只有状态机 ✓：`band`（**迟滞** ✓）+ `dir`（**两日同向** ✓）+ 高位守门 ✓
+        self._adx_state = AdxState()
+        # ★【2026-09-28 用户口径 ✓】方向口径 ✓ —— **默认"连续两日同向"** ✗→✓
+        #   （与个股闸门**同一实现** ✓：`utils.stock_adx_state.resolve_dir_mode` ✓）；
+        #   如需 A/B 旧口径 ✓：本文件写 `dir_mode: epsilon` ✓。
+        from utils.stock_adx_state import resolve_dir_mode as _resolve_dir_mode
+        self._dir_mode = _resolve_dir_mode(cfg.get('dir_mode'))
+        # ★【2026-09-28 用户口径 ✓】**首次启用预热**开关 ✓（默认关 ✗，见 `DEFAULT_CONFIG` ✓）
+        self.auto_warmup = bool(cfg.get('auto_warmup', False))
+        self._in_warmup = False              # ★ 预热中标记 ✓（**防 `decide` 递归** ✗✓）
+        # ★【2026-09-27 可观测性 ✓】**配置快照**：每次构造都打一行 ✓（A/B 一眼可核对 ✓）
         logger.info(f'[RegimeRouter] 生效配置 ✓ enabled={self.enabled} '
-                    f'降温状态机={self.enable_adx_falloff} confirm_days={self.confirm_days} '
+                    f'confirm_days={self.confirm_days} dir口径={self._dir_mode} '
                     f'init_immediate={self.init_immediate} index={self.index_code} '
-                    f'in_memory={self.in_memory} 峰值门={COOLED_PEAK}')
+                    f'in_memory={self.in_memory} 高位守门={HIGH_ADX_GUARD:g}')
 
     # ------------------------------------------------------------------
     # 配置
@@ -309,8 +318,11 @@ class RegimeRouter:
             return rec
 
         # 回退：取 <= d 的最近一条（避免当日 ADX 尚未生成时无法决策）
+        # ★【2026-10-05 适配 ✓】起点**不再写死 `20200101`** ✗→✓（与 `_warmup_dates()` 的
+        #   `19000101` 口径一致 ✓）—— 原值对"历史更短/更晚发布"的指数 ✗（如科创50 2019-12-31 ✓）
+        #   会在回退时**截掉更早的行** ✗ ⇒ 预热/方向判定可能少算 ✗✓。
         try:
-            rows = dao.query_range('20200101', d, self.index_code) or []
+            rows = dao.query_range('19000101', d, self.index_code) or []
             if rows:
                 return rows[-1]
         except Exception as e:
@@ -368,11 +380,17 @@ class RegimeRouter:
         if f_state is not None:
             bits += [f'dir={f_state.dir or "-"}',
                      f'前日={f_state.prev_adx if f_state.prev_adx is not None else "-"}',
-                     f'曾见>40={"是" if f_state.fell_from_high else "否"}',
-                     f'降温={"是" if f_state.cooled else "否"}',
                      f'反转日={"是" if mid_rev else "否"}',
                      f'状态机档={f_state.band or "-"}',
                      f'缓冲=±{self.BAND_BUFFER:g}']
+            # ★ 高位守门 ✓（无状态 ✓）：`adx ≥ 40` 且非上升 ⇒ 直接震荡 ✓ 的**可见依据** ✓
+            try:
+                if (f_state.dir != '上升' and f_state.adx is not None
+                        and float(f_state.adx) >= HIGH_ADX_GUARD):
+                    bits.append(f'高位守门=触发({float(f_state.adx):g}≥{HIGH_ADX_GUARD:g}'
+                                f'且dir≠上升)⇒震荡')
+            except (TypeError, ValueError):
+                pass
             if f_state.reason:
                 bits.append(f'依据={f_state.reason}')
         bits.append(f'生效档={final or "-"}')
@@ -383,10 +401,78 @@ class RegimeRouter:
         return '[RegimeRouter] 判定依据 ✓ ' + ' '.join(bits)
 
     # ------------------------------------------------------------------
+    # ★【2026-09-28 用户口径 ✓】**首次启用预热** ✓ —— 消除开头 1~2 天的"无方向"✗
+    # ------------------------------------------------------------------
+    def _warmup_dates(self, before: str) -> List[str]:
+        """取 `≤ before` 的**指数 ADX** 交易日（升序 ✓）—— 与回测预热**同一数据源** ✓"""
+        from trading.market_index_adx_dao import MarketIndexADXDAO
+        rows = MarketIndexADXDAO().query_range('19000101', before, self.index_code) or []
+        return [str(r.get('trade_date')) for r in rows if r.get('trade_date')]
+
+    def ensure_warmed(self, trade_date: Optional[str] = None) -> int:
+        """**首次启用时预热一次** ✓：把状态机回放到目标日**之前** ✓ 再开始决策 ✓
+
+        背景 ✗✓（用户 2026-09-28 ✓）：`band`（迟滞 ✓）与 `dir`（两日同向 ＋ 没方向沿用 ✓）
+        都是**路径依赖** ✗ ⇒ 实盘**首次**启用时状态文件是空的 ✗ ⇒ 头 1~2 天的「方向」
+        为空 ✗（= "无方向"✗，用户要求**避免**✗）⇒ 本方法用**指数 ADX 全历史**补齐 ✓。
+
+        行为 ✓：
+          · **幂等** ✓：状态里已有 `adx_dir` ⇒ **直接返回 0** ✓（不重复回放 ✓）；
+          · 回放范围 ✓：`数据起点 → trade_date 之前的最后一个交易日` ✓
+            （`trade_date=None` ⇒ 按**今天** ✓）；
+          · 逐日 `decide(persist=True, verbose=False)` ✓（`persist=True` **必须** ✗：
+            否则跨日状态不落盘 ⇒ 回放白做 ✗）；
+          · **异常兜底** ✓：任何异常 ⇒ 返回 0 ✓ + 告警 ✓（**绝不阻断**实盘 ✓）。
+
+        ⚠️ 与 `decide` 的关系 ✓：由 `auto_warmup=True` 在 `decide` 首次调用时自动触发 ✓；
+        回放期间 `self._in_warmup=True` ✓ ⇒ **不会递归** ✗✓。
+
+        Returns:
+            实际回放天数 ✓（0 = 无需预热 / 取不到数据 / 失败 ✓）
+        """
+        try:
+            if not self.enabled and not self.manual.get('enabled'):
+                return 0
+            st = self._load_state()
+            if st.get('adx_dir'):
+                # 已有方向 ⇒ 说明此前预热过（或已自然累积 ✓）⇒ 幂等跳过 ✓
+                return 0
+            goal = str(trade_date or datetime.now().strftime('%Y-%m-%d'))
+            prev = goal
+            try:
+                from utils.trade_date_utils import get_previous_trading_day
+                prev = get_previous_trading_day(goal) or goal
+            except Exception:
+                prev = goal
+            dates = self._warmup_dates(prev)
+            if not dates:
+                logger.warning(f'[RegimeRouter] 首次预热 ✗ 取不到历史指数 ADX'
+                               f'（≤ {prev} ✓）⇒ 跳过 ✓（当日方向可能为空 ✗）')
+                return 0
+            self.reset_state()
+            self._in_warmup = True
+            try:
+                for d in dates:
+                    self.decide(d, persist=True, verbose=False)
+            finally:
+                self._in_warmup = False
+            _st = self._load_state()
+            logger.info(
+                f'[RegimeRouter] **首次启用预热** ✓ 回放 {len(dates)} 日'
+                f'（{dates[0]} ~ {dates[-1]}）⇒ 状态已对齐 ✓'
+                f'（band={_st.get("adx_band") or "-"} dir={_st.get("adx_dir") or "-"} ✓）'
+                f'—— 此后每日决策**不会**再出现"无方向" ✓')
+            return len(dates)
+        except Exception as e:
+            logger.warning(f'[RegimeRouter] 首次预热失败 ✗（按不预热继续 ✓）: {e}')
+            self._in_warmup = False
+            return 0
+
+    # ------------------------------------------------------------------
     # 主入口
     # ------------------------------------------------------------------
     def decide(self, trade_date: str, persist: bool = True,
-               log_basis: bool = True) -> RouteDecision:
+               verbose: bool = True) -> RouteDecision:
         """输出路由决策；任何异常均回退 disabled，绝不抛出
 
         ⚠️ **防前视（重要）**：入参 `trade_date` 是【信号日】，调用方必须传
@@ -398,8 +484,15 @@ class RegimeRouter:
         Args:
             trade_date: 【信号日】✓（调用方须传 **T-1** ✓）
             persist: 是否落状态 ✓（预热/回放可关 ✓）
-            log_basis: 是否打「**判定依据**」一行 ✓（默认**开** ✓；
-                预热会连续回放上千日 ✗ ⇒ 由 `_warmup_router` 关掉 ✗ 并只留结论性事件 ✓）
+            verbose: 是否输出「**判定依据**」一行 ✓（默认**开** ✓）——
+                这是本次决策**唯一**的 INFO 明细 ✓（用户口径 2026-09-27 ✓：
+                「每次决策只保留这一条」✓）。「风格切换/生效决策/解除降温」均已降为
+                **DEBUG** ✗（信息未丢 ✓：判定依据行含 `原值档/迟滞后档/dir/降温/反转日/
+                状态机档/生效档/来源/依据` ✓）。
+                ⚠️ **预热必须传 `False`** ✗✓（`RegimeBacktestEngine._warmup_router` ✓）：
+                预热要连续回放 **2020 → 起点**（上千日 ✗）⇒ 逐日打会淹没主回测日志 ✗✗
+                （实测踩过 ✓）；关掉后本次决策**零 INFO** ✓，预热只留"进入/解除降温"结论事件 ✓。
+                ⚠️ 该开关**只影响日志** ✗ —— **不改**任何判定/状态/持久化 ✓。
         """
         decision = RouteDecision()
         try:
@@ -407,113 +500,75 @@ class RegimeRouter:
                 decision.source = 'disabled'
                 return decision
 
+            # ★【2026-09-28 用户口径 ✓】**首次启用自动预热** ✓（`auto_warmup: true` 时生效 ✓）
+            #   动机 ✗✓：实盘**首次**启用时状态为空 ⇒ 头 1~2 天「方向」为空 ✗（"无方向"✗）
+            #   ⇒ 先 `ensure_warmed()` 前溯把状态补齐 ✓（**幂等** ✓；`_in_warmup` 防递归 ✓）
+            if self.auto_warmup and not self._in_warmup:
+                self.ensure_warmed(trade_date)
+
             # 当前生效档（缓冲带需要）
             st = self._load_state()
             active = st.get('active_regime') or ''
 
-            # 即时档（纯阈值，仅供日志/排查）与缓冲后档位（实际使用）
+            # 即时档（**纯阈值** ✓，仅供日志/排查 ✓）
             rec = self._read_adx(trade_date)
             raw = ''
             if rec:
                 decision.raw_regime = self.classify(rec.get('adx'))
-                raw = self.classify(rec.get('adx'), current_band=active)
 
-            # ---------- 【§5.8 M6】降温状态机 ✓（开关关闭时**完全跳过** ✗ = 现状 ✓）----------
-            # ⚠️ 降温字段必须**并入下面常规保存** ✗✓ —— 否则"当日未被强制"时字段丢失 ✗，
-            #    下一日 `prev_adx` 变 `None` ⇒ 连降/连升判定**永不触发** ✗（实测踩过 ✓）
-            falloff_fields: Dict = {}
-            # ★【2026-09-27】先**初始化** ✗✓ —— 下面「判定依据」日志在**块外**也要用 ✓
-            #   （`f_state` 原来只在 `if enable_adx_falloff and rec:` 内定义 ✗
-            #    ⇒ 块外引用会 `UnboundLocalError` ✗ ⇒ 被 `except` 兜底成 `disabled` ✗✗，
-            #    实测：开关关闭 / 无 ADX 两条路径直接判错 ✓）
+            # ★★【2026-09-28 用户口径 ✓】**状态机推进 + 统一判定** ✗→✓ ★★
+            #   · 状态机**无条件**推进 ✓（**不再有降温开关** ✗）——
+            #     大盘档位/方向与个股走**同一条路径** ✓（`utils.stock_adx_state.step` ✓）；
+            #   · 判定式**只有** `regime_of` ✓（= `band + dir` ✓）**一处** ✓ ——
+            #     个股 `allows_entry` ✓ 与大盘本处 ✓ 是**同一行代码** ✓
+            #     ⇒ **大盘「明确」 ⟺ 个股「放行」** ✓✓（用户要求"个股和大盘统一"✓）；
+            #   · `band` 的**缓冲带（迟滞）保留** ✓（用户 2026-09-28 明确要求 ✓）；
+            #   · ⚠️ **降温机制已整体移除** ✗✓（`cooled` / 峰值 `40` / 强制「震荡」/
+            #     "连升两日解除" ✗ —— 用户口径：**过于复杂、很难理解** ✗）。
             f_state: Optional[AdxState] = None
             prev_f_state: Optional[AdxState] = None   # ★ 供「判定依据」日志 ✓
             mid_rev = False                           # ★ 反转日标志 ✓（只算一次 ✓）
-            if self.enable_adx_falloff and rec:
-                # 复用个股侧原语 ✓（单一事实源 ✓）：逐日推进 `band`/`dir`/`cooled` ✓
-                prev_cooled = bool(st.get('falloff_cooled'))
+            if rec:
+                # 复用个股侧原语 ✓（**单一事实源** ✓）：逐日推进 `band`/`dir` ✓
                 f_state = AdxState(
-                    band=st.get('falloff_band') or '',
-                    dir=st.get('falloff_dir') or '',
-                    cooled=prev_cooled,
-                    adx=st.get('falloff_adx'),
-                    prev_adx=st.get('falloff_prev_adx'),
-                    fell_from_high=bool(st.get('falloff_fell_high')))
-                prev_f_state = f_state          # ★ 步进**前** ✓（(b) 判据需"步进前的 band"✓）
-                f_state = _adx_step(f_state, rec.get('adx'))
-                self._adx_falloff_state = f_state
-                # ★ 反转日判据**只算一次** ✗✓（下面的分支与日志**共用** ✓
+                    band=st.get('adx_band') or '',
+                    dir=st.get('adx_dir') or '',
+                    adx=st.get('adx_state'),
+                    prev_adx=st.get('adx_prev'))
+                prev_f_state = f_state          # ★ 步进**前** ✓（判据需"步进前的 band"✓）
+                f_state = _adx_step(f_state, rec.get('adx'),
+                                    dir_mode=self._dir_mode)   # ★ 与个股**同口径** ✓
+                self._adx_state = f_state
+                # ★ 反转日判据**只算一次** ✗✓（日志与判定**共用** ✓
                 #   ⇒ 杜绝"日志说命中、分支没走"这类两处口径漂移 ✗）
-                mid_rev = is_mid_reversal(f_state.dir, f_state.fell_from_high,
-                                          prev_f_state.band, rec.get('adx'))
-                # 持久化到**既有**状态文件 ✓（6 个标量 ✓，不新增存储 ✗）
-                falloff_fields = {
-                    'falloff_band': f_state.band,
-                    'falloff_dir': f_state.dir,
-                    'falloff_cooled': bool(f_state.cooled),
-                    'falloff_adx': f_state.adx,
-                    'falloff_prev_adx': f_state.prev_adx,
-                    # 【2026-09-27 新增规则 ✓】"见过 >40" 标志 ✓ —— 必须一起持久化 ✗✓，
-                    #   否则跨日丢失 ⇒ "从 40+ 回落到 20~25"这条进入条件**永不触发** ✗
-                    'falloff_fell_high': bool(f_state.fell_from_high),
-                }
-                st.update(falloff_fields)
-
-                forced = ''
-                if f_state.cooled:
-                    # 进入或**保持**降温 ✓ ⇒ 强制「震荡」✗（**绕开** confirm_days 与防抖 ✓）
-                    forced = '震荡'
-                    decision.downgraded_by = 'adx_falloff'
-                elif prev_cooled:
-                    # 【2026-09-27 用户修正 ✗→✓】**解除后不再强制「明确」** ✗
-                    #   ⇒ **交回正常分档** ✓：按**原始区间**（阈值 `20/25` ✓）+ **迟滞**
-                    #     （`±BAND_BUFFER` ✓）判**真实档位** ✓（"趋势反转后按原始分数区间判定"✓）
-                    #   · 为何必须改 ✗✓：解除判据**只**要求**连升两日** ✓，此刻真实档位
-                    #     **未必**是「明确」✗ —— 迟滞可能还没过升档门 ✓：
-                    #     例 `adx = 25.5 < 25 + 1 = 26` ✗ ⇒ 正常分档应判**「震荡」**✓，
-                    #     旧实现却**强制「明确」**✗ ⇒ **越过迟滞** ✗、把"刚解除"错报成明确 ✗✓。
-                    #   · 仍**记录**恢复事件 ✓（`restored_by` ✓）⇒ 日志/A/B 归因仍可看到"何时反转" ✓
-                    decision.restored_by = 'adx_recover'
-                    # ★【2026-09-27 可观测性 ✓】解除降温也**必须**留痕 ✗✓ ——
-                    #   否则 A/B 日志里只能看到"进入降温"✗，"何时恢复"无从查证 ✗（归因断链 ✗）
-                    logger.info(f'[RegimeRouter] 解除降温 ✓（adx={f_state.adx} '
-                                f'前日={f_state.prev_adx} 连升两日 ✓）'
-                                f'⇒ 交回正常分档 ✓（band={f_state.band}）')
-                    #   · ⚠️ 并**以降温态的「震荡」为基准**重新起算 ✓（见 §5.6 ✓）——
-                    #     否则会拿"**降温前的旧档位**"当基准 ✗✓（实测踩到 ✓）：
-                    #     旧实现里强制降温**不更新** `active` ✗ ⇒ 解除日 `active` 仍是降温前的
-                    #     「明确」✗ ⇒ `classify(25.5, current_band='明确')` 会**保持明确** ✗
-                    #     （降档需 `< 24` ✗）⇒ 与"解除后以震荡为基准"的既定语义矛盾 ✗。
-                    raw = self.classify(rec.get('adx'),
-                                        current_band=(f_state.band or active))
-                elif mid_rev:
-                    # ★【2026-09-27 用户口径 ✗→✓】**回落中的「反转日」**
-                    #   ⇒ **按反转日的 `adx` 原值直接判定 regime** ✓（**不吃 buffer** ✗）
-                    #   · 判据 ✓：**复用同一函数** ✓（`utils.stock_adx_state.is_mid_reversal` ✓
-                    #     ⇒ 大盘与个股**逐字同口径** ✗✓，**单一事实源** ✓）——它已含两个分支 ✓：
-                    #     (a) 曾见 `>40` ✓；(b) **迟滞正托住更高档** ✓（实测：只留 (a) **零命中** ✗）。
-                    #   · 为何 ✗✓：迟滞会把"回落前的旧高档"**继续托住** ✗ ⇒
-                    #     "数值已跌破 25、`band` 仍是「明确」" + `dir` 转升 ⇒ **误判为明确** ✗。
-                    #   · 实现 ✓：`f_state.band` 就是**同一原语**在**同一口径**下算出的档位 ✓
-                    #     （`step` 已在反转日自动跳过缓冲带 ✓）⇒ 此处**直接采用** ✓。
-                    #   · ⚠️ 优先级 ✓：`cooled`（上面那支）**最高** ✓ —— 反转日**不得**解封降温 ✗
-                    #     （解除仍需**连升两日** ✓）。
-                    if f_state.band:
-                        raw = f_state.band
-
-                if forced:
-                    if persist:
-                        self._save_state(st)
-                    if log_basis:
-                        logger.info(self._basis_line(
-                            trade_date, rec, active, f_state, mid_rev,
-                            final=forced, source='auto(降温强制)'))
-                    return self._build(forced, decision, 0, source='auto')
+                mid_rev = is_mid_reversal(f_state.dir, prev_f_state.band,
+                                          rec.get('adx'))
+                # ★ **统一判定** ✓：`band + dir`（**个股同一函数** ✓）
+                raw = regime_of(f_state)
+                # ★【2026-09-28 用户要求 ✓】**避免出现"无方向"** ✗→✓（大盘侧**同口径** ✓）：
+                #   保证来源 = **前溯** ✓：回测由 `RegimeBacktestEngine._warmup_router`
+                #   **从数据起点逐日回放** ✓；实盘等价物 = **状态文件持久化** ✓
+                #   （`adx_band/adx_dir/adx_state/adx_prev` ✓）。
+                #   ⇒ 若仍为空 ✗ ⇒ **预热/状态缺失** ✗ ⇒ 告警 ✓
+                #     （表现 = 按"非上升"保守处理 ✓ ⇒ 最多判「萌芽/震荡」✓，绝不会误判「明确」✓）。
+                if not f_state.dir:
+                    logger.warning(
+                        f'[RegimeRouter] {trade_date} **方向为空** ✗ ⇒ **前溯/预热不足** ✗'
+                        f'（band={f_state.band or "-"} adx={f_state.adx} ✓）'
+                        f'⇒ 按"非上升"保守处理 ✓（回测请查 `_warmup_router` ✓）')
+                # ★ 状态机**必须持久化** ✗✓ —— 档位/方向都是**路径依赖** ✓
+                #   （不存 ⇒ 次日 `prev_adx` 变 `None` ⇒ 迟滞与"两日同向"全失效 ✗，实测踩过 ✓）
+                st.update({
+                    'adx_band': f_state.band,
+                    'adx_dir': f_state.dir,
+                    'adx_state': f_state.adx,
+                    'adx_prev': f_state.prev_adx,
+                })
 
             if not raw:
                 # 无 ADX 数据 → 沿用上一个已生效 regime
                 if active and self.rules.get(active):
-                    if log_basis:
+                    if verbose:
                         logger.info(self._basis_line(
                             trade_date, rec, active, f_state, mid_rev,
                             final=active, source='stale',
@@ -535,7 +590,10 @@ class RegimeRouter:
             if not active and self.init_immediate:
                 active = raw          # 首次运行立即生效（避免空等 confirm_days）
             elif count >= self.confirm_days and raw != active:
-                logger.info(f'[RegimeRouter] 风格切换 {active} → {raw}（连续 {count} 日确认）')
+                # ⚠️【2026-09-27 用户口径 ✓】只保留「判定依据」一行 ⇒ 本条降为 **DEBUG** ✗
+                #   （信息未丢 ✓：判定依据行的 `生效档=` / `迟滞后档=` / `依据=` 已覆盖 ✓）
+                logger.debug(f'[RegimeRouter] 风格切换 {active} → {raw}'
+                             f'（连续 {count} 日确认）')
                 active = raw
                 count = 0
                 switched = True
@@ -547,14 +605,17 @@ class RegimeRouter:
                     'pending_count': count,
                     'last_trade_date': str(trade_date),
                 }
-                _payload.update(falloff_fields)   # ★ 保留降温状态 ✓（否则跨日丢失 ✗）
+                # ★ 状态机**必须随状态文件持久化** ✗✓ —— 档位/方向都是**路径依赖** ✓
+                #   （不存 ⇒ 次日 `prev_adx` 为 `None` ⇒ 迟滞与"两日同向"全失效 ✗，实测踩过 ✓）
+                _payload.update({k: st.get(k) for k in
+                                 ('adx_band', 'adx_dir', 'adx_state', 'adx_prev')})
                 self._save_state(_payload)
 
             if not active:
                 # 尚未确认出生效 regime（等待中，仅 init_immediate=False 时出现）→ 不干预调用方
                 decision.source = 'pending'
                 decision.confirm_count = count
-                if log_basis:
+                if verbose:
                     logger.info(self._basis_line(
                         trade_date, rec, active, f_state, mid_rev,
                         final=active, source='pending',
@@ -562,16 +623,18 @@ class RegimeRouter:
                 logger.debug(f'[RegimeRouter] 等待确认中（{raw} 连续 {count}/{self.confirm_days} 日）')
                 return decision
 
-            if log_basis:
+            if verbose:
                 logger.info(self._basis_line(trade_date, rec, active, f_state,
                                              mid_rev, final=active,
                                              source='auto'))
             result = self._build(active, decision, count, source='auto')
             if switched:
-                logger.info(f'[RegimeRouter] 生效决策: {result.regime} | '
-                            f'选股={result.selector_strategy or (NO_SELECTION_LABEL + "(结果置0)")} '
-                            f'择时={result.timing_strategy} '
-                            f'仓位={result.position_ratio:.0%}')
+                # ⚠️【2026-09-27 用户口径 ✓】只保留「判定依据」一行 ⇒ 本条降为 **DEBUG** ✗
+                #   （要"选股/择时/仓位"时把日志级别调到 DEBUG ✓，或见下方可选项 ✓）
+                logger.debug(f'[RegimeRouter] 生效决策: {result.regime} | '
+                             f'选股={result.selector_strategy or (NO_SELECTION_LABEL + "(结果置0)")} '
+                             f'择时={result.timing_strategy} '
+                             f'仓位={result.position_ratio:.0%}')
             return result
 
         except Exception as e:

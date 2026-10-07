@@ -39,6 +39,62 @@ WINDOW_DAYS = 5
 TABLE = 'stock_moneyflow_daily'
 
 
+def gap_fix_hint(missing_dates: Sequence[str], today=None, src: Optional[str] = None) -> str:
+    """按缺口"**新 / 旧**"给出**真能补上**的指引 ✓（**纯文案** ✓，不参与任何判定 ✗）
+
+    ★【2026-09-28 用户实测报障 ✓】原文案一律写"运行**数据更新（滚动 3 日）**"✗ ——
+    但**滚动 3 日**只覆盖最近几天 ✗ ⇒ **历史缺口永远补不到** ✗✓（**无效指引** ✗）。
+
+    实测样本 ✓（`000862` 银星能源 ✓）：
+      · 报错日 `2026-03-04` ✓ 缺 5 天（`2026-02-26 ~ 03-04` ✓）；
+      · 但那 5 天**K 线都在** ✓（⇒ **不是停牌** ✗）、**全市场各有 5096~5097 行** ✓
+        （⇒ **不是全市场缺口** ✗）、对照 `000001` 同期 11 天**齐全** ✓；
+      · 该股资金流实测共 **190 行** ✓、覆盖 `2024-12-24 ~ 2026-09-24` ✓，
+        2026 年 **01 月 0 行 ✗ / 02 月 0 行 ✗ / 03 月 16 行（自 03-10 起 ✓）**
+        ⇒ **该股资金流从 `2026-03-10` 才开始入库** ✗✓ ⇒ `02-26~03-04` 是**历史缺口** ✗
+        —— 只有"**按区间回补 / 初始化**"能补 ✓，"滚动 3 日"永远补不上 ✗✓。
+
+    返回 ✓（**含缩进** ✓，供调用方直接拼接 ✓）：
+      · 缺口**全在最近 7 个自然日内** ✓ ⇒ "滚动 3 日即可 ✓"；
+      · 否则 ✓ ⇒ 明示"**滚动 3 日更新补不到** ✗ ⇒ 按区间回补 / 初始化 ✓"。
+    """
+    from datetime import datetime as _dt, date as _d
+
+    miss = [str(x)[:10] for x in (missing_dates or []) if x]
+    if not miss:
+        return '  修复：运行数据更新（滚动 3 日）补齐最近缺口 ✓'
+    today = today or _d.today()
+    _old = []
+    try:
+        _t = (today if isinstance(today, _d)
+              else _dt.strptime(str(today)[:10], '%Y-%m-%d').date())
+        for m in miss:
+            try:
+                _gap = (_t - _dt.strptime(m, '%Y-%m-%d').date()).days
+            except Exception:
+                _gap = 999
+            if _gap > 7:                        # 约 3 个交易日以外的都算**历史** ✗
+                _old.append(m)
+    except Exception:
+        _old = list(miss)
+    if not _old:
+        return ('  修复：运行**数据更新（滚动 3 日）**即可覆盖该缺口 ✓'
+                f'（缺 {len(miss)} 日：{", ".join(miss[:5])} ✓）')
+    _start = SUPPORTED_START.get(src or '', '') or SUPPORTED_START[SOURCE_THS]
+    return ('  修复：缺口含**历史日期** ✗ —— **滚动 3 日更新补不到** ✗\n'
+            f'    缺失：{", ".join(_old[:5])}{" …" if len(_old) > 5 else ""}'
+            f'（共 {len(miss)} 日 ✗）\n'
+            '    ⇒ ① 先在「数据更新 / 初始化」页**按区间回补** ✓（或跑一次初始化 ✓）；\n'
+            f'    ② **回补后仍缺** ⇒ 属**上游源侧缺口** ✗（**我方补不了** ✗）——\n'
+            '       实测例 ✓：`000852` / `000862` 等在 `2026-02-26 ~ 03-05` ✗，\n'
+            '       源端 `moneyflow_ths` 逐只探测返回 **0 行** ✓（源端本就没有 ✗），\n'
+            '       且这批共 **92 只**、均在 **`2026-03-10`** 才首次提供 ✓；\n'
+            '       ⇒ 按仓库既有机制登记 `config/data_source_gaps.yaml` ✓（**登记 ≠ 忽略** ✓，\n'
+            '       须附探测证据 ✓），登记后不再计 `missing` ✓、只作 `known_gaps` 单列 ✓。\n'
+            f'    数据源 {src or SOURCE_THS} ✓ 理论起点 {_start} ✓'
+            '（**早于**该起点的日期同样属源端没有 ✗，只能接受缺失 ✓）')
+
+
 def resolve() -> str:
     """解析当前资金流数据源 ✓（`KHUNTER_MONEYFLOW_SOURCE` > `config.yaml → moneyflow.source` > 同花顺 ✓）"""
     import os

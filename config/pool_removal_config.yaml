@@ -127,7 +127,7 @@ removal_strategies:
     display_name: "金三角策略"
     min_hold_days: 5
     is_enabled: true
-    remark: "加入股票池5天后验证趋势"
+    remark: "加入股票池1天后验证趋势"
 
   # 超跌反弹策略
   OversoldReboundStrategy:

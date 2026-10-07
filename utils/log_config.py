@@ -131,6 +131,16 @@ class LogConfig:
 
         root_logger.addHandler(queue_handler)
 
+        # ★【2026-09-28 用户要求 ✓】**静音第三方库的纯噪声** ✗→✓
+        #   实测单日 ✗✓：`urllib3` DEBUG **19,171 行** ✗（"Starting new HTTP connection…"✗
+        #   —— 每次 HTTP 一行 ✗）、`werkzeug` 访问日志 2,092 行 ✗
+        #   （本项目是**本地桌面服务** ✓，访问日志无运维价值 ✗）。
+        #   ⇒ 只调**这些库** logger 的级别 ✓（**本项目 logger 一律不动** ✓，
+        #     所以回测/实盘的参数与判定日志一条不少 ✓）；
+        #   ⇒ 仍放行 **WARNING 及以上** ✓ ⇒ 真异常/重试/限流告警**一条不漏** ✓。
+        for _noisy in ('urllib3', 'werkzeug', 'asyncio', 'matplotlib', 'PIL'):
+            logging.getLogger(_noisy).setLevel(logging.WARNING)
+
         logger = logging.getLogger(__name__)
         logger.info("=" * 60)
         logger.info("日志系统初始化完成")

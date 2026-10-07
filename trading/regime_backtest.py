@@ -93,14 +93,46 @@ class RegimeBacktester:
         df = df.drop_duplicates(subset=['strategy_name', 'stock_code', 'buy_date'])
         return df.reset_index(drop=True)
 
-    def _adx_days(self, start_date: str, end_date: str) -> List[str]:
-        """ADX 覆盖的交易日序列（regime 判定依赖它）"""
+    def _adx_days(self, start_date: str, end_date: str,
+                  index_code: Optional[str] = None) -> List[str]:
+        """ADX 覆盖的交易日序列（regime 判定依赖它）
+
+        ★★【2026-10-05 适配修复 ✓】**必须按 `index_code` 过滤** ✗→✓ ★★
+          隐患 ✗✓：本查询原先**不筛指数** ✗ —— 写它时表里只有 1 个指数 ✓ ⇒ 恰好等价 ✗；
+            2026-10-05 新增创业板指 / 科创50 后 ✗ ⇒ **每个交易日返回 3 行** ✗
+            ⇒ 这里返回的日期序列**大量重复** ✗ ⇒ 下游 `prev_day`（信号日映射 ✓）、
+              `regime_days` 统计与**逐日决策**全部**静默失真** ✗✓。
+          ⚠️ 光"去重"**不够** ✗✓：多指数下"某指数缺某天、别的指数有"✗ ⇒ 去重会把该指数
+            **没有数据的日子**当成有 ✗ ⇒ 仍错 ✗ ⇒ **必须按指数过滤** ✓。
+          指数来源 ✓：`router_config.index_code` ✓ >（回落）`resolve_index_adx_code()`
+            （= `index_adx_code` > `regime_router.yaml::index_code` ✓）—— 与 `RegimeRouter`
+            自己用的**完全同一个** ✓（否则"路由看 A、这里按 B 排日子"✗ 自相矛盾 ✗）。
+        """
+        code = str(index_code or '').strip()
+        if not code:
+            try:
+                code = str((self.router_config or {}).get('index_code') or '').strip()
+            except Exception:
+                code = ''
+        if not code:
+            try:
+                from trading.index_adx_filter import resolve_index_adx_code
+                code = str(resolve_index_adx_code() or '').strip()
+            except Exception as e:                   # 解析失败 ⇒ 保持旧行为 ✓ 但**告警** ✓
+                logger.warning(f'[RegimeBacktester] 解析指数失败（按旧行为不过滤 ✗）: {e}')
+        sql = ("SELECT trade_date FROM market_index_adx "
+               "WHERE trade_date >= ? AND trade_date <= ?")
+        params = [start_date.replace('-', ''), end_date.replace('-', '')]
+        if code:
+            sql += " AND index_code = ?"
+            params.append(code)
+        else:
+            logger.warning('[RegimeBacktester] 未指定指数 ⇒ 跨全部指数取日期 ✗'
+                           '（多指数下会重复 / 失真 ✗✓，请显式指定 ✓）')
+        sql += " ORDER BY trade_date"
         conn = sqlite3.connect(self.db_path)
         try:
-            rows = pd.read_sql(
-                "SELECT trade_date FROM market_index_adx "
-                "WHERE trade_date >= ? AND trade_date <= ? ORDER BY trade_date",
-                conn, params=(start_date.replace('-', ''), end_date.replace('-', '')))
+            rows = pd.read_sql(sql, conn, params=tuple(params))
         finally:
             conn.close()
         return [self.norm_date(d) for d in rows['trade_date'].tolist()]

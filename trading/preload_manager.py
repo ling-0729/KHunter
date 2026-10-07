@@ -278,16 +278,35 @@ class PreloadManager:
                 return []
             
             # 入池规则：简化模式下评分器只判一票否决（跳过所有维度打分）
-            from trading.pool_entry_rules import resolve_pool_entry_simplified
+            from trading.pool_entry_rules import (POOL_ENTRY_MODE_VETO_ONLY,
+                                                  resolve_pool_entry_mode,
+                                                  resolve_pool_entry_simplified,
+                                                  should_skip_scoring)
 
-            _simplified = resolve_pool_entry_simplified({}, self.backtest_engine._load_engine_config())
+            _ec = self.backtest_engine._load_engine_config()
+            _simplified = resolve_pool_entry_simplified({}, _ec)
+
+            # ★★【2026-09-29 用户要求 ✓】`direct` ⇒ **预加载也不评分** ✗→✓ ★★
+            #   ⚠️ 与回测/实盘**同一判据** ✓（`should_skip_scoring` ✓）⇒ 三处口径一致 ✓。
+            #   ⚠️ 顺带**补上 `veto_only`** ✗→✓：此前预加载**没传** `veto_only` ✗ ⇒
+            #      `veto_only` 模式下预加载仍**全量五维打分** ✗（白算 ✗，且与正常选股口径不一 ✗）；
+            #      现在只判否决 ✓（**过滤结果不变** ✓ —— 上层本就不看 score ✓，纯省时 ✓）。
+            if should_skip_scoring({}, _ec):
+                for _s in stocks:
+                    _s['score'] = 0.0
+                    _s['veto_flag'] = False
+                logger.info(f'【跳过评分】`pool_entry_mode=direct` ✓ ⇒ 预加载 {len(stocks)} 只'
+                            f'**不评分、不判否决** ✗ ⇒ 直接入池 ✓')
+                return stocks
+            _veto_only = (resolve_pool_entry_mode({}, _ec) == POOL_ENTRY_MODE_VETO_ONLY)
 
             # 使用回测评分器进行批量评分
             scored_stocks = self.backtest_engine.score_calculator.calculate_batch_scores(
                 stocks=stocks,
                 score_date=date,
                 strategy_name=strategy_name,
-                simplified=_simplified
+                simplified=_simplified,
+                veto_only=_veto_only,
             )
             
             return scored_stocks

@@ -211,8 +211,7 @@ class EventScorer:
         self._pro = None
         # 初始化内存缓存
         self._cache = MemoryCache()
-        # 记录初始化日志
-        logger.info("事件驱动评分器初始化完成")
+        # 【2026-09-28 减噪 ✗→✓】原"事件驱动评分器初始化完成"✗ 为每实例零信息量日志 ⇒ 删除 ✓。
 
     def _load_tushare_token(self) -> str:
         """
@@ -227,7 +226,8 @@ class EventScorer:
                 config = json.load(f)
             # 优先使用 token 字段，兼容 api_key 字段
             token = config.get("token") or config.get("api_key", "")
-            logger.debug("Tushare token 加载成功")
+            # 【2026-09-28 减噪 ✗→✓】"Tushare token 加载成功"为每实例零信息量日志 ⇒ 删除 ✓
+            #   （读取失败仍走下方 warning ✓）
             return token
         except Exception as e:
             # 配置文件读取失败，返回空字符串

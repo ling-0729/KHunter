@@ -74,6 +74,50 @@ def is_offline() -> bool:
     return bool(_state['enabled'])
 
 
+#: ★★【2026-10-07 用户要求 ✓】**"数据源无权限"的识别词** ✗→✓ ★★
+#:   用户原话 ✓："**注意部分数据依赖 tushare 数据源，没有对应数据源权限时，自动跳过，避免中断**" ✓
+#:   ⚠️ 为什么要"识别"而不是"照抛" ✗✓：Tushare 的权限不足**不是故障** ✓ ——
+#:     它是"这个账号没买这个接口"✓（如 `fina_indicator_vip` 需积分 ✓、`limit_list_d` 需 5000 积分 ✓、
+#:     `ths_daily` 需 6000 积分 ✓）⇒ 每个用户的可用接口**天然不同** ✓
+#:     ⇒ 初始化/日更必须"**跳过并继续**"✓，否则一个没买的接口会让**整条流水线中断** ✗✗
+#:     （= 用户点名要避免的行为 ✓）。
+#:   ⚠️ 但**绝不是静默** ✗：调用方必须**如实记日志 + 记结果**（`skipped` ✓），
+#:     与"离线闸门直接抛错"是**两码事** ✓ —— 那条是"回测不许联网"✓（用户契约 ✓），这条是"没权限也别死"✓。
+PERMISSION_HINTS = (
+    '没有权限', '无权限', '权限不足', '积分不足', '积分', '抱歉',
+    'permission', 'not authorized', 'unauthorized', 'forbidden',
+    'insufficient', '40203', 'access denied', 'no access',
+)
+
+
+def is_permission_error(err) -> bool:
+    """★ 判断某个异常/文案是否属于"**数据源无权限**"✓（供初始化/日更"**跳过而不中断**"✓）
+
+    用法 ✓：
+        try:
+            ...
+        except Exception as e:
+            if is_permission_error(e):
+                log('⏭ 跳过（数据源无权限 ✓）')      # ★ 必须**留痕** ✗
+            else:
+                raise / 记为失败
+
+    ⚠️ 判据只做**保守**的关键词匹配 ✓：宁可把"真故障"当权限（⇒ 跳过 ✓ 有日志 ✓）
+      也不要把"权限不足"当故障 ✗（⇒ 整条流水线中断 ✗，正是用户要避免的 ✗）。
+    """
+    if err is None:
+        return False
+    try:
+        text = str(err)
+    except Exception:
+        return False
+    low = text.lower()
+    for h in PERMISSION_HINTS:
+        if h.lower() in low:
+            return True
+    return False
+
+
 def violations() -> List[Dict]:
     """离线模式期间的在线调用违规记录 ✓（审计用）"""
     return list(_state['violations'])
@@ -170,6 +214,29 @@ def guard_online_call(what: str, allow: bool = False,
         f'【离线闸门】**回测过程禁止一切在线调用** ✗（无例外 ✓）：{what}\n'
         f'  说明：回测只读本地数据 ✓；数据采集/更新请**在回测之外**执行 ✓\n'
         f'  若确有数据缺失，请先跑"数据更新"补齐后再回测 ✓')
+
+
+def online_blocked(purpose: str = PURPOSE_SCORE) -> Optional[str]:
+    """**预判**：该用途的在线调用**是否会被本闸门拦下** ✓（拦 ⇒ 返回原因 ✓；放行 ⇒ None ✓）
+
+    ★【2026-09-28 新增 ✓】动机 ✗✓（用户实测日志 ✓）：调用方（如减持计划缓存刷新 ✓）
+      在"本地数据不足"时会**回退在线 + 重试退避** ✗ —— 但若本闸门**必然拦截** ✗
+      （评分侧只读本地 ✓ / 回测离线 ✓），那 `for attempt in range(3)` + 睡 5/10/15 秒
+      纯属**空耗** ✗（实测：**每只股票 ~32 秒** ✗ ⇒ 候选池几十只即把数据更新拖成
+      分钟级 ✗，见 `trading/reduce_plan_cache.py:423` 的连续重试 ✗）。
+
+    ⚠️ 与 `guard_online_call` **同一判据** ✗✓（抽公共，防两处判据漂移 ✗）：
+      改判据**只改一处** ✓。
+    ⚠️ 本函数**不抛错** ✓、**不记违规** ✗（纯预判 ✓）⇒ 真正的拦截与违规审计
+      仍由 `guard_online_call` 独家负责 ✓（安全契约不变 ✓）。
+    """
+    # ① 评分链路：任何模式下都只读本地 ✗（除非显式 KHUNTER_SCORE_LOCAL_ONLY=0 ✓）
+    if purpose != PURPOSE_UPDATE and _score_local_only():
+        return '评分/回测只读本地数据（不再即时联网）'
+    # ② 回测离线闸门：一切在线调用都被拦 ✗（无例外 ✓）
+    if _state['enabled']:
+        return f'回测离线模式（{_state["reason"]}）'
+    return None
 
 
 def require_offline(what: str = '回测') -> None:

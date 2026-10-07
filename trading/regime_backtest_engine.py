@@ -16,6 +16,7 @@
 
 ⚠️ 本副本对应父类 run_backtest 版本：2026-09-11（如父类有重大变更需人工比对）
 """
+import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -25,6 +26,7 @@ import pandas as pd
 from trading import backtest_engine as _be
 from trading.backtest_engine import BacktestEngine
 from trading.regime_router import RegimeRouter, RouteDecision, NO_SELECTION_LABEL
+# ★【2026-09-28】原 `COOLED_PEAK` 已随降温机制移除 ✗✓（预热改为**全历史逐日回放** ✓）
 from utils.online_guard import backtest_offline
 
 logger = logging.getLogger(__name__)
@@ -113,7 +115,13 @@ class RegimeBacktestEngine(BacktestEngine):
         """
         super().__init__(db)
         # 路由器：内存态，避免污染实盘的 data/running/regime_state.json
-        self._router = RegimeRouter(router_config or {}, in_memory=True)
+        # ★【2026-09-28 用户口径 ✓】回测**必须关** `auto_warmup` ✗✓ —— 预热由
+        #   `_warmup_router` 负责 ✓（按**回测起点**回放到起点前一日 ✓）；
+        #   若沿用生产 yaml 的 `true` ✗ ⇒ `decide()` 每次都会先做一次"首次预热"
+        #   （查库 ＋ `reset_state()` ✗）⇒ 与回测预热**互相打架** ✗✓（实测踩到 ✓）。
+        _cfg = dict(router_config or {})
+        _cfg.setdefault('auto_warmup', False)
+        self._router = RegimeRouter(_cfg, in_memory=True)
         self._decision_cache: Dict[str, RouteDecision] = {}
         # 每轮回测重置
         self.regime_log = []
@@ -167,23 +175,24 @@ class RegimeBacktestEngine(BacktestEngine):
     # ★【2026-09-27】**路由器预热** ✓ —— 消除"**档位依赖回测起点**"✗
     # ------------------------------------------------------------------
     def _warmup_router(self, start_date, dates: Optional[List] = None) -> int:
-        """把路由器状态机**从 ADX 表首日**推进到 `start_date` 之前 ✓
+        """把路由器状态机推进到 `start_date` 之前 ✓ —— **逐日回放全历史** ✓
 
         背景 ✗✓（**实测** ✓，用户报 `2025-05-06` ✗）：
-          `RegimeRouter.decide()` 是**逐日推进** ✓ —— 降温与迟滞都是**路径依赖** ✗；
+          `RegimeRouter.decide()` 是**逐日推进** ✓ —— `band`（**迟滞** ✓）与
+          `dir`（**两日同向** ✓）都是**路径依赖** ✗；
           而本引擎此前只对 `[start_date, end_date]` 调 `decide` ✗
-          ⇒ **回测起点一变，同一天的档位就变** ✗✗（实测同一日 `2025-05-06`）：
+          ⇒ **回测起点一变，同一天的档位就变** ✗✗（实测同一日 `2025-05-06` ✓：
+          起点早/晚分别得「震荡」与「明确」✗ ⇒ 仓位 `0.0` vs `1.0` ✗）。
 
-            · 起点 ≤ `2025-04-18` ✓（含峰值 `adx=40.02` ✓）⇒ **震荡** ✓（仓位 0.0 ✓）
-            · 起点 ≥ `2025-04-22` ✗（错过峰值 ✗）⇒ **明确** ✗（满仓 1.0 ✗）
+        ★ **2026-09-28 简化** ✓：原"**锚点法**"（只回放「起点前最近一次 `adx > 40`」起 ✓）
+          **已移除** ✗✓ —— 它依赖降温机制的 `fell_from_high` 标志 ✓，
+          而**降温已整体移除** ✗ ⇒ 锚点**不再成立** ✗ ⇒ 回到
+          「**数据起点 → 起点前一日**」的**全量逐日回放** ✓（最稳 ✓；~1600 日 ✓ 秒级 ✓）。
 
-          ⇒ 根因 ✗：`fell_from_high`（"曾见 40+ "✓）与 `cooled` 都是**历史标志** ✓，
-            错过峰值日 ⇒ 整条「高位回落」链**永不触发** ✗。
-
-        做法 ✓：`reset_state()` 清零 ✓ → 从 ADX 表**首日**起 ✓，对 `start_date` **之前**的
-        每个 ADX 日调 `self._router.decide(d, persist=True)` ✓
+        做法 ✓：`reset_state()` 清零 ✓ → 对预热序列逐日调
+        `self._router.decide(d, persist=True, verbose=False)` ✓
         （`persist=True` 是**必须**的 ✗：状态逐日累积 ✓；不落状态则次日 `prev_adx` 丢失 ✗
-         ⇒ 连升/连降判定永不触发 ✗）。
+         ⇒ 迟滞与"两日同向"全失效 ✗）。
 
         ⚠️ 直接调 `self._router` ✓、**不走** `self._decide` ✗ ⇒ 预热**不写**
         `regime_log` / `_decision_cache` ✗（不进回测统计 ✓）。
@@ -193,7 +202,7 @@ class RegimeBacktestEngine(BacktestEngine):
 
         Args:
             start_date: 回测开始日 ✓（`YYYYMMDD` / `YYYY-MM-DD` 均可 ✓）
-            dates: 预热日期序列 ✓（**测试注入** ✓）；`None` ⇒ 从 ADX 表取 ✓
+            dates: 预热日期序列 ✓（**测试注入** ✓）；`None` ⇒ 自动取**全部**历史 ✓
 
         Returns:
             预热天数 ✓（0 = 未预热 ✗；**任何异常也返回 0** ✓ —— 绝不阻断回测 ✓）
@@ -218,22 +227,18 @@ class RegimeBacktestEngine(BacktestEngine):
                 #   ⇒ 被本函数兜底吃掉 ⇒ **静默"零预热"** ✗✗）⇒ 用 `getattr` 兜底到全局库 ✓。
                 _db = getattr(self, 'db', None)
                 rows = MarketIndexADXDAO(_db).query_range(
-                    '19000101', prev or start, self._router.index_code)
-                dates = [r.get('trade_date') for r in (rows or [])]
+                    '19000101', prev or start, self._router.index_code) or []
+                # ★【2026-09-28】锚点法已移除 ✓ ⇒ 回放**全部**候选日 ✓
+                dates = [r.get('trade_date') for r in rows]
             seq = [d for d in (_norm(x) for x in (dates or [])) if d and d < start]
-            marks = 0
             for d in seq:
-                # ★ 预热**关掉**逐日「判定依据」✗（上千日会刷屏 ✗）⇒ 只留**结论性事件** ✓
-                self._router.decide(d, persist=True, log_basis=False)
-                _why = getattr(self._router._adx_falloff_state, 'reason', '') or ''
-                if '降温进入' in _why or '降温解除' in _why:
-                    marks += 1
-                    logger.info(f'[RegimeEngine] 预热·状态变更 ✓ {d}：{_why}')
+                # ★ 预热**关掉**逐日「判定依据」明细 ✗（上千日会刷屏 ✗）
+                self._router.decide(d, persist=True, verbose=False)
             if seq:
                 logger.info(f'[RegimeEngine] 路由器预热 ✓ {len(seq)} 日 '
                             f'（{seq[0]} ~ {seq[-1]}）⇒ 起点 {start} 状态已对齐 ✓'
-                            f'（降温/迟滞路径依赖 ✗：不预热会与全历史重放不一致 ✗；'
-                            f'逐日「判定依据」预热期已关 ✗，仅留 {marks} 条状态变更 ✓）')
+                            f'（`band` **迟滞** ✓ 与 `dir` **两日同向** ✓ 都是'
+                            f'**路径依赖** ✗ ⇒ 不预热会与全历史重放不一致 ✗）')
             return len(seq)
         except Exception as e:
             logger.warning(f'[RegimeEngine] 路由器预热失败（按不预热继续 ✓）: {e}')
@@ -359,12 +364,12 @@ class RegimeBacktestEngine(BacktestEngine):
         from utils.backtest_mode import merge_backtest_defaults
         config = merge_backtest_defaults(config)
 
-        # ★【2026-09-27】启动参数快照 ✓ + **路由器开关本体** ✓（用户要求 ✓：
-        #   此前只能"看日志猜"✗ `enable_adx_falloff` 开没开 ✗）
+        # ★【2026-09-27】启动参数快照 ✓ + **路由器开关本体** ✓（用户要求 ✓：一眼核对 ✓）
+        #   ⚠️【2026-09-28】`大盘降温(enable_adx_falloff)` **已随机制移除** ✗✓
         self.log_backtest_params(config, tag='自适应引擎', extra={
             'router.enabled': self._router.enabled,
-            '大盘降温(enable_adx_falloff)': self._router.enable_adx_falloff,
             'confirm_days': self._router.confirm_days,
+            'dir口径': self._router._dir_mode,
             'index_code': self._router.index_code,
             'in_memory': self._router.in_memory})
 
@@ -433,6 +438,15 @@ class RegimeBacktestEngine(BacktestEngine):
             if not start_date or not end_date:
                 raise ValueError("回测开始日期和结束日期不能为空")
 
+            # ★【2026-09-28】终点**自动回退** ✓ —— 当日数据（资金流/K线/大盘ADX ✓）
+            #   **收盘后**才入库 ✗ ⇒ 终点=今天 且未收盘 ⇒ 闸门**必然**报"缺 1 天: 今天"✗
+            #   （用户实测 2026-09-28 08:47 批量回测 ✗）。见 `_resolve_end_date` ✓。
+            end_date = self._resolve_end_date(end_date)
+            if str(start_date).replace('-', '')[:8] > str(end_date).replace('-', '')[:8]:
+                raise ValueError(f'回测起点 {start_date} **晚于**可用终点 {end_date} ✗ —— '
+                                 f'（终点已回退到"最近一个数据已齐备的交易日"✓）'
+                                 f'请把起点提前 ✓')
+
             # 2. 确保策略已注册
             if not self.strategy_registry.strategies:
                 self.strategy_registry.auto_register_from_directory("strategy")
@@ -444,6 +458,25 @@ class RegimeBacktestEngine(BacktestEngine):
             date_range = self._get_trading_dates(start_date, end_date)
             if not date_range:
                 raise ValueError(f"回测期间 {start_date} ~ {end_date} 没有交易日")
+
+            # 4.2 ★★【2026-09-30 用户要求 ✓】**补齐数据闸门** ✗→✓ ★★
+            #   缺口 ✗✓（用户要求"补齐"时实测确认 ✓）：本引擎**复制**了父类的
+            #     `run_backtest` ✗ ⇒ **没接闸门** ✗ ⇒ 与普通回测**两处不一致** ✗：
+            #       ① 缺数据**不拦** ✗（普通回测会终止 ✗）；
+            #       ② 结果里**没有 `data_fingerprint`** ✗ ⇒ 落库 `data_version` 为空 ✗
+            #          ⇒ "重跑结果不一致，是数据变了吗？"**无从判断** ✗✓。
+            #   做法 ✓：**复用父类同一实现** ✓（`BacktestEngine._run_data_gate` ✓）
+            #     ⇒ 口径**不可能漂移** ✗✓（跳过项判据一并继承 ✓）：
+            #       · `pool_entry_mode=direct` ⇒ 自动跳过 资金流/基本面/公告 ✓；
+            #       · 个股 ADX 不参与判定 ⇒ 自动跳过 `adx` ✓；
+            #       · ★ 本引擎挂了 `self._router` ✓ ⇒ `index_adx_required=True` ✓
+            #         ⇒ **大盘指数 ADX 的"起点覆盖 + 120 日预热"会硬拦** ✗✓
+            #         （正是 `backtest_data_gate.check_index_adx` docstring 写明的期望行为 ✓）；
+            #       · 产出 `data_gate_report` + `data_fingerprint` ✓（见下方结果字典 ✓）。
+            #   ⚠️ 确实想跳过时 ✓：yaml `data.gate_skip: ['index_adx']` ✓ 或
+            #     `KHUNTER_DATA_STRICT=0` ✓（降级为告警 ✓）—— **绝不静默放过** ✗✓。
+            self.data_gate_report = self._run_data_gate(start_date, end_date,
+                                                        date_range, config)
 
             # 4.5 ★【2026-09-27】**路由器预热** ✓ —— 让同一天档位**与回测起点无关** ✓
             #   实测反例 ✗✓（用户报 `2025-05-06` ✗）：起点在 `2025-04-22` 之后 ⇒
@@ -682,15 +715,40 @@ class RegimeBacktestEngine(BacktestEngine):
                         logger.info(f"股票池移除 {len(removed)} 只股票")
 
                 # 选股（改造②：使用当日 regime 策略）
-                #   选股「空值」（空仓）→ 选股与评分**照常执行**，只是结果固定为 0 只
-                #   （流程与普通档位一致：评分、缓存、日志口径都不变，仅不进候选池）
+                # ★★【2026-09-29 用户要求 ✓】**"不开新仓" ⇒ 跳过选股执行** ✗→✓ ★★
+                #   用户口径 ✓："回测时，如果判定当日不开新仓，**跳过选股执行过程**，
+                #   直接返回选股结果为 0" ✓ + "**建议作为开关参数，便于对比回测效果**" ✓。
+                #   两处判据 ✓（任一命中即"不开新仓" ✓）：
+                #     ① **自适应档位**："空仓（选股=空值）" ✓（`_dec.no_selection` ✓）；
+                #     ② **仓位上限 0%** ✓（`_day_no_new_position` ✓ —— 只判档位 ✓）。
+                #   **开关** ✓：`skip_selection_when_no_new_position`（默认 **开** ✓）
+                #     ⇒ 关掉回到**旧行为** ✓（选股/评分照常执行、结果置 0 ✓）⇒ 可 A/B ✓。
                 selection_date = self._get_previous_trading_day(current_date)
-                logger.info(f"执行选股日期: {selection_date}")
                 candidate_stocks = []
+                _skip_sel, _skip_why = False, ''
                 if day_strategy:
+                    if _dec.no_selection:
+                        if self._skip_selection_switch(config):
+                            _skip_sel = True
+                            _skip_why = '【自适应】当日空仓（选股=空值 ✓）'
+                    else:
+                        # ★【2026-10-07 审计修复 ✓】同 `BacktestEngine` ✓：回测硬钉"前一根" ✓
+                        #   （防 yaml 误开 ⇒ 前视 ✗；并保证与下方买入分支**同一时点** ✓）
+                        from trading.index_adx_filter import backtest_gate_config as _bt_cfg
+                        _nc = self._day_no_new_position(current_date, _bt_cfg(config))
+                        if _nc is not None:
+                            _skip_sel = True
+                            _skip_why = f"仓位上限 **0%** ✓（{_nc.get('rule') or ''}）"
+                if _skip_sel:
+                    logger.info(
+                        f"【跳过选股】{current_date} {_skip_why} ⇒ 选股结果 = **0** ✓"
+                        f"（跳过选股/评分 ✓；卖出与加仓不受影响 ✓）")
+                elif day_strategy:
+                    logger.info(f"执行选股日期: {selection_date}")
                     candidate_stocks = self._select_and_score_stocks(
                         day_strategy, selection_date, config)
                     if _dec.no_selection:
+                        # 开关**关** ⇒ 旧行为 ✓：照常执行、仅结果置 0 ✓（便于 A/B ✓）
                         logger.info(
                             f"【自适应】{current_date} 空仓（选股=空值）：选股/评分已执行，"
                             f"结果置 0（原 {len(candidate_stocks)} 只，不进候选池）")
@@ -864,9 +922,16 @@ class RegimeBacktestEngine(BacktestEngine):
                         result = self.timing_strategy.get_timing_result(
                             df_to_date, existing_pos, current_capital, stock_code=stock_code)
                         timing_name = self.timing_strategy.__class__.__name__
-                        logger.info(f"{timing_name}信号: is_buy={result.is_buy}, is_sell={result.is_sell}, "
-                                    f"buy_qty={result.buy_quantity}, sell_qty={result.sell_quantity}, "
-                                    f"type={result.trade_type}, msg={result.message}")
+                        # 【2026-09-28 减噪 ✗→✓】同 `backtest_engine` ✓：只在**真有信号**时
+                        #   INFO ✓，其余降 `debug` ✓（原文案逐票逐日刷 ✗，实测单日 2 万行级 ✗）
+                        _sig_msg = (f"{timing_name}信号: is_buy={result.is_buy}, "
+                                    f"is_sell={result.is_sell}, buy_qty={result.buy_quantity}, "
+                                    f"sell_qty={result.sell_quantity}, type={result.trade_type}, "
+                                    f"msg={result.message}")
+                        if result.is_buy or result.is_sell:
+                            logger.info(_sig_msg)
+                        else:
+                            logger.debug(_sig_msg)
 
                     is_buy = result.is_buy if result else False
                     if not is_buy:
@@ -886,21 +951,64 @@ class RegimeBacktestEngine(BacktestEngine):
                             remaining_candidates.append(candidate)
                             continue
 
+                    # ---------- ★★【2026-09-30 用户要求 ✓】**逐票「当日仓位上限」闸门** ✗→✓ ----------
+                    #   缺口 ✗✓：本引擎**只有**"档位仓位系数 `_regime_ratio`"（见下方 ✓），
+                    #     而**没有**父类 buy 循环里的 `index_position_cap_gate` ✗
+                    #     ⇒ 与普通回测**少一道闸门** ✗（同一份策略两边结果不可直接比 ✗）。
+                    #   口径 ✓：**与普通回测逐字同口径** ✗✓（照抄 `backtest_engine.py` 同一块 ✓）：
+                    #     · **仅约束开新仓** ✗✓（整块在 `existing_pos is None` 内 ✓，加仓不受限 ✓）；
+                    #     · 判据来自**大盘指数 ADX**（`market_index_adx` ✓，只用 **T-1** ✓ 防前视 ✓）；
+                    #     · 规则 ✓：`ADX>25 ∧ dir上升 ⇒ 100%` ✓ / `ADX<18 ∧ dir上升 ⇒ 50%` ✓ /
+                    #       **其他 ⇒ 0% ⇒ 不允许开仓** ✓；**持仓 ≥ 上限 ⇒ 停开新仓** ✓。
+                    #   ⚠️ 与档位系数的**关系** ✓：两者**独立叠加** ✓（档位系数管"**总仓位目标**" ✓；
+                    #     本闸门管"**大盘状态是否允许开新仓**"✗）⇒ 任一不过 ⇒ 不开新仓 ✓。
+                    # ★【2026-10-07 审计修复 ✓】大盘与个股**共用**这份被钉死的 cfg ✓
+                    #   （钉死"前一根" ✓ ⇒ 两者**不可能**分时点 ✓；须在 `if` 之前定义 ✓）
+                    from trading.index_adx_filter import backtest_gate_config as _bt_cfg
+                    _gate_cfg = _bt_cfg(config)
+                    if existing_pos is None:
+                        from trading.index_adx_filter import (
+                            format_index_position_cap_result, index_position_cap_gate,
+                            is_index_position_cap_enabled)
+                        if is_index_position_cap_enabled(_gate_cfg):
+                            _cur_ratio_cap = self._current_position_ratio(
+                                current_date, positions, current_capital)
+                            _cap_gate = index_position_cap_gate(
+                                current_date, _cur_ratio_cap, _gate_cfg,
+                                stock_code=stock_code)      # ★ 板块回退需知其所属板块 ✓
+                            if not _cap_gate['passed']:
+                                logger.info(
+                                    f"【未买入】{stock_code} {stock['stock_name']}: "
+                                    f"{format_index_position_cap_result(_cap_gate)}")
+                                remaining_candidates.append(candidate)
+                                continue
+                            logger.info(f"【仓位上限】{current_date} {stock_code} "
+                                        f"{stock['stock_name']}: "
+                                        f"{format_index_position_cap_result(_cap_gate)}")
+
                     # ---------- 【2026-09-26 §5.6】个股 ADX 闸门 ✓（**首仓 + 加仓 均生效** ✗✓）----------
                     #   与 `BacktestEngine` 口径一致 ✓（`_should_apply_adx_filter` 由其**继承** ✓）
                     if self._should_apply_adx_filter(result, existing_pos):
                         from trading.stock_adx_filter import (add_entry_gate,
                                                               adx_entry_gate)
-                        adx_gate = (add_entry_gate(df_to_date, stock_code, config,
+                        # ★【2026-10-07 审计修复 ✓】用**同一份** `_gate_cfg` ✗→✓（= 大盘那份 ✓）
+                        adx_gate = (add_entry_gate(df_to_date, stock_code, _gate_cfg,
                                                    signal_date=current_date)
                                     if existing_pos is not None
-                                    else adx_entry_gate(df_to_date, stock_code, config,
+                                    else adx_entry_gate(df_to_date, stock_code, _gate_cfg,
                                                         signal_date=current_date))
                         if not adx_gate['passed']:
+                            # ★【2026-09-28】未通过也带 `ADX(T-1)` ✓（与普通回测同口径 ✓）
+                            from trading.stock_adx_filter import format_gate_result
                             logger.info(f"【未买入】{stock_code} {stock['stock_name']}: "
-                                        f"ADX 闸门未通过 - {adx_gate['reason']}")
+                                        f"{format_gate_result(adx_gate)}")
                             remaining_candidates.append(candidate)
                             continue
+                        # ★【2026-09-27 用户要求 ✓】**通过也要留痕** ✗✓ ——
+                        #   否则"买入成功时看不到个股 ADX 信息"✗（实测反馈 ✓）
+                        from trading.stock_adx_filter import format_gate_result
+                        logger.info(f"【ADX 闸门】{current_date} {stock_code} "
+                                    f"{stock['stock_name']}: {format_gate_result(adx_gate)}")
 
                     if not self._has_trading_data_on_date(stock_code, current_date):
                         logger.info(f"【未买入】{stock_code} {stock['stock_name']}: 当日{current_date}无行情数据（停牌/退市），跳过")
@@ -1221,6 +1329,23 @@ class RegimeBacktestEngine(BacktestEngine):
                     'name': self.timing_strategy_name,
                     'params': self.timing_strategy_params
                 },
+                # ★【2026-09-30】数据可追溯 ✓（与**普通回测同结构** ✗→✓）——
+                #   补齐闸门后才有这两项 ✓ ⇒ 落库时 `data_version` 由指纹派生 ✓
+                #   （`trading/backtest_dao.py::save_result` ✓）⇒ 两份结果可直接比对
+                #   "**是不是底层数据变过**" ✓（此前自适应这份恒为空 ✗✓）。
+                'data_gate': {
+                    'strict': (self.data_gate_report or {}).get('strict'),
+                    'ok': (self.data_gate_report or {}).get('ok'),
+                    'trade_days': (self.data_gate_report or {}).get('trade_days'),
+                },
+                'data_fingerprint': json.dumps(self.data_fingerprint or {},
+                                               ensure_ascii=False),
+                # ★★【2026-10-03 用户要求 ✓】本次**主要参数设置情况** ✗→✓ ★★
+                #   与普通回测**同一实现** ✓（`build_param_snapshot` ✓）⇒ 两份结果可比 ✓；
+                #   ⚠️ 择时策略**按档位切换** ✗ ⇒ 这里只记"入口口径" ✓，
+                #     各档位选择见 `router_config` ✓（详情页单列 ✓）。
+                'param_snapshot': self.build_param_snapshot(
+                    config, tag='自适应引擎'),
                 # ===== 自适应扩展 =====
                 'regime_stats': self._summarize_by_regime(trades, self.regime_log),
                 'strategy_switches': self.strategy_switches,

@@ -28,8 +28,13 @@ class ShunShiBaoStrategy(TimingStrategy):
         self.boll_period = self.config.get('boll_period', 20)
         self.boll_multiplier = self.config.get('boll_multiplier', 2)
         
-        # 底仓金额（参考海龟策略设置，默认20000元）
-        self.base_position_amount = self.config.get('base_position_amount', 20000)
+        # ★★【2026-10-05 用户要求 ✓】**删除死参数 `base_position_amount`** ✗✓ ★★
+        #   缘由 ✓：本策略**首仓数量不由自己决定** ✓（`trade_type='buy'` 时**不设**
+        #     `buy_quantity` ✗ ⇒ 交给回测引擎 / 资金管理 ✓）；实测该键**只在 `__init__`
+        #     赋值、全文再无引用** ✗（= `顺势宝策略代码审查报告.md` P0-002 指的那处 ✓）。
+        #   ⚠️ **加仓数量**也不用它 ✗（2026-10-05 起照**海龟口径** ✓ = 按持仓比例递减 ✓，
+        #     见 `get_timing_result` ✓）。
+        #   ⇒ 若旧配置里还写着该键 ✓：**忽略即可** ✓（不再读取 ✓，不影响任何行为 ✓）。
         
         # 初始化技术指标计算器
         self.technical_indicators = TechnicalIndicators()
@@ -139,115 +144,47 @@ class ShunShiBaoStrategy(TimingStrategy):
         
         return macd_buy_2 and boll_buy_2
     
-    def _check_add_signal(self, current: pd.Series, prev: pd.Series) -> bool:
-        """判断加仓信号
-        条件：MACD持续强势 且 价格突破布林带上轨
-        
-        Args:
-            current: 当前数据
-            prev: 前一天数据
-            
-        Returns:
-            是否满足加仓条件
-        """
-        # MACD条件：强势延续
-        macd_add = (
-            current['dif'] > 0 and                    # DIF在零轴上方
-            current['macd'] > prev['macd'] and        # MACD柱持续放大
-            current['dif'] > current['dea']           # 保持金叉状态
-        )
-        
-        # 布林带条件：突破上轨（放宽条件）
-        boll_add = (
-            current['close'] > current['boll_upper']   # 收盘价站上轨
-        )
-        
-        # 成交量确认：温和放量（放宽条件）
-        volume_add = (
-            current['volume'] > prev['volume'] * 1.1   # 温和放量
-        )
-        
-        return macd_add and boll_add and volume_add
+    # ★★【2026-10-05 用户要求 ✓ 简化 ✓】**加仓判据 = 买②（突破型买入）** ✗✓ ★★
+    #   用户原话 ✓："**加仓改为和买2一致**" ✓
+    #   ⇒ 原 `_check_add_signal`（`DIF>0 ∧ 柱增长 ∧ DIF>DEA` ∧ **收盘站上上轨** ∧
+    #     **放量×1.1** ✓）**整体删除** ✗✓ ⇒ 改为**直接复用** `_check_buy_signal_2` ✓。
+    #   理由 ✓：
+    #     ① **语义单一** ✓：同一个信号，**空仓时叫"买"** ✓、**持仓时叫"加"** ✓
+    #        —— 不再出现"一信号两义"✗（旧版持仓时把买①/买②也当加仓 ✓，回测归因很难读 ✗）；
+    #     ② 顺手去掉"必须**收在上轨之上** + **放量**"✗ ⇒ 加仓更易触发 ✓
+    #        （新口径 = 买② ✓：`DIF>0 ∧ 柱>昨日柱 ∧ DIF>DEA ∧ 最高价>上轨 ∧ 收盘>中轨` ✓）。
+    #   ⚠️ **数量**另算 ✓：照**海龟口径递减** ✓（`1/(已加仓次数+2)` ✓，见 `get_timing_result` ✓）。
+    #   ⚠️ 海龟其余加仓闸门（`add_profit_min` 盈利门槛 ✓ / `add_atr` 突破间隔 ✓ /
+    #     `max_additions` 次数上限 ✓）**本次未引入** ✗✓（用户只要求"数量一致"✓）——
+    #     需要的话说一句即可加 ✓。
     
-    def _check_sell_signal_1(self, current: pd.Series, prev: pd.Series) -> bool:
-        """判断一档清仓信号（止损型）
-        条件：MACD柱状图由正转负 且 价格跌破布林带中轨
-        
-        Args:
-            current: 当前数据
-            prev: 前一天数据
-            
-        Returns:
-            是否满足清仓条件
+    def _check_sell_signal(self, current: pd.Series, prev: pd.Series) -> bool:
+        """判断清仓信号（2026-10-05 简化后 **唯一** 卖出规则 ✓）
+
+        用户原话 ✓："**卖出改为最低价<中轨 且 macd转绿**" ✓
+
+        条件 ✓（**两者同时成立** ✓）：
+          ① **最低价 < 布林带中轨** ✓ —— ⚠️ 用 `low` ✗（**不是** `close` ✓）：
+             盘中触及即算 ✓ ⇒ 比"收盘跌破中轨"**更早** ✓；
+          ② **MACD 转绿** ✓ = 柱为绿 = `DIF < DEA` ✓（等价于结果里的 `macd` 字段 < 0 ✓）。
+
+        ⚠️ 口径说明（**重要** ✗✓，两处都是"避免永久不卖"的刻意选择 ✓）：
+          · ②按**状态**判 ✗✓（"只要**现在**是绿的" ✓），**不要求"当天刚由红转绿"** ✗ ——
+            否则若"首次转绿那天最低价还在中轨上方"✗ ⇒ 该**事件**当天不成立 ✓ ⇒
+            之后再也不会成立 ✗ ⇒ **永不卖出** ✗✗（灾难性 ✓）。
+            （若你确实要"刚转绿"事件口径 ✗ ⇒ 只需把这行改成
+              `current_hist < 0 and prev_hist >= 0` ✓，一行之差 ✓。）
+          · ①也**不要求"刚跌破中轨"** ✗✓（持有期间**天天判** ✓）—— 同理 ✓：
+            否则"错过那一天"就永不卖 ✗。
+
+        历史沿革 ✓（原三档已**全部删除** ✗✓）：
+          · 一档（止损型 ✓）= 柱由正转负 **且** 同日跌破中轨 ✓ ⇒ 被本规则**吸收并放宽** ✓；
+          · 二档（止盈型 ✓）= DIF 走弱 + 触上轨回落 + 阴线 ⇒ 全清 ✓ ⇒ **删除** ✗
+            （与"丢中轨"重叠 ✓，且**过早** ✗——强度仅 0.7 却全清 ✗ 本就别扭 ✗）；
+          · 三档（破位型 ✓）= `DIF<0` + 放量跌破下轨 ⇒ 清 ✓ ⇒ **删除** ✗（**太迟** ✗，回撤大 ✗）。
         """
-        # 计算MACD柱状图
-        current_hist = current['dif'] - current['dea']
-        prev_hist = prev['dif'] - prev['dea']
-        
-        # MACD条件：由多转空
-        macd_sell_1 = (
-            current_hist < 0 and           # MACD柱为负
-            prev_hist >= 0                 # 前日为正（刚转负）
-        )
-        
-        # 布林带条件：跌破中轨
-        boll_sell_1 = (
-            current['close'] < current['boll_mid'] and       # 跌破中轨支撑
-            prev['close'] >= prev['boll_mid']                 # 前日未跌破
-        )
-        
-        return macd_sell_1 and boll_sell_1
-    
-    def _check_sell_signal_2(self, current: pd.Series, prev: pd.Series) -> bool:
-        """判断二档清仓信号（止盈型）
-        条件：MACD顶背离迹象 且 价格触碰上轨后回落
-        
-        Args:
-            current: 当前数据
-            prev: 前一天数据
-            
-        Returns:
-            是否满足清仓条件
-        """
-        # MACD条件：顶背离迹象
-        macd_sell_2 = (
-            current['dif'] < prev['dif'] and             # DIF下降（动能减弱）
-            current['close'] >= prev['close'] and         # 价格持平或创新高
-            current['dif'] > 0                           # 仍在多头区域（提前预警）
-        )
-        
-        # 布林带条件：触碰上轨回落
-        boll_sell_2 = (
-            current['high'] > current['boll_upper'] and    # 曾触碰上轨
-            current['close'] < current['boll_upper'] and   # 收盘回落
-            current['close'] < current['open']             # 阴线（空头力量显现）
-        )
-        
-        return macd_sell_2 and boll_sell_2
-    
-    def _check_sell_signal_3(self, current: pd.Series, prev: pd.Series) -> bool:
-        """判断三档清仓信号（破位型）
-        条件：MACD空头确认 且 放量跌破布林带下轨
-        
-        Args:
-            current: 当前数据
-            prev: 前一天数据
-            
-        Returns:
-            是否满足清仓条件
-        """
-        # MACD条件：空头确认
-        macd_sell_3 = (
-            current['dif'] < 0                        # DIF在零轴下方（空头趋势）
-        )
-        
-        # 布林带条件：跌破下轨
-        boll_sell_3 = (
-            current['close'] < current['boll_lower'] and    # 收盘价跌破下轨
-            current['volume'] > prev['volume'] * 1.5        # 放量下跌（恐慌抛盘）
-        )
-        
-        return macd_sell_3 and boll_sell_3
+        return bool(current['low'] < current['boll_mid']
+                    and (current['dif'] - current['dea']) < 0)
     
     def get_timing_result(self, df: pd.DataFrame, position: Optional[Dict] = None,
                           cash: Optional[float] = None, use_prev_day_signal: bool = True, stock_code: str = "") -> TimingResult:
@@ -292,6 +229,16 @@ class ShunShiBaoStrategy(TimingStrategy):
         if not self._check_indicators_valid(signal_bar) or not self._check_indicators_valid(prev_bar):
             return result
 
+        # ★★★★【2026-10-05 用户要求 ✓ 简化 ✓】**四句规则** ✗→✓ ★★★★
+        #   用户口径 ✓："买入只定两种，加仓只定一种，卖出只定一种" ✓ +
+        #     "**加仓改为和买2一致** ✓" + "**加仓数量和海龟的规则一致** ✓" +
+        #     "**卖出改为最低价<中轨 且 macd转绿** ✓"
+        #   ⇒ 结构随之简化 ✓（旧版那条"买优先于卖"的隐式优先级**消失** ✗✓）：
+        #     · **空仓** ⇒ 只看 买①（稳健启动 ✓）→ 买②（强势突破 ✓）；
+        #     · **持仓** ⇒ 先看 卖①（趋势转弱 ✓）⇒ 再看 加①（**= 买② 同口径** ✓）。
+        #   ⚠️ 为什么"卖先判"✗✓：沿用海龟取向 ✓（风险优先 ✓）；且两判据**天然互斥** ✓
+        #     （加仓要 `DIF>DEA` 红柱 ✓ / 卖出要柱绿 ✓）⇒ 顺序其实不改结果 ✓，
+        #     写"卖先"只为可读性与一致性 ✓。
         if not position:
             if self._check_buy_signal_1(signal_bar, prev_bar):
                 result.is_buy = True
@@ -303,59 +250,53 @@ class ShunShiBaoStrategy(TimingStrategy):
                 result.message = "MACD强势且价格突破上轨，买入信号（突破型）"
                 result.signal_strength = 0.8
                 result.trade_type = 'buy'
+            # ⚠️ 空仓时**不设** `buy_quantity` ✗✓（首仓数量交给回测引擎 / 资金管理 ✓，
+            #    与简化前一致 ✓；原死参数 `base_position_amount` 已删 ✗）
         else:
-            if self._check_add_signal(signal_bar, prev_bar):
-                result.is_buy = True
-                result.message = "MACD持续强势且放量突破上轨，加仓信号"
-                result.signal_strength = 0.9
-                result.trade_type = 'add'
-                current_quantity = position.get('quantity', 0)
-                add_quantity = int(current_quantity * 0.5) // 100 * 100
-                result.buy_quantity = max(add_quantity, 100)
-            elif self._check_buy_signal_1(signal_bar, prev_bar):
-                result.is_buy = True
-                result.message = "MACD零轴上方金叉且价格突破中轨，加仓信号（稳健型）"
+            if self._check_sell_signal(signal_bar, prev_bar):
+                # ★ **唯一** 卖出规则 ✓（2026-10-05 ✓）：`最低价<中轨 ∧ MACD柱为绿` ✓
+                result.is_sell = True
+                result.message = (
+                    f"最低价跌破中轨且MACD转绿，清仓信号（趋势转弱）"
+                    f"（最低价 {signal_bar['low']:.2f} < 中轨 "
+                    f"{signal_bar['boll_mid']:.2f}，"
+                    f"DIF {signal_bar['dif']:.3f} < DEA {signal_bar['dea']:.3f}）")
                 result.signal_strength = 1.0
-                result.trade_type = 'add'
-                current_quantity = position.get('quantity', 0)
-                add_quantity = int(current_quantity * 0.5) // 100 * 100
-                result.buy_quantity = max(add_quantity, 100)
+                result.trade_type = 'sell'
+                result.sell_quantity = position.get('quantity', 0)   # ★ **全部清仓** ✓
             elif self._check_buy_signal_2(signal_bar, prev_bar):
+                # ★ 加① = **买② 同口径** ✓（用户口径 ✓："加仓改为和买2一致" ✓）
                 result.is_buy = True
-                result.message = "MACD强势且价格突破上轨，加仓信号（突破型）"
+                result.message = ("MACD强势且价格突破上轨，加仓信号"
+                                  "（同买②口径：最高价>上轨 ∧ 收盘>中轨）")
                 result.signal_strength = 0.8
                 result.trade_type = 'add'
+                # ★★ 数量 = **海龟口径** ✗→✓（用户口径 ✓："加仓数量和海龟的规则一致" ✓）：
+                #   以**当前持仓数量**为基准、比例**递减** ✓ —— 第 1 次 `1/2` ✓、
+                #   第 2 次 `1/3` ✓、第 3 次 `1/4` ✓ …（同 `turtle_strategy.py:383-386` ✓）
+                #   · `add_count` 取 `position['add_count']`（= **已加仓次数** ✓，
+                #     回测引擎 / 实盘运行器在加仓后维护 ✓；与 `TimingResult.add_count` 同义 ✓）；
+                #   · ⚠️ 必须**回写** `result.add_count` ✗✓ —— 基类注释写明
+                #     "产生 `trade_type='add'` 时必须设置" ✓；漏了 ⇒ 永远只按 `1/2` 加 ✗
+                #     （递减口径静默失效 ✗✓）。
                 current_quantity = position.get('quantity', 0)
-                add_quantity = int(current_quantity * 0.5) // 100 * 100
+                add_count = position.get('add_count', 0)
+                add_ratio = 1.0 / (add_count + 2)
+                add_quantity = int(current_quantity * add_ratio) // 100 * 100
                 result.buy_quantity = max(add_quantity, 100)
-
-        if not result.is_buy:
-            if self._check_sell_signal_3(signal_bar, prev_bar):
-                result.is_sell = True
-                result.message = "DIF<0且放量跌破下轨，清仓信号（破位型）"
-                result.signal_strength = 1.0
-                result.trade_type = 'sell'
-                if position:
-                    result.sell_quantity = position.get('quantity', 0)
-            elif self._check_sell_signal_1(signal_bar, prev_bar):
-                result.is_sell = True
-                result.message = "MACD转负且价格跌破中轨，清仓信号（止损型）"
-                result.signal_strength = 1.0
-                result.trade_type = 'sell'
-                if position:
-                    result.sell_quantity = position.get('quantity', 0)
-            elif self._check_sell_signal_2(signal_bar, prev_bar):
-                result.is_sell = True
-                result.message = "MACD顶背离且上轨回落，清仓信号（止盈型）"
-                result.signal_strength = 0.7
-                result.trade_type = 'sell'
-                if position:
-                    result.sell_quantity = position.get('quantity', 0)
+                result.add_count = add_count + 1
+                result.indicators['add_ref_label'] = '持仓数量'
+                result.indicators['add_ratio'] = add_ratio
 
         result.support_level = latest_bar['boll_lower']
         result.resistance_level = latest_bar['boll_upper']
 
-        result.indicators = {
+        # ★【2026-10-05 修 ✓】`result.indicators = {...}` **改成** `.update({...})` ✗→✓：
+        #   加仓分支写进 `result.indicators` 的元信息（`add_ref_label` ✓ / `add_ratio` ✓）
+        #   若在此被**整体覆盖** ✗ ⇒ 白写 ✗（且"数量按什么算的"就查不出来了 ✗）。
+        #   （`TimingResult.__init__` 里 `self.indicators = {}` 是**每实例**新建 ✓
+        #     ⇒ `update` 不会跨实例串数据 ✓。）
+        result.indicators.update({
             'dif': latest_bar['dif'],
             'dea': latest_bar['dea'],
             'macd_hist': latest_bar['macd'],
@@ -364,7 +305,7 @@ class ShunShiBaoStrategy(TimingStrategy):
             'boll_lower': latest_bar['boll_lower'],
             'boll_width': latest_bar['boll_upper'] - latest_bar['boll_lower'],
             'current_price': latest_bar['close']
-        }
+        })
         
         return result
     

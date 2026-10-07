@@ -74,8 +74,32 @@ class FundFlowUpdater:
             }
         """
         start_time = datetime.now()
-        
+
         try:
+            # ★★【2026-09-28 减噪 ✓】**三个子域全停用 ⇒ 整步短路** ✗→✓ ★★
+            #   实测 ✗✓（用户指出 ✓）：本类维护的旧表 `stock_fund_flow` **已停用** ✗
+            #   （规范表 = `stock_moneyflow_daily` ✓，由【第8.5步】本地数据维护 ✓），
+            #   行业/板块**暂不处理** ✗ ⇒ 每次更新却仍白打 **6 行 INFO** ✗
+            #   （开始更新 / 第1步 / 需要获取 N 天 / 第2步 / 第3步 / 第4步 / 完成 0 条 ✗）
+            #   ⇒ 用户看到的是"**资金流向更新完成: 新增 0 条，耗时 0.0 秒**"✗
+            #     并据此以为"资金流更新没成功" ✗✓。
+            #   ⇒ 现直接短路 ✓，只留一条 `debug` ✓（排查时仍可见 ✓）。
+            #   ⚠️ 判据取**配置真值** ✓（`_legacy_stock_ff_enabled` ✓ / `_industry_sector_enabled` ✓）
+            #     ⇒ 任一被显式启用 ✓（旧表回填 / 行业板块 ✓）⇒ **照旧走全流程** ✓（行为不变 ✓，
+            #     连上面 6 行日志也照旧 ✓）。
+            if not self._legacy_stock_ff_enabled() and not self._industry_sector_enabled():
+                logger.debug('资金流向（旧路径）整步空转 ⇒ 跳过 ✓：旧表 stock_fund_flow 已停用 ✗、'
+                             '行业/板块暂不处理 ✗；规范表 stock_moneyflow_daily 由'
+                             '【第8.5步】本地数据（含每日滚动 3 日增量 ✓）维护 ✓')
+                return {
+                    'success': True,
+                    'added': 0,
+                    'updated': 0,
+                    'failed': 0,
+                    'message': '资金流向（旧路径）已停用 ⇒ 跳过 ✓',
+                    'total_time': 0.0
+                }
+
             logger.info(f"开始更新资金流向数据")
             
             # 第1步：计算需要获取的天数
@@ -344,9 +368,11 @@ class FundFlowUpdater:
             if enabled is None:
                 enabled = self._legacy_stock_ff_enabled()
             if not enabled:
-                logger.info("个股资金流**旧表 stock_fund_flow 已停用** ✓ "
-                            "（规范表 = stock_moneyflow_daily ✓）→ 跳过；"
-                            "如需回填旧表请置 update.legacy_stock_fund_flow.enabled=true ✓")
+                # 【2026-09-28 减噪 ✓】"已停用 ⇒ 跳过"属**常态** ✗ ⇒ 降 `debug` ✓
+                #   （配置文件里那行注释已足够说明 ✓，无需每轮更新播报 ✓）
+                logger.debug("个股资金流**旧表 stock_fund_flow 已停用** ✓ "
+                             "（规范表 = stock_moneyflow_daily ✓）→ 跳过；"
+                             "如需回填旧表请置 update.legacy_stock_fund_flow.enabled=true ✓")
                 return {'added': 0, 'updated': 0, 'failed': 0, 'skipped': True}
             logger.info(f"更新个股资金流向: 获取最近 {days} 天的数据...")
             
@@ -474,8 +500,9 @@ class FundFlowUpdater:
             if enabled is None:
                 enabled = self._industry_sector_enabled()
             if not enabled:
-                logger.info("行业资金流**暂不处理** ✓（update.industry_sector_fund_flow."
-                            "enabled=false）→ 跳过；需要时置 true 启用 ✓")
+                # 【2026-09-28 减噪 ✓】"暂不处理"属**常态** ✗ ⇒ 降 `debug` ✓
+                logger.debug("行业资金流**暂不处理** ✓（update.industry_sector_fund_flow."
+                             "enabled=false）→ 跳过；需要时置 true 启用 ✓")
                 return {'added': 0, 'updated': 0, 'failed': 0, 'skipped': True}
             logger.info(f"更新行业资金流向: 获取最近 {days} 天的数据...")
             
@@ -556,8 +583,9 @@ class FundFlowUpdater:
             if enabled is None:
                 enabled = self._industry_sector_enabled()
             if not enabled:
-                logger.info("板块资金流**暂不处理** ✓（update.industry_sector_fund_flow."
-                            "enabled=false）→ 跳过；需要时置 true 启用 ✓")
+                # 【2026-09-28 减噪 ✓】"暂不处理"属**常态** ✗ ⇒ 降 `debug` ✓
+                logger.debug("板块资金流**暂不处理** ✓（update.industry_sector_fund_flow."
+                             "enabled=false）→ 跳过；需要时置 true 启用 ✓")
                 return {'added': 0, 'updated': 0, 'failed': 0, 'skipped': True}
             logger.info(f"更新板块资金流向: 获取最近 {days} 天的数据...")
             

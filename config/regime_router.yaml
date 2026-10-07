@@ -4,7 +4,7 @@ regime_router:
   init_immediate: true
   index_code: 000985.CSI
   period: 14
-  enable_adx_falloff: true
+  auto_warmup: true
   manual_override:
     enabled: false
     selector: null

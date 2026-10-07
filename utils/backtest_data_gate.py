@@ -17,6 +17,7 @@
 
 import hashlib
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
@@ -320,6 +321,9 @@ INDEX_ADX_MIN_WARMUP_DAYS = 120
 def check_index_adx(conn, start: str, end: str, required: bool = False,
                     min_warmup_days: int = INDEX_ADX_MIN_WARMUP_DAYS,
                     index_code: str = INDEX_ADX_DEFAULT_CODE) -> Dict:
+    # ⚠️【2026-10-05 适配 ✓】本函数**已按 `index_code` 单指数校验** ✓ —— 多指数适配由
+    #   **调用方** `run_gate(index_codes=[...])` 负责 ✓（主指数 required 语义不变 ✓，
+    #   板块指数 2..n 只提醒 ✓）；默认值仍为 `000985.CSI` ✓（保持向后兼容 ✓）。
     """**大盘指数 ADX 覆盖 + 状态预热**校验 ✓（§5.6 / §5.8 ✓；2026-09-27 新增 ✓）
 
     ⚠️ **与个股 `check_adx` 的本质不同** ✗✓：这里拦的不是"NULL 缺口"✗，而是
@@ -465,10 +469,49 @@ def default_fingerprint_specs() -> Dict[str, Dict]:
 
 # --------------------------------------------------------------------- 主入口
 
+def _today_hint(missing: Sequence[str], end: str, now=None) -> str:
+    """缺**今天**时追加的**可执行**指引 ✓；否则返回 `''` ✓（纯文案 ✓，不参与任何判定 ✗）
+
+    背景 ✗✓（2026-09-28 用户实测 ✓）：08:47（周一·**开盘前** ✗）跑回测 ⇒
+      闸门报 `[moneyflow_ths] 缺 1 天: 2026-09-28` ✗ + 原文案"请运行数据更新"✗ ——
+      而**当日数据**（资金流 / K 线 / 大盘 ADX ✓）**收盘后**才采集入库 ✗
+      ⇒ 此刻去跑"数据更新"**同样取不到** ✗✓（**无效指引** ✗，用户会被误导 ✗）。
+
+    ⇒ 命中"含今天 / 终点=今天"时 ✓，给出两条**真出路** ✓：
+      ① 把**回测终点**改到上一交易日 ✓（引擎入口**已自动回退** ✓）；
+      ② 待 **15:01 之后**并跑完"数据更新"再跑 ✓。
+
+    ⚠️ 缺**历史**日期 ⇒ **不**命中 ✓ ⇒ 保持原文案 ✓（那才是**真缺数据** ✗，
+    继续由闸门如实拦下 ✓，**绝不**用"今天还没收盘"来掩盖 ✗）。
+    """
+    now = now or datetime.now()
+    today = now.strftime('%Y-%m-%d')
+    today_c = today.replace('-', '')
+    hit = (any(today in m or today_c in m for m in missing)
+           or str(end)[:10] == today or str(end)[:8] == today_c)
+    if not hit:
+        return ''
+    prev = ''
+    try:
+        from utils.trade_date_utils import get_previous_trading_day
+        prev = get_previous_trading_day(today)
+    except Exception:
+        prev = ''
+    return (f'\n  ⚠️ 其中含**今天 {today}** ✗ —— 当日数据（资金流/K线/大盘ADX ✓）'
+            f'**收盘后才采集入库** ✓，现在（{now:%H:%M}）**不可能有** ✗'
+            f'（此刻跑"数据更新"**也取不到** ✗）。\n'
+            f'  二选一 ✓：① 把**回测终点**改到**上一交易日**'
+            f'{(" " + prev) if prev else ""} ✓；'
+            f'② 待 **15:01 之后**、并跑完"数据更新"再跑 ✓'
+            f'（回测引擎**已在入口自动回退** ✓：'
+            f'`utils/trade_date_utils.resolve_end_date_for_data` ✓）')
+
+
 def run_gate(conn, start: str, end: str, trade_dates: Sequence[str],
              strict: bool = True, min_rows_per_day: int = MONEYFLOW_MIN_ROWS_PER_DAY,
              skip: Optional[Sequence[str]] = None,
-             index_adx_required: bool = False) -> Dict:
+             index_adx_required: bool = False,
+             index_codes: Optional[Sequence[str]] = None) -> Dict:
     """回测启动闸门：校验各类本地数据 → 返回报告（strict 时缺失即抛错 ✗）
 
     Args:
@@ -502,8 +545,30 @@ def run_gate(conn, start: str, end: str, trade_dates: Sequence[str],
     # 【2026-09-27 §5.6/§5.8】大盘指数 ADX **起点覆盖 + 状态预热** ✓
     #   `required` 由调用方给 ✓（有 `RegimeRouter` 的引擎才硬拦 ✗ ⇒ 不误伤普通回测 ✓）
     if 'index_adx' not in skip:
+        # ★★【2026-10-05 适配 ✓】**按"实际会用到的指数"校验** ✗→✓ ★★
+        #   原实现恒校验 `000985.CSI` ✗ ⇒ 若把 `index_adx_code` / 路由指数改成别的 ✗
+        #     ⇒ **真正判档的那个指数反而没做「起点覆盖 + 120 日预热」校验** ✗
+        #     ⇒ 档位不可复现却**静默放行** ✗✓（这正是本闸门要拦的东西 ✗）。
+        #   现 ✓：`index_codes[0]` = 主指数 ✓（`required` 语义**完全不变** ✓）；
+        #     其余 = **板块回退**用的板块指数 ✓ ⇒ **只提醒不阻断** ✓
+        #     （它们只是"全A 兜底时的回退路径"✗ ⇒ 硬拦会误伤"全A 放行"的正常回测 ✗✓），
+        #     但**必须记 WARNING** ✓（缺数据 ⇒ 该板块**静默不放行** ✗ ⇒ 绝不无声 ✗）。
+        _codes = [str(c).strip() for c in (index_codes or [INDEX_ADX_DEFAULT_CODE])
+                  if str(c).strip()]
+        _primary = _codes[0] if _codes else INDEX_ADX_DEFAULT_CODE
         items['index_adx'] = check_index_adx(conn, start, end,
-                                             required=index_adx_required)
+                                             required=index_adx_required,
+                                             index_code=_primary)
+        for _c in _codes[1:]:
+            if _c == _primary or ('index_adx:' + _c) in items:
+                continue
+            _it = check_index_adx(conn, start, end, required=False, index_code=_c)
+            _it['name'] = f'大盘指数 ADX（板块回退用 ✓ {_c}）'
+            _it['board_fallback_index'] = True
+            items['index_adx:' + _c] = _it
+            if _it.get('warn'):
+                logger.warning(f'【回测数据闸门】板块回退指数 {_c} 未达标 ✓（**不阻断** ✓）：'
+                               f'{_it.get("detail")}')
 
     missing: List[str] = []
     for key, item in items.items():
@@ -525,6 +590,11 @@ def run_gate(conn, start: str, end: str, trade_dates: Sequence[str],
         head = (f'【回测数据闸门】数据校验未通过 ✗（{len(missing)} 项）')
         body = '\n'.join(f'  · {m}' for m in missing)
         tail = '  处理：请先运行"数据更新/初始化"补齐本地数据（回测不联网 ✗）'
+        # ★【2026-09-28】若缺的正是**今天** ⇒ 追加**可执行**指引 ✓（见 `_today_hint` ✓）
+        #   原文案会**误导** ✗✓（用户实测 08:47 开盘前跑回测 ✗）：当日数据（资金流 /
+        #   K 线 / 大盘 ADX ✓）**收盘后**才采集入库 ✗ ⇒ 此刻"去运行数据更新"**也取不到** ✗
+        #   ⇒ 必须给出"改终点 / 等收盘"两条**真出路** ✓。
+        tail += _today_hint(missing, end)
         report['message'] = f'{head}\n{body}\n{tail}'
         if strict:
             raise RuntimeError(report['message'])

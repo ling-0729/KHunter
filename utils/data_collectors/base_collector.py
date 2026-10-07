@@ -521,5 +521,14 @@ class BaseCollector:
             raise ValueError('交易日列表为空，无法执行增量更新')
         recent = dates[-max(1, int(window)):]
         self.assert_supported_range(recent[0], recent[-1])
+        # ★【2026-09-29 用户要求 ✓】**过程与结果都要看得见** ✗→✓
+        #   此前本方法**一条日志都不打** ✗ ⇒ 日志里看不到"本次窗口是哪儿几日、采了几条"✗
+        #   ⇒ 用户只能靠猜（实测 ✗✓：资金流到底补没补上无从判断 ✗）。
+        logger.info(f'[{self.name}] 每日增量开始 ✓ 窗口=最近 {len(recent)} 个交易日 {recent} ✓'
+                    f'（**滚动重采** ✓，不做跳过 ✓）')
         # 增量**不做跳过**（resume=False）——保证滚动重采真正发生 ✓
-        return self.run(recent, resume=False)
+        stats = self.run(recent, resume=False)
+        logger.info(f'[{self.name}] 每日增量完成 ✓ 窗口 {len(recent)} 日 ⇒ '
+                    f'新增 {stats.get("added", 0)} ✓ / 更新 {stats.get("updated", 0)} ✓ / '
+                    f'变化 {stats.get("changed", 0)} ✓ / **失败 {stats.get("failed", 0)}** ✗')
+        return stats

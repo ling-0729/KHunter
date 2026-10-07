@@ -10,10 +10,10 @@
 
 ## 两种模式 ✓
 
-| 模式 | 含义 | 三个开关 ✓ |
+| 模式 | 含义 | 开关 + 入场口径 ✓ |
 |---|---|---|
 | **`legacy`** ✓（默认 ✗）| **原有模式** ✓ = **改造前行为** ✓ | `enable_stock_adx_filter=False` ✓、`pool_entry_mode=scored` ✓、`enable_add_open_rise_check=False` ✓ |
-| **`adx`** ✓ | **ADX + 免评分** ✓ | `True` ✓、`veto_only` ✓、`True` ✓ |
+| **`adx`** ✓ | **ADX + 免评分** ✓ | `True` ✓、`veto_only` ✓、`True` ✓；★ 入场**区间口径** ✓ `21 < ADX < 30` ∧ `dir=上升` ✓（`adx_entry_mode=range` ✓ / `adx_entry_range=[21,30]` ✓；⚠️ **上限只约束首仓** ✗✓）|
 
 ## 优先级 ✓（**越靠前越高** ✗✓）
 
@@ -62,6 +62,21 @@ PRESETS: Dict[str, Dict] = {
         'enable_stock_adx_filter': True,       # 个股 ADX 闸门 ✓（首仓 + 加仓 ✓）
         'pool_entry_mode': 'veto_only',        # **免评分** ✓（只排除一票否决 ✓）
         'enable_add_open_rise_check': True,    # 加仓也做开盘 ±4% ✓
+        # ★【2026-09-28 用户口径 ✓】**当日仓位上限** ✓（**只约束"开新仓"** ✗加仓）
+        #   ⚠️ 用户 2026-09-28 ✓：原「大盘 ADX 硬闸门」**整体取消** ✗
+        #     （"这个规则取消，**由仓位上限总控**" ✓）⇒ 本预设**不再有**
+        #     `enable_index_adx_filter` ✓（键已一并删除 ✗ —— 不留半开档 ✗，
+        #      避免又出现"两套口径相冲"✗）
+        #   规则 ✓：大盘 `ADX>25` ∧ `dir上升` ⇒ 100% ✓；`ADX<18` ∧ `dir上升` ⇒ 50% ✓；
+        #   **持仓 > 上限 ⇒ 停止开新仓** ✓（**加仓不受限** ✓）；
+        #   ⚠️ 阈值/比例**全部可配** ✓（`index_cap_high_adx` / `index_cap_low_adx` /
+        #     `index_cap_high_ratio` / `index_cap_low_ratio` / `index_cap_other_ratio` ✓）
+        'enable_index_position_cap': True,
+        # ★【2026-09-28 用户口径 ✓】个股入场**区间口径** ✓（**显式写进预设** ⇒ 自证 ✓）
+        #   `21 < ADX(T-1) < 30` ✓（开区间 ✓）∧ `dir=上升` ✓；
+        #   ⚠️ **上限只约束「新买入（首仓）」** ✗✓ —— **加仓不校验上限** ✓（下界仍生效 ✓）。
+        'adx_entry_mode': 'range',
+        'adx_entry_range': [21, 30],
     },
 }
 
@@ -134,12 +149,52 @@ def effective(key: str, config: Dict = None, engine_config: Dict = None,
 
 
 def describe(config: Dict = None, engine_config: Dict = None) -> str:
-    """一行说明 ✓（日志/排查用 ✓）"""
+    """一行说明 ✓（日志/排查用 ✓）—— ★ 打的是**生效值** ✓，不是"模式预设值" ✗✓
+
+    ★★【2026-10-07 修复 ✓】**必须反映"显式单键"** ✗→✓ ★★
+      事故 ✗✓（用户反馈："**实盘模式下，入池方式和设置的参数不一致**"✗）：
+        本函数原先直接用 `PRESETS[mode]` ✗ ⇒ **完全忽略显式单键** ✗ ⇒
+        用户 yaml 里写着 `pool_entry_mode: "direct"` ✓（**生效值确实是 `direct`** ✓，
+        由 `effective()` 取到 ✓），日志却照报 `veto_only` ✗ ⇒
+        **是日志在误导** ✗✓ —— 排查会一路往"实盘没接上/参数没传"✗ 的方向去 ✓。
+      ⇒ 现改用 `effective()` 逐键取**生效值** ✓，并标出**来源** ✓：
+        `（显式 ✓）` / `（模式预设 ✓）` / `（内置默认 ✓）` ✓
+        ⇒ 一眼看出"**我改的那个键到底生效了没有**" ✓✓。
+
+    ⚠️ 骨架保持 `回测模式=<m> ✓（ADX闸门=… ✓、入池=… ✓、加仓开盘限幅=… ✓）` ✓ 不变 ✗✓
+      （日志检索/测试都按它找 ✓；只是每项后面**追加**了来源 ✓）。
+    """
     m = resolve_mode(config, engine_config)
-    p = PRESETS[m]
-    return (f'回测模式={m} ✓（ADX闸门={"开" if p["enable_stock_adx_filter"] else "关"} ✓、'
-            f'入池={p["pool_entry_mode"]} ✓、加仓开盘限幅='
-            f'{"开" if p["enable_add_open_rise_check"] else "关"} ✓）')
+    pres = PRESETS[m]
+    parts = []
+    for key, label, is_flag in (('enable_stock_adx_filter', 'ADX闸门', True),
+                                ('pool_entry_mode', '入池', False),
+                                ('enable_add_open_rise_check', '加仓开盘限幅', True)):
+        val = effective(key, config, engine_config, default=pres.get(key))
+        txt = ('开' if val else '关') if is_flag else str(val)
+        src = ('显式' if is_explicit(key, config, engine_config)
+               else ('模式预设' if key in pres else '内置默认'))
+        parts.append(f'{label}={txt}（{src} ✓）')
+    return f'回测模式={m} ✓（' + '、'.join(parts) + '）'
+
+
+def is_explicit(key: str, config: Dict = None, engine_config: Dict = None) -> bool:
+    """该键是否**显式**给出 ✓ —— **三处任一**都算 ✓（= `effective` 的三个来源层 ✓）：
+
+        ① 请求 `config` ✓（Web/流水线/DB + 已并入的 yaml `backtest:` 节 ✓）
+        ② yaml **顶层** ✓  ③ yaml `backtest:` **节** ✓
+
+    ★【2026-09-28】从 `BacktestEngine.log_backtest_params._explicit` **提公共实现** ✓
+      ⇒ 回测参数快照 ✓ 与 ADX 摘要（`describe_adx_params` ✓）**同一判据** ✓
+      —— 免得两处"来源"标注各写一份、日久漂移 ✗✓。
+
+    ⚠️ 必须**三处都算** ✗✓（**实测踩过** ✓）：只看 `config` 会把 **yaml 顶层**键
+      （如 `enable_limit_up_check` ✓）误标成"内置默认" ✗。
+    """
+    for holder in _holders(config, engine_config):
+        if isinstance(holder, dict) and key in holder and holder.get(key) is not None:
+            return True
+    return False
 
 
 # ============================================================================

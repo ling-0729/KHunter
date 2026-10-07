@@ -8,6 +8,7 @@
 - 交易记录的CRUD操作
 """
 
+import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -239,7 +240,9 @@ class BacktestDAO:
                 _conn = self.db.connect()
                 _cols = {c[1] for c in _conn.execute(
                     "PRAGMA table_info(backtest_result)").fetchall()}
-                for _col in ('data_fingerprint', 'data_gate', 'data_version', 'strict_mode'):
+                for _col in ('data_fingerprint', 'data_gate', 'data_version', 'strict_mode',
+                             # ★【2026-10-03 用户要求 ✓】主要参数快照 ✓（旧库自动补列 ✓）
+                             'params_snapshot'):
                     if _col not in _cols:
                         _conn.execute(
                             f"ALTER TABLE backtest_result ADD COLUMN {_col} TEXT")
@@ -247,6 +250,22 @@ class BacktestDAO:
                         logger.info(f"backtest_result 表已新增 {_col} 列")
             except Exception as e:
                 logger.warning(f"数据指纹列检查/新增失败（忽略，指纹将不落库）: {e}")
+
+            # ★★【2026-10-03 用户要求 ✓】主参数快照序列化 ✗→✓
+            #   · dict ⇒ JSON ✓；str ⇒ **原样存** ✓（兼容调用方自己拼好 JSON ✓）；
+            #   · 空/None ⇒ 空串 ✓（**不编造** ✗ —— 老调用方没传时如实为空 ✓，
+            #     详情页据此不渲染该卡片 ✓，绝不显示"看起来有其实没有"的内容 ✗）
+            _snap = result.get('param_snapshot')
+            if isinstance(_snap, str):
+                _snap_json = _snap
+            elif _snap:
+                try:
+                    _snap_json = json.dumps(_snap, ensure_ascii=False, default=str)
+                except Exception as _e:
+                    logger.warning(f"参数快照序列化失败（按空处理 ✗，不影响结果落库 ✓）: {_e}")
+                    _snap_json = ''
+            else:
+                _snap_json = ''
 
             # 数据版本号（可读 ✓）：由指纹派生 ⇒ 同版本必然同号 ✓
             #   · 对应说明书的 `data_version` ✓（M4 验收"跨版本禁止比较"的判定依据 ✓）
@@ -299,7 +318,10 @@ class BacktestDAO:
                 'data_gate': __import__('json').dumps(result.get('data_gate') or {},
                                                      ensure_ascii=False)[:500],
                 'data_version': str(_dv)[:64],
-                'strict_mode': 'true' if _sm else 'false'
+                'strict_mode': 'true' if _sm else 'false',
+                # ★【2026-10-03 用户要求 ✓】本次回测的**主要参数设置情况**（JSON ✓）
+                #   ⇒ 两次结果不同时，**先看这一列**即可判断"是不是参数变了" ✓✓
+                'params_snapshot': _snap_json,
             })
             
             logger.info(f"保存回测结果成功，result_id: {result_id}")

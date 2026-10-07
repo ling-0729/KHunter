@@ -225,6 +225,44 @@ class DatabaseMigrationHelper:
         logger.info("=" * 60)
 
 
+    def check_and_add_khunter_key_date_column(self) -> bool:
+        """★★【2026-10-07 补 ✓】**新库/老库齐平：补 `khunter.key_date` 列** ✗→✓ ★★
+
+        ⚠️ 为什么要单独加这一条 ✗✓：`trading/khunter_dao.py` 的
+          SELECT（L191/L207 ✓）、INSERT（L442 ✓）、UPDATE（L501 ✓）**一直在用 `key_date`** ✗，
+          但 `data/DataSql.sql` 的 `khunter` 建表段**原本没有该列** ✗（已同步补上 ✓）
+          ⇒ 不补的后果是 `sqlite3.OperationalError: no such column: key_date` ✗：
+            · **新库** ⇒ DDL 已含 ✓（本次同步修 ✓）；
+            · **老库** ⇒ 由本方法 `ALTER` 补 ✓（**否则老库一旦重装/重建就复现** ✗）。
+          ⚠️ 与 `score_date` / `timing_*` / `buy_range` 那几条**同一范式** ✓（可重复执行 ✓ 幂等 ✓）。
+
+        Returns:
+            bool: 列已存在或添加成功 ⇒ True ✓（表不存在 ⇒ False ✓ 不报错 ✗）
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='khunter'")
+            if not cursor.fetchone():
+                logger.warning("khunter 表不存在，跳过 key_date 列检查")
+                conn.close()
+                return False
+            cursor.execute("PRAGMA table_info(khunter)")
+            col_names = [row[1] for row in cursor.fetchall()]
+            if 'key_date' not in col_names:
+                logger.info("正在为 khunter 表添加 key_date 列...")
+                cursor.execute("ALTER TABLE khunter ADD COLUMN key_date DATE")
+                conn.commit()
+                logger.info("✓ key_date 列已成功添加到 khunter 表")
+            else:
+                logger.info("✓ khunter 表已有 key_date 列")
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"检查/添加 khunter.key_date 列失败: {str(e)}")
+            return False
+
+
 def ensure_database_schema(db_path: str = 'data/stock_selection.db') -> bool:
     """
     确保数据库模式正确
@@ -245,6 +283,9 @@ def ensure_database_schema(db_path: str = 'data/stock_selection.db') -> bool:
     
     # 检查并添加 buy_range 列
     success = helper.check_and_add_khunter_buy_range_column() and success
+
+    # ★【2026-10-07 补 ✓】检查并添加 key_date 列（否则狩猎场读写报 no such column ✗）
+    success = helper.check_and_add_khunter_key_date_column() and success
     
     # 打印迁移状态
     helper.print_migration_status()

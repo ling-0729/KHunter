@@ -125,6 +125,28 @@ app = Flask(__name__,
 # 配置JSON编码器
 app.json_encoder = NumpyEncoder
 
+# ★★★★【2026-10-05 用户要求 ✓】**模板自动重载** ✗→✓ ★★★★
+#   事故 ✗✓（用户排查"回测参数保存不成功"✓ 时实测发现 ✓）：
+#     · 本进程**没设** `TEMPLATES_AUTO_RELOAD` ✗，而 `run_web_server(debug=False)` ✓
+#       ⇒ Flask 的该项回落到 `app.debug` ✓ = **False** ✗
+#       ⇒ **Jinja 把模板编译结果缓存住** ✗ ⇒ 改了 `web/templates/*.html` 后
+#         **必须重启服务**才生效 ✗（**只刷新浏览器不够** ✗✓）；
+#     · 铁证 ✓：直连运行中的服务 ✓，它吐出的 HTML 里前端版本是 `app.js?v=33` ✗，
+#       而磁盘上早已是 `v=34/35` ✓ ⇒ 模板读的确实是**缓存**✗✓；
+#     · 后果 ✗：用户反复以为"保存不成功 / 改动没生效"✗ —— 其实是**页面根本没更新** ✓，
+#       排查时会一路去怀疑后端/接口/缓存版本号 ✗（本次就绕了很久 ✓）。
+#   ⇒ 现显式打开 ✓（`debug` **仍保持 False** ✗✓ —— 绝不为热重载去开调试器 ✗：
+#     那会启用 Werkzeug 调试器 = **任意代码执行**风险 ✗，且会带动 Python 模块重载 ✗）。
+#   ⚠️ 代价 ✓：每次渲染多一次 `stat` 模板文件（微秒级 ✓，可忽略 ✓）。
+#   ⚠️ 覆盖范围 ✓：**只**管模板（`.html` ✓）；`.py` 改动**仍需手动重启** ✗（这是刻意的 ✓）；
+#     静态资源（`.js/.css`）本就按磁盘提供 ✓，其缓存由模板里的 `?v=NN` **统一版本号**控制 ✓
+#     （见 `web/templates/index.html` 顶部规则 ✓）。
+#   ⚠️ 回归锁 ✓：`test_template_autoreload.py` ✓（含"`debug` 必须仍为 False"✗✓）。
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+# ⚠️ 双保险 ✗✓：`config` 是 Flask 读取项 ✓，而**真正生效**的是 Jinja 环境上的
+#   `auto_reload` ✓ ⇒ 两处都显式置位 ✓（历史上有人只设 config 却被别处覆盖过 ✓）。
+app.jinja_env.auto_reload = True
+
 # 初始化SocketIO（配置长连接参数以支持长时间的回测任务）
 socketio = SocketIO(
     app, 
@@ -3249,7 +3271,22 @@ def get_market_index_adx_trend():
         from trading.market_index_adx_dao import MarketIndexADXDAO
         days = int(request.args.get('days', 30))
         days = max(1, min(days, 250))
-        result = MarketIndexADXDAO().get_trend(days)
+        # ★★【2026-10-05 修复 ✓】**必须显式指定指数** ✗→✓ ★★
+        #   事故 ✗✓：本处原先调 `get_trend(days)` **不传 `index_code`** ✗ ⇒ DAO 走
+        #     "跨**全部**指数、按日期倒序 LIMIT N" ✗ —— 2026-10-05 库里**新增**创业板指与
+        #     科创50 后 ✗ ⇒ **同一天有 3 行** ✗ ⇒ SQLite 返回**任意一行** ✗✓
+        #     （实测：首页卡片显示 **17.3** ✗ = **科创50** 2026-09-30 的值 ✗，
+        #      而卡片文案写的是"全A指数 000985.CSI"✗ ⇒ **数字与标签不符** ✗✓）。
+        #   ⚠️ 更隐蔽的危害 ✗：`days=30` 的"近 1 月"里**每天混着 3 个指数** ✗
+        #     ⇒ 曲线 / 均值 / 最高 / 最低**全部不可信** ✗（而界面上毫无异常提示 ✗）。
+        #   ⇒ 修法 ✓：**显式指定指数** ✓，且默认与大盘闸门/仓位上限**同一指数** ✗✓
+        #     （`resolve_index_adx_code()` ✓ = `index_adx_code` 配置 > `regime_router.yaml` ✓）
+        #     ⇒ "卡片看到的" 与 "回测按它判档的" **必然是同一个指数** ✓✓。
+        #   ⚠️ 允许 `?code=` 显式覆盖 ✓（供页面/排查看别的指数 ✓）。
+        from trading.index_adx_filter import resolve_index_adx_code
+        code = (request.args.get('code') or '').strip() or resolve_index_adx_code()
+        result = MarketIndexADXDAO().get_trend(days, code)
+        result['index_code'] = code                    # ★ 回传实际指数 ✓ 供前端标注 ✓
         return jsonify({'success': True, 'data': clean_data_for_json(result)})
     except Exception as e:
         logger.error(f"获取市场指数ADX趋势失败: {e}")

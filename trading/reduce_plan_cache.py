@@ -263,6 +263,49 @@ def _get_start_date(score_date: str, days: int) -> str:
     return (d - timedelta(days=days)).strftime("%Y%m%d")
 
 
+def _validity_range(score_date: str,
+                    days: int = REDUCE_PLAN_VALIDITY) -> Tuple[str, str]:
+    """评分日 ⇒ 公告**查询区间** `(start_fmt, end_fmt)`（均 YYYY-MM-DD ✓）
+
+    ★【2026-09-28 抽公共 ✓】原只写在 `fetch_reduce_plans` 里 ✗ —— 而**批次级预判**
+      （`refresh_reduce_plan_cache` ✓）也要同一区间 ✓ ⇒ 抽出来共用 ✓，
+      免得两处各算一份、日久漂移 ✗✓。
+    """
+    start_date = _get_start_date(score_date, days)
+    return (f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}",
+            f"{score_date[:4]}-{score_date[4:6]}-{score_date[6:]}")
+
+
+def _local_announcement_span() -> Optional[Tuple[str, str, int]]:
+    """本地公告表 `stock_announcement` 的 `(最早日, 最晚日, 行数)` ✓（不可用 ⇒ None ✗）
+
+    ⚠️ 这是"本地能否**替代在线**"的**唯一判据** ✓ —— `_query_local_announcements` ✓
+      与批次级预判 ✓ **共用同一实现** ✗✓，杜绝"一处说覆盖、一处说不覆盖"✗。
+    ⚠️ 表名是 `stock_announcement` ✓（**不是** `stock_event` ✗，详见下方注释 ✓）。
+    """
+    try:
+        from utils.global_db import get_global_db
+        conn = get_global_db().connect()
+        row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
+                           "AND name='stock_announcement'").fetchone()
+        if not row:
+            return None
+        rng = conn.execute('SELECT MIN(ann_date), MAX(ann_date), COUNT(*) '
+                           'FROM stock_announcement').fetchone()
+        if not rng or not rng[2]:
+            return None
+        return (str(rng[0]), str(rng[1]), int(rng[2]))
+    except Exception as e:
+        logger.warning('本地公告范围读取失败（视为**未覆盖** ✓，交由上层走在线 ✓）: %s', e)
+        return None
+
+
+def _local_announcement_covered(start_fmt: str, end_fmt: str) -> bool:
+    """本地公告是否**完整覆盖** `[start_fmt, end_fmt]` ✓（判据同 `_query_local_announcements` ✓）"""
+    span = _local_announcement_span()
+    return bool(span) and span[0] <= start_fmt and span[1] >= end_fmt
+
+
 def _query_local_announcements(stock_code: str, start_fmt: str, end_fmt: str) -> Optional[List[dict]]:
     """【2026-09-25 新增】从**本地表** `stock_announcement` 读取公告（离线 ✓，回测不联网 ✗）
 
@@ -292,19 +335,16 @@ def _query_local_announcements(stock_code: str, start_fmt: str, end_fmt: str) ->
         from datetime import timezone as _tz
         from utils.global_db import get_global_db
 
-        conn = get_global_db().connect()
-        row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' "
-                           "AND name='stock_announcement'").fetchone()
-        if not row:
+        # ★【2026-09-28】覆盖判据**提公共实现** ✓（`_local_announcement_span` ✓）
+        #   ⇒ 与批次级预判（`refresh_reduce_plan_cache` ✓）**同一判据** ✗✓（防漂移 ✓）。
+        span = _local_announcement_span()
+        if not span:
             return None
-        rng = conn.execute('SELECT MIN(ann_date), MAX(ann_date), COUNT(*) '
-                           'FROM stock_announcement').fetchone()
-        if not rng or not rng[2]:
-            return None
-        if str(rng[0]) > start_fmt or str(rng[1]) < end_fmt:
+        if span[0] > start_fmt or span[1] < end_fmt:
             logger.info("本地公告未覆盖请求区间（%s ~ %s，本地 %s ~ %s）→ 回退在线 ✓",
-                        start_fmt, end_fmt, rng[0], rng[1])
+                        start_fmt, end_fmt, span[0], span[1])
             return None
+        conn = get_global_db().connect()
 
         code6 = str(stock_code).split('.')[0][:6]
         rows = conn.execute(
@@ -406,8 +446,24 @@ def fetch_reduce_plans(stock_code: str, score_date: str) -> Optional[List[dict]]
         有效期内减持计划列表 [{title, ann_date}]；限流耗尽/异常返回 None（上层据此不写缓存）
     """
     start_date = _get_start_date(score_date, REDUCE_PLAN_VALIDITY)
-    start_fmt = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
-    end_fmt = f"{score_date[:4]}-{score_date[4:6]}-{score_date[6:]}"
+    start_fmt, end_fmt = _validity_range(score_date)
+    # ★★【2026-09-28 修 ✓】**必失败 ⇒ 不重试** ✗→✓ ★★
+    #   实测 ✗✓（用户日志 ✓）：本地公告只到 09-24 ✗ ⇒ 每次回退在线 ✗ ⇒
+    #     `guard_online_call(purpose=PURPOSE_SCORE)` **必然抛错** ✗
+    #     ⇒ 却仍被当成"限流"**重试 3 次 + 睡 5/10/15 秒** ✗ = **~32 秒/只** ✗
+    #     （候选池几十只 ⇒ 数据更新被拖成分钟级 ✗，且**滴水不进**✗）。
+    #   ⇒ 判据："本地未覆盖" ∧ "闸门会拦"（`online_blocked` ✓，与 `guard_online_call`
+    #     **同一判据** ✓）⇒ **立即返回 None** ✗✓：语义与"重试耗尽"**完全一致** ✓
+    #     （上层不写缓存、保留旧值 ✓），但**不再空耗** ✓。
+    #   ⚠️ 若显式设了 `KHUNTER_SCORE_LOCAL_ONLY=0` ✗ 或不在评分侧 ✓
+    #     ⇒ `online_blocked` 返回 None ⇒ **照旧走在线 + 重试** ✓（行为不变 ✓）。
+    if not _local_announcement_covered(start_fmt, end_fmt):
+        from utils.online_guard import PURPOSE_SCORE, online_blocked
+        _blocked = online_blocked(PURPOSE_SCORE)
+        if _blocked:
+            logger.debug('减持计划**跳过在线回退** ✓（本地公告未覆盖 %s~%s 且「%s」✗）: %s',
+                         start_fmt, end_fmt, _blocked, stock_code)
+            return None
     raw_announcements = None
     last_err = None
     # 巨潮偶发限流，重试 3 次并退避缓解
@@ -456,6 +512,11 @@ def refresh_reduce_plan_cache(stock_codes: List[str], score_date: str,
 
     每只股票随机退避 2~3s 缓解巨潮限流；单只失败保留旧值不中断整体。
 
+    ★【2026-09-28 修 ✓】**两种"整批预判"** ✗→✓（实测：此前第8步纯空耗 ~32s/只 ✗）：
+      · 本地公告**未覆盖**请求区间 ✗ ∧ 闸门**必拦**在线 ✗ ⇒ **整体跳过** ✓
+        （记 `skipped` ✓，不再逐只重试 ✗；详见函数内注释 ✓）
+      · 本地公告**覆盖良好** ✓ ⇒ **免退避** ✓（全走本地 ✓，没有限流可言 ✓）
+
     参数:
         stock_codes: 候选池股票代码列表
         score_date: 评分/更新日期 YYYYMMDD
@@ -466,6 +527,33 @@ def refresh_reduce_plan_cache(stock_codes: List[str], score_date: str,
     """
     stats = {"refreshed": 0, "failed": 0, "skipped": 0}
     total = len(stock_codes)
+    if not total:
+        return stats
+    # ★★【2026-09-28 修 ✓】**批次级预判** ✗→✓ ★★
+    #   动机 ✗✓（用户实测日志 ✓）：本地公告只到 09-24 ✗，而请求区间到 09-28 ✗ ⇒
+    #     **每一只**都会"回退在线 ✗ → 被评分闸门必拦 ✗ → 重试 3 次 + 睡 5/10/15 秒"✗
+    #     ≈ **32 秒/只** ✗（另加每只 2~3 秒退避 ✗）⇒ 第8步纯空耗、整轮更新被拖垮 ✗。
+    #   判据 ✓：**本地未覆盖** ∧ **闸门会拦**（`online_blocked` ✓ = 与 `guard_online_call`
+    #     同一判据 ✓）⇒ **整体跳过** ✓（`skipped = total` ✓，保留旧值 ✓，一条汇总日志 ✓）。
+    #   ⚠️ 与"逐只失败"的**语义差别** ✗✓：以前会把 N 只都记成 `failed` ✗（其实一次也没真发出去 ✗
+    #     ⇒ 用户误以为"巨潮限流"✗）。现记 `skipped` ✓ ⇒ 日志能分清"没联网"✓ 与"联网失败"✗。
+    #   ⚠️ 本地**覆盖良好**时 ⇒ 逐只全走本地 ✓ ⇒ 顺带把退避 sleep **清零** ✓
+    #     （否则 N 只空睡 N×2~3 秒 ✗）。
+    start_fmt, end_fmt = _validity_range(score_date)
+    if _local_announcement_covered(start_fmt, end_fmt):
+        logger.debug('减持计划：本地公告已覆盖 %s~%s ✓ ⇒ 纯本地刷新、免退避 ✓',
+                     start_fmt, end_fmt)
+        sleep_range = (0.0, 0.0)
+    else:
+        from utils.online_guard import PURPOSE_SCORE, online_blocked
+        _blocked = online_blocked(PURPOSE_SCORE)
+        if _blocked:
+            stats["skipped"] = total
+            logger.warning('减持计划缓存刷新**整体跳过** ✓（%d 只，保留旧值 ✓）：'
+                           '本地公告未覆盖 %s~%s 且「%s」✗ ⇒ 在线回退**必被拦** ✗，'
+                           '重试纯属空耗 ✗。请先让数据更新补齐**公告（事件域）** ✓，'
+                           '再刷新本缓存 ✓', total, start_fmt, end_fmt, _blocked)
+            return stats
     for idx, code in enumerate(stock_codes, 1):
         try:
             # 随机退避缓解巨潮限流（首只也稍作停顿，避免瞬时并发）

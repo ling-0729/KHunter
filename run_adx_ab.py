@@ -29,7 +29,7 @@
 
     python run_adx_ab.py --strategy 金三角策略 --segments 2025H1,2025H2,2026
     python run_adx_ab.py --strategy 多方炮策略 --start 2026-01-01 --end 2026-09-24 --groups G0_基线,G1_加仓规则2
-    python run_adx_ab.py --strategy 金三角策略 --segments 2026 --family B      # 只看大盘降温 ✓
+    python run_adx_ab.py --strategy 金三角策略 --segments 2026 --family B      # 只看大盘路由 ✓
 
 **安全** ✓：默认**不写回测结果表** ✗（仅打印 + 落 CSV ✓）；`--save` 才落库 ✓。
 **前置** ✗：① `adx` 已全量回填 ✓；② 回测起点 ≥ ADX 覆盖起点 ✓ 且**不落在降温期中** ✗（§12.3 ✓）；
@@ -57,7 +57,16 @@ SEGMENTS = {
 GROUPS_A = [
     ('G0_基线', {}, {}),
     ('G1_加仓规则2', {'enable_add_open_rise_check': True}, {}),
-    ('G3_个股ADX', {'enable_stock_adx_filter': True}, {}),
+    # ★【2026-09-28 用户口径 ✓】**个股入场口径**三臂对照 ✓（`dir=上升` 均为硬条件 ✗✓）：
+    #   · `G3_个股ADX(档位)` ✓ = 旧口径 ✓：只放「明确」✓（`band` + 迟滞 ✓）；
+    #   · `G4_区间入场` ✓ = ★**现行默认** ✓：`21 < ADX < 30` ✓（**开区间** ✓、**无缓冲** ✗）；
+    #   · `G4b_萌芽入场` ✓ = 档位口径放宽 ✓：`明确 + 萌芽` ✓。
+    #   实测（80 只 / 80151 天 ✓，`dir=上升` 36913 天）：档位(明确) **16352** ✓ →
+    #   区间 **12222（×0.75 ✓ 更严，上界 30 砍掉 11499 天 ✗）**；档位放宽 **24041（×1.47）** ✗。
+    ('G3_个股ADX', {'enable_stock_adx_filter': True, 'adx_entry_mode': 'band'}, {}),
+    ('G4_区间入场', {'enable_stock_adx_filter': True}, {}),          # ★ 默认口径 ✓
+    ('G4b_萌芽入场', {'enable_stock_adx_filter': True, 'adx_entry_mode': 'band',
+                      'adx_entry_bands': ['明确', '萌芽']}, {}),
     ('G5_去评分', {'pool_entry_mode': 'veto_only'}, {}),
     ('G3G5_ADX+去评分', {'enable_stock_adx_filter': True,
                          'pool_entry_mode': 'veto_only'}, {}),
@@ -67,21 +76,24 @@ GROUPS_A = [
 #:
 #: ★ **2026-09-27 用户口径更正** ✗→✓：**两臂不再写死** ✗ ——
 #:   · `R0_路由基线` ✓ = **跟随 yaml** ✓（= **生产现状** ✓；配置改了就跟着改 ✓）；
-#:   · `R2_对照臂` ✓ = **取反** ✓（`yaml=true` ⇒ 关 ✗；`yaml=false` ⇒ 开 ✓）。
+#:   · `R2_对照臂` ✓ = **方向口径对照** ✓（`two_day` ⇄ `epsilon` ✓）。
 #: ⇒ **无论 yaml 取值如何，两臂都构成有效对照** ✓✓ —— 旧实现写死 `R0=False / R2=True` ✗ 有两个隐患：
 #:   ① yaml 改成 `true` ✗ 时，`R0` 与"**生产现状**"脱节 ✗（**跑出来的"基线"其实不是现状** ✗✗）；
 #:   ② 若两臂落到同值 ✗ ⇒ "无差异"✗ 会被误读成"降温没用"✗✗
-#:      （本文件 docstring 早就警告过这个坑 ✓，现在由"**取反**"**动态保证** ✓）。
+#:      （本文件 docstring 早就警告过这个坑 ✓，现在由"**取另一档**"**动态保证** ✓）。
+#: ⚠️【2026-09-28 用户口径 ✓】**降温机制已整体移除** ✗✓ ⇒ 对照变量改为**方向口径**
+#:   （`dir_mode` ✓）：`R0` **跟随生产 yaml** ✓（现为 `two_day` ✓）；
+#:   `R2` 取**另一档** ✓（现为旧 `epsilon` ✓）⇒ 仍构成有效对照 ✓。
 #: ⚠️ 组名刻意**保持稳定** ✓（`--groups R0_路由基线` 好用 ✓）；**实际开关值**以
 #:   控制台打印的 `router={…}` ✓ 与 CSV 的 `router` 列 ✓ 为准（**自证** ✓）。
 def groups_b() -> list:
-    """B 族两臂 ✓ —— `R0` 跟随 yaml ✓ / `R2` 取反 ✓（读一次 yaml 即可 ✓）"""
+    """B 族两臂 ✓ —— `R0` 跟随生产 yaml ✓ / `R2` 取**另一方向口径** ✓（读一次即可 ✓）"""
     from trading.regime_router import RegimeRouter
-    base = bool(RegimeRouter({}, in_memory=True).enable_adx_falloff)      # ← 读 yaml ✓
+    base = RegimeRouter({}, in_memory=True)._dir_mode          # ← 读 yaml/默认 ✓
+    other = 'epsilon' if base == 'two_day' else 'two_day'      # ★ 取另一档 ✓（保证有对照 ✓）
     return [
         ('R0_路由基线', {}, {'enabled': True}),                           # ★ 跟随 yaml ✓
-        ('R2_对照臂', {}, {'enabled': True,
-                           'enable_adx_falloff': (not base)}),            # ★ 取反 ✓
+        ('R2_对照臂', {}, {'enabled': True, 'dir_mode': other}),          # ★ 另一档 ✓
     ]
 
 #: 结果摘要要看的字段 ✓（与 `backtest_result` 表口径一致 ✓）
@@ -203,11 +215,11 @@ def main():
     #   `R2` 存的是**取反值** ✓ ⇒ 反推 yaml 现值 ✓（不再多构造一个 router ✓）
     if str(args.family).upper() in ('ALL', 'B'):
         _arms = groups_b()
-        _yaml_on = (not _arms[1][2]['enable_adx_falloff'])
-        print(f'B 族 ✓：{_arms[0][0]} = **跟随 yaml** ⇒ 降温{"开" if _yaml_on else "关"} '
-              f'（= **生产现状** ✓）；{_arms[1][0]} = **取反** ⇒ '
-              f'降温{"关" if _yaml_on else "开"} ✗    '
-              f'[yaml: enable_adx_falloff={_yaml_on}]')
+        _base = _arms[0][2].get('dir_mode') or 'two_day(默认)'
+        _other = _arms[1][2].get('dir_mode')
+        print(f'B 族 ✓：{_arms[0][0]} = **跟随生产 yaml** ⇒ dir口径={_base} ✓'
+              f'（= **生产现状** ✓）；{_arms[1][0]} = **另一档** ⇒ dir口径={_other} ✗'
+              f'    〔2026-09-28 ✓：降温机制已移除，对照变量改为**方向口径** ✓〕')
     if not plan:
         print('没有匹配的组合 ✗。A 族组名: ' + ', '.join(g[0] for g in GROUPS_A))
         print('                     B 族组名: ' + ', '.join(g[0] for g in groups_b()))
