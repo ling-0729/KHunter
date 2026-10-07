@@ -16,7 +16,20 @@ KHunter 是一套**开箱即用的A股量化交易系统**，集数据管理、�
 > - **结构完整性**：补齐 `trading_plan` 表与 `khunter.key_date` 列；启动**自动建表/补列**（含迁移前备份与审计表）；
 > - **飞书日报**新增「大盘 ADX + 当日仓位上限判定」一节（含判定日与口径，缺数据如实标注）；
 > - **初始化页**新增「大盘指数 ADX」维度（一键全量 = 7 项）；
-> - ⚠️ **升级/新装后必做 ADX 两类回填** ⇒ 见《[回测数据本地化_运维手册](回测数据本地化_运维手册.md)》§1.5。
+> - ⚠️ **升级 / 新装后必做「ADX 两类回填」**（否则个股闸门会**静默不放行** ⇒ 完全不买入 ✗）：
+>   ```python
+>   # ① 个股 ADX（stock_kline.adx 的"值"不会随建表产生 ✗）
+>   from utils.global_db import get_global_db
+>   from utils import stock_adx as SA
+>   print(SA.backfill_all(get_global_db().connect()))      # 分钟级 ✓ 幂等 ✓ 可反复跑 ✓
+>   ```
+>   ```powershell
+>   # ② 指数 ADX（主指数 + 科创板 + 创业板）
+>   python backfill_index_adx.py --indexes 399006.SZ,000688.SH --start 20200101 --end 20260930
+>   # ③ 自检（覆盖率 / 起点预热 / 接线 / yaml↔DB 一致性）
+>   python manual_check_adx.py
+>   ```
+>   顺序：**重启**（自动建表/补列）→ 初始化页勾全 **7 项** → ①②回填 → ③自检 → 才开回测 ✓。
 >
 > ⚠️ 本仓库**只发布源码**：`test_*.py`（回归测试）与 `config/config.yaml`（含本地凭据）**不入库** ℹ️
 
