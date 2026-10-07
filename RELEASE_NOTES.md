@@ -1,5 +1,54 @@
 # KHunter 股票分析系统 发版说明
 
+## ★ 版本 1.7.1（2026-10-07）—— 策略清单同步（选股 / 择时）
+
+> ⚠️ **口径**：以下清单以**启动时 `StrategyRegistry` 实际注册结果** +
+> `trading/timing_strategies.py` 工厂**实际支持**为准 ✓（**不是**照抄旧文档 ✗），
+> 并已与运行日志逐字核对 ✓。
+
+### 一、选股策略：13 种 → **12 种**
+- ★ **归档 9 个**（移入 `strategy/disabled/` ✗，**不再参与选股** ✓）：
+  底部趋势拐点、趋势加速拐点、涨停横盘、强势洗盘弱转强、趋势起点、W底、
+  金叉未绿、低位TD9、碗口反弹（`_bowl_rebound_disabled.py`）
+- ✅ **当前生效的 12 个**（与注册日志一致 ✓）：
+  1. 金三角策略（`golden_triangle_strategy.py`）
+  2. 涨停回马枪策略（`limit_up_pullback_strategy.py`）
+  3. 启明星策略（`morning_star.py`）
+  4. 多金叉共振（`multi_golden_cross.py`）
+  5. 多方炮策略（`multi_party_cannon.py`）
+  6. 阻力位突破策略（`resistance_breakout.py`）
+  7. 仙人指路策略（`immortal_guidance_strategy.py`）
+  8. 龙头策略（`leader_strategy.py`）
+  9. 主升低吸策略（`main_uptrend_dip_buy_strategy.py`）
+  10. 次新腰斩策略（`new_stock_drawdown_strategy.py`）
+  11. 超跌反弹（`oversold_rebound_strategy.py`）
+  12. 2560战法（`strategy_2560_selection.py`）
+
+### 二、择时策略：5 种 → **8 种**
+- ✅ 当前工厂支持的 8 个（`trading/timing_strategies.py` ✓ + 中文名映射 `utils/strategy_name_mapper.py` ✓）：
+  1. 布林带策略（`bollinger`）
+  2. RSI策略（`rsi`）
+  3. 支撑位策略（`support`）
+  4. 海龟策略（`turtle`）
+  5. ★ **低位海龟**（`low_turtle`）—— 海龟系，**去掉 MA20 过滤** ⇒ 更早入场
+  6. ★ **海龟plus**（`turtle_plus`）—— 海龟系，**只做第二买点**
+  7. ★ **趋势回调缩量策略**（`uptrend_pullback`）—— 上升趋势中**回调且缩量**
+  8. **顺势宝**（`macd_bollinger`）—— ★ **规则简化**（见下 ✓）
+
+### 三、顺势宝（`macd_bollinger`）规则简化
+- **买入 2 种**：① 稳健启动（零轴上方刚金叉 ＋ 刚上穿中轨）② 强势突破（柱增长 ＋ 触及上轨 ＋ 收盘>中轨）；
+- **加仓 1 种**：**= 买② 同口径** ✓，数量按**海龟递减** `1/(已加仓次数+2)`（整百、最少 100 股，回写 `add_count`）；
+- **卖出 1 种**：**最低价 < 布林带中轨 且 MACD 柱为绿** ⇒ **全部清仓**；
+- ⇒ 删除旧的"卖出三档（止损/止盈/破位）"与旧加仓分支、以及死参数 `base_position_amount`。
+
+### 四、⚠️ 已知遗留（**未改** ✓，如实记录 ✗）
+- `config/strategy_order.yaml` 仍列有 `BottomTrendInflectionStrategy` /
+  `TrendAccelerationInflectionStrategy` / `WBottomStrategy` / `MTopStrategy` /
+  `MultiDeathCrossStrategy` 等**当前不存在**（或已归档）的策略 ✗
+  ⇒ 该配置属**历史遗留** ✓，**实际执行以注册表为准** ✓（后续可另行清理）。
+
+---
+
 ## ★ 版本 1.7.0（2026-10-07）—— 仓位上限 / 数据本地化 / 结构完整性
 
 > 本次为**累计发布**：含自 2026-09-13（上次推送 ✓）以来的全部改动 ✓，
