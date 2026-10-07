@@ -172,6 +172,18 @@
 - ⚠️ 升级必做的 **ADX 回填步骤已内联进 `README.md`** ✓（**不留死链** ✗）；
   ⚠️ 历史提交里仍可翻到这些文件 ✗（彻底抹除需 `git filter-repo` + 强推 ⇒ 另行确认 ✓）
 
+### ★ 4 个运维脚本（2026-10-07 **移入 `tools/`** ✓，根目录与上一版本对齐）
+- `tools/backfill_index_adx.py`（指数 ADX 回填 ✓）、`tools/manual_check_adx.py`（ADX 自检 ✓）
+- `tools/run_adx_ab.py`（ADX A/B 对比 ✓）、`tools/backfill_backtest_metrics.py`（回测指标回填 ✓）
+- ⇒ 引用已**全仓同步** ✓（README ✓ / 回测配置注释 ✓ / 数据闸门提示 ✓ / 初始化服务导入 ✓ / 前端注释 ✓）
+- ⚠️ `tools/backfill_backtest_metrics.py` 的 `sys.path` 已改为"**回退一级到仓库根**"✓（否则导入 `utils` 失败 ✗）
+
+### ★ 可选生产启动入口（2026-10-07 **移出版本管理** ✓）
+- `wsgi.py`（waitress 生产 WSGI 入口 ✓）与 `start_prod.bat`（生产启动脚本 ✓）—— **非运行必须** ✗
+  （日常 `start.bat` / `python main.py web` 即可 ✓），且它们是**本地部署方式** ✓ ⇒ 不入库 ✓（本地保留 ✓）
+- ⇒ 生产部署请**本地自备**入口 ✓（最小实现见 `requirements.txt` 注释 ✓）；
+  如需找回：`git checkout 1.7.0 -- wsgi.py start_prod.bat` ✓
+
 ### 其他临时文件
 - `*.log` - 日志文件
 - `*.bak` - 备份文件

@@ -13,5 +13,8 @@ Pillow>=10.0.0
 fastdtw>=0.3.4
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
-# 生产环境 WSGI 服务器（Windows 推荐 ✓；配套 wsgi.py / start_prod.bat）
+# 生产环境 WSGI 服务器（Windows 推荐 ✓）
+# ⚠️【2026-10-07 ✓】原"配套 wsgi.py / start_prod.bat"已**移出版本管理** ✗✓
+#   （根目录与上一版本对齐 ✓；文件仍在**本地磁盘** ✓）⇒ 生产启动入口请**本地自备**
+#   （最小实现：`from web_server import app, socketio` + `socketio.WSGIApp(...)` + `waitress.serve(...)` ✓）
 waitress>=3.0.0

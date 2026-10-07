@@ -216,3 +216,10 @@ start.zip
 /回测数据本地化_*.md
 /顺势宝策略代码审查报告.md
 /顺势宝*.md
+
+# ===== 2026-10-07 用户要求：根目录**只保留"入口/元文件 + 目录"**，与上一版本(1.6.0)对齐 =====
+#   `wsgi.py` / `start_prod.bat` 是**可选的生产启动入口** ✓（非运行必须 ✗：
+#   日常用 `start.bat` / `python main.py web` 即可 ✓）⇒ 移出版本管理 ✓、**本地保留** ✓。
+#   ⚠️ 如日后要恢复：`git checkout 1.7.0 -- wsgi.py start_prod.bat` ✓（历史里一直有 ✓）
+/wsgi.py
+/start_prod.bat
