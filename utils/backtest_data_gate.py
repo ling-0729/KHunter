@@ -401,7 +401,7 @@ def check_index_adx(conn, start: str, end: str, required: bool = False,
             f'【状态预热不足 ✗】{why} ⇒ `RegimeRouter` 的 `band/dir/cooled` '
             f'**不可复现** ✗（同一天同一 ADX 会得出不同 regime ✗）。'
             f'请先回填指数 ADX 历史 ✓（详见设计说明书 §5.8 ✓）：'
-            f'`python backfill_index_adx.py` ✓（**复用** `MarketIndexADX.calculate()` '
+            f'`python tools/backfill_index_adx.py` ✓（**复用** `MarketIndexADX.calculate()` '
             f'同一口径 ✓、**只增不改** ✓、带交叉验证 ✓）')
     return item
 

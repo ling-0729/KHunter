@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """★ **手工验收自检** ✓ —— 一条命令跑完，只看 ✓/✗ 表 ✓（2026-09-27 ✓）
 
-    python manual_check_adx.py
+    python tools/manual_check_adx.py
 
 **口径** ✓：**所有参数以 yaml 文件配置为准** ✓ ——
   · 回测/实盘参数 = `config/backtest_engine_config.yaml`（`backtest_mode` 顶层键 ✓ + `backtest:` 节 ✓）

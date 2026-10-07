@@ -27,7 +27,7 @@
 
 ## 用法 ✓
 
-    python run_adx_ab.py --strategy 金三角策略 --segments 2025H1,2025H2,2026
+    python tools/run_adx_ab.py --strategy 金三角策略 --segments 2025H1,2025H2,2026
     python run_adx_ab.py --strategy 多方炮策略 --start 2026-01-01 --end 2026-09-24 --groups G0_基线,G1_加仓规则2
     python run_adx_ab.py --strategy 金三角策略 --segments 2026 --family B      # 只看大盘路由 ✓
 

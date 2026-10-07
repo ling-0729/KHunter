@@ -14,9 +14,9 @@
   `close` 与数据源一致 ✓ / `adx_prev→adx` 链连续 ✓ —— 不通过则**中止** ✗。
 
 ## 用法 ✓
-    python backfill_index_adx.py                      # 默认：中证全指 2020-01-01~2024-12-31（**旧行为** ✓）
-    python backfill_index_adx.py --indexes 399006.SZ,000688.SH
-    python backfill_index_adx.py --indexes 399006.SZ --start 20200101 --end 20260930
+    python tools/backfill_index_adx.py                      # 默认：中证全指 2020-01-01~2024-12-31（**旧行为** ✓）
+    python tools/backfill_index_adx.py --indexes 399006.SZ,000688.SH
+    python tools/backfill_index_adx.py --indexes 399006.SZ --start 20200101 --end 20260930
 
 ## 为什么需要它 ✗✓
 §5.6/§5.8 要求「**ADX 数据起点 ≤ 回测起点**」✓ —— 库起点曾是 `2025-01-02` ✗

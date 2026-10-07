@@ -768,7 +768,12 @@ class DataCollectionService:
             guard_online_call('大盘指数 ADX 回填（数据更新 ✓）', purpose=PURPOSE_UPDATE)
             # ⚠️ 注意 ✓：离线闸门抛的是"**离线模式禁止在线调用**"✗ ⇒ 它**不是**权限错 ✓
             #   （`is_permission_error` 不会误判它 ✓ ⇒ 离线语境仍**如实失败** ✗ 不回退成"跳过"✓）
-            from backfill_index_adx import backfill_one
+            # ⚠️【2026-10-07 ✓】脚本已**移入 `tools/`** ✗→✓（根目录与上一版本对齐 ✓）
+            #   故按**新路径**导入 ✓，并保留旧路径兜底 ✓（兼容尚未同步的本地/旧副本 ✓）
+            try:
+                from tools.backfill_index_adx import backfill_one
+            except ImportError:
+                from backfill_index_adx import backfill_one
             from trading.index_adx_filter import (BOARD_CHINEXT, BOARD_STAR,
                                                   resolve_board_index_code,
                                                   resolve_index_adx_code)

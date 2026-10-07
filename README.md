@@ -25,9 +25,9 @@ KHunter 是一套**开箱即用的A股量化交易系统**，集数据管理、�
 >   ```
 >   ```powershell
 >   # ② 指数 ADX（主指数 + 科创板 + 创业板）
->   python backfill_index_adx.py --indexes 399006.SZ,000688.SH --start 20200101 --end 20260930
+>   python tools/backfill_index_adx.py --indexes 399006.SZ,000688.SH --start 20200101 --end 20260930
 >   # ③ 自检（覆盖率 / 起点预热 / 接线 / yaml↔DB 一致性）
->   python manual_check_adx.py
+>   python tools/manual_check_adx.py
 >   ```
 >   顺序：**重启**（自动建表/补列）→ 初始化页勾全 **7 项** → ①②回填 → ③自检 → 才开回测 ✓。
 >

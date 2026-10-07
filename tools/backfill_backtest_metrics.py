@@ -21,9 +21,9 @@
   · avg_hold_days  = mean(hold_days)                          ，单位**交易日** ✓
 
 三、用法
-  python backfill_backtest_metrics.py                      # 预览（dry-run，绝不改库 ✓）
-  python backfill_backtest_metrics.py --apply               # 真正回写（先备份旧值到 JSON ✓）
-  python backfill_backtest_metrics.py --ids 185,201 --apply # 只回填指定结果 ✓
+  python tools/backfill_backtest_metrics.py                      # 预览（dry-run，绝不改库 ✓）
+  python tools/backfill_backtest_metrics.py --apply               # 真正回写（先备份旧值到 JSON ✓）
+  python tools/backfill_backtest_metrics.py --ids 185,201 --apply # 只回填指定结果 ✓
 """
 import argparse
 import io
@@ -32,7 +32,9 @@ import os
 import sys
 from datetime import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ⚠️【2026-10-07 ✓】本脚本已移入 `tools/` ⇒ 插入**仓库根**（上一级 ✓），
+#   否则 `from utils...` 会因 sys.path 指向 `tools/` 而**导入失败** ✗✓
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.global_db import get_global_db
 
