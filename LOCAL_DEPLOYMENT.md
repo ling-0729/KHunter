@@ -88,6 +88,16 @@ ADX 自检现在从项目根目录读取配置；其部分检查日期仍沿用�
 
 ## 检查改动
 
+### Tushare 限流
+
+项目统一通过 `utils/tushare_client.py` 创建 Tushare Pro 客户端，所有接口与重试共享每分钟 180 次的预算，约每 0.334 秒发送一次请求。多个线程和同一检出目录下的多个进程通过 `.local/tushare_rate_limit.db` 协调，不以客户端实例分别计数。若源端仍返回频率超限，会共享冷却 61 秒并重试一次；权限错误直接交给原有采集逻辑处理。
+
+这只协调使用本项目封装和同一状态目录的请求；同一 Token 在其他软件或其他电脑上的调用不计入此预算。实际服务端配额仍可能因其他调用而耗尽。
+
+仅勾选交易日历、资金流、基本面等数据维度的自定义初始化会保留已有基础数据和 K 线，不再额外运行基础行情流程。基本面采集通过已有断点跳过已完成的股票，重试未完成股票。
+
+### 自动检查
+
 从仓库根目录运行，无需真实行情、Token 或额外 Node 依赖：
 
 ```bash
@@ -99,6 +109,7 @@ node --check web/static/js/data_update.js
 node --input-type=module --check < web/static/js/modules/navigation.js
 .venv/bin/python -m py_compile local_server.py tools/manual_check_adx.py
 zsh -n khunter-local.command
+.venv/bin/python -m unittest discover -s tests -p test_tushare_rate_limit.py -v
 ```
 
 行为检查覆盖刷新恢复、任务无需旧页面 taskId、轮询去重、终止状态清理、失败计数、覆盖缺口、跳过和跨任务缓存隔离。未覆盖浏览器端到端操作、真实行情全链路或券商交易。

@@ -1,7 +1,7 @@
 """
 指数数据获取模块 - 获取指数历史数据并计算收益率
 """
-import tushare as ts
+from utils.tushare_client import get_tushare_pro
 import pandas as pd
 import numpy as np
 import logging
@@ -113,7 +113,7 @@ class IndexDataFetcher:
             logger.info(f"获取{self.index_name}指数数据: {start_date} ~ {end_date}")
             
             # 初始化tushare
-            pro = ts.pro_api()
+            pro = get_tushare_pro()
             
             # tushare指数数据接口（使用完整ts_code，如 932000.CSI / 000852.SH）
             df = pro.index_daily(ts_code=self.ts_code, 

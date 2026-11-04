@@ -60,8 +60,8 @@ def _chunks(start: str, end: str, years: int = CHUNK_YEARS):
 
 def fetch_series(index_code: str) -> pd.DataFrame:
     """一次把指数日线取全 ✓（分段 ✓ + 限速 ✓）"""
-    import tushare as ts
-    pro = ts.pro_api()
+    from utils.tushare_client import get_tushare_pro
+    pro = get_tushare_pro()
     frames = []
     for a, b in _chunks(FETCH_START, pd.Timestamp.today().strftime('%Y%m%d')):
         try:

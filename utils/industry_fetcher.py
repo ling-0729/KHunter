@@ -43,7 +43,7 @@ class TushareIndustrySource(DataSource):
             return self._pro
         
         try:
-            import tushare as ts
+            from utils.tushare_client import get_tushare_pro
             import json
             
             # 读取Tushare配置
@@ -57,9 +57,9 @@ class TushareIndustrySource(DataSource):
             
             # 创建pro实例
             if token:
-                self._pro = ts.pro_api(token)
+                self._pro = get_tushare_pro(token)
             else:
-                self._pro = ts.pro_api()
+                self._pro = get_tushare_pro()
             
             return self._pro
         except Exception as e:

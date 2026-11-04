@@ -23,7 +23,8 @@ import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import tushare as ts
+
+from utils.tushare_client import get_tushare_pro
 import pandas as pd
 
 logging.basicConfig(
@@ -49,7 +50,7 @@ def get_pro():
     token = cfg.get('token') or cfg.get('api_key')
     if not token:
         raise ValueError('tushare_config.json 中未配置 token/api_key')
-    return ts.pro_api(token)
+    return get_tushare_pro(token)
 
 
 def _to_float(v):

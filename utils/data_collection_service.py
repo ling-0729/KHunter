@@ -534,7 +534,12 @@ class DataCollectionService:
                     pass
                 
                 # 初始化数据（统一入口，带进度回调）
-                if init_type == 'custom' or init_type == 'full':
+                wants_base = init_type == 'full' or (
+                    init_type == 'custom' and (
+                        not options or options.get('basicData') or options.get('historyData')
+                    )
+                )
+                if wants_base:
                     # 使用统一初始化入口
                     self.init_status['current_task'] = '初始化基础数据和K线'
                     self._add_init_log("⟳ 正在初始化数据...")
@@ -572,6 +577,9 @@ class DataCollectionService:
                     except ImportError:
                         pass
                 
+                elif init_type == 'custom':
+                    self._add_init_log('ℹ 未选择[基础数据与历史行情] → 跳过 ✓（保留已有数据）')
+
                 # 【2026-09-25 新增】**四类本地数据维度** ✓（与初始化页面选项一一对应 ✓）
                 if init_type in ('custom', 'full'):
                     self._init_localized_domains(options or {})

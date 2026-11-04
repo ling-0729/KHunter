@@ -219,9 +219,9 @@ class MoneyflowScorer:
         """
         if self._pro is None:
             try:
-                import tushare as ts
+                from utils.tushare_client import get_tushare_pro
                 # 使用 token 初始化 pro API
-                self._pro = ts.pro_api(self._token)
+                self._pro = get_tushare_pro(self._token)
                 logger.debug("Tushare pro API 初始化成功")
             except Exception as e:
                 logger.error(f"Tushare pro API 初始化失败: {e}")

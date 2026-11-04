@@ -95,6 +95,7 @@ class _TushareFundamentalFetcher:
     def _pro_api(self):
         if self._pro is None:
             import tushare as ts
+            from utils.tushare_client import get_tushare_pro
             token = self._token
             if not token:
                 try:
@@ -105,7 +106,7 @@ class _TushareFundamentalFetcher:
                     token = None
             if token:
                 ts.set_token(token)
-            self._pro = ts.pro_api()
+            self._pro = get_tushare_pro()
         return self._pro
 
     def fina_indicator(self, **kwargs):

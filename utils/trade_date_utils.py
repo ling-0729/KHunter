@@ -287,7 +287,7 @@ def is_trading_day(date_str: str) -> bool:
         import json
         from pathlib import Path
         import tushare as ts
-
+        from utils.tushare_client import get_tushare_pro
         config_path = Path(__file__).parent.parent / "config" / "tushare_config.json"
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -295,7 +295,7 @@ def is_trading_day(date_str: str) -> bool:
             token = tushare_config.get('api_key') or tushare_config.get('token')
             if token:
                 ts.set_token(token)
-        pro = ts.pro_api()
+        pro = get_tushare_pro()
         df = pro.trade_cal(exchange='SSE', start_date=date_str_fmt,
                            end_date=date_str_fmt, is_open='1')
         if df is not None and not df.empty:
@@ -334,7 +334,7 @@ def _fetch_tushare_dates(start_str: str, end_str: str) -> Optional[List[str]]:
         import json
         from pathlib import Path
         import tushare as ts
-
+        from utils.tushare_client import get_tushare_pro
         config_path = Path(__file__).parent.parent / "config" / "tushare_config.json"
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -342,7 +342,7 @@ def _fetch_tushare_dates(start_str: str, end_str: str) -> Optional[List[str]]:
             token = tushare_config.get('api_key') or tushare_config.get('token')
             if token:
                 ts.set_token(token)
-        pro = ts.pro_api()
+        pro = get_tushare_pro()
         df = pro.trade_cal(exchange='SSE', start_date=start_str, end_date=end_str, is_open='1')
         if df is None or df.empty:
             return None

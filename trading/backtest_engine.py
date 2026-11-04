@@ -1578,8 +1578,7 @@ class BacktestEngine:
         
         # 1. 尝试从 Tushare 加载交易日历
         try:
-            import tushare as ts
-            
+            from utils.tushare_client import get_tushare_pro
             # 读取Tushare token
             tushare_token = None
             try:
@@ -1597,7 +1596,7 @@ class BacktestEngine:
                 from utils.online_guard import PURPOSE_SCORE, guard_online_call
                 guard_online_call('Tushare trade_cal（回测取历）', purpose=PURPOSE_SCORE)
 
-                pro = ts.pro_api(tushare_token)
+                pro = get_tushare_pro(tushare_token)
                 df = pro.trade_cal(
                     exchange='SSE',
                     start_date=extended_start,
@@ -3514,8 +3513,7 @@ class BacktestEngine:
             
             # 2. 备选：从tushare获取
             try:
-                import tushare as ts
-                
+                from utils.tushare_client import get_tushare_pro
                 # 读取Tushare token
                 tushare_token = None
                 try:
@@ -3530,7 +3528,7 @@ class BacktestEngine:
                     # 【2026-09-25 新增闸门 ✓】回测取价属**评分侧** ✗ ⇒ 禁止即时联网 ✗✓
                     from utils.online_guard import PURPOSE_SCORE, guard_online_call
                     guard_online_call('Tushare daily（回测取价兜底）', purpose=PURPOSE_SCORE)
-                    pro = ts.pro_api(tushare_token)
+                    pro = get_tushare_pro(tushare_token)
                     df = pro.daily(
                         ts_code=f"{stock_code}.SH" if stock_code.startswith('6') else f"{stock_code}.SZ",
                         start_date=date_str,

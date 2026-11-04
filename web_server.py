@@ -760,8 +760,8 @@ def get_stock_detail(code):
         if df.empty:
             logger.info(f"数据库中无 {code} 数据，尝试从Tushare获取")
             try:
-                import tushare as ts
-                pro = ts.pro_api()
+                from utils.tushare_client import get_tushare_pro
+                pro = get_tushare_pro()
                 # 转换代码格式：000001 -> 000001.SZ, 600000 -> 600000.SH
                 if not code.endswith(('.SH', '.SZ')):
                     if code.startswith('6'):

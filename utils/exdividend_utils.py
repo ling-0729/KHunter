@@ -177,8 +177,7 @@ class ExdividendUtils:
             Tushare pro API实例，配置失败返回None
         """
         try:
-            import tushare as ts
-            
+            from utils.tushare_client import get_tushare_pro
             # 读取 Tushare 配置
             config_path = Path(__file__).parent.parent / "config" / "tushare_config.json"
             if not config_path.exists():
@@ -193,7 +192,7 @@ class ExdividendUtils:
                 logger.debug("Tushare token未配置")
                 return None
             
-            return ts.pro_api(token)
+            return get_tushare_pro(token)
             
         except Exception as e:
             logger.debug(f"初始化Tushare API失败: {e}")

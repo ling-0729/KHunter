@@ -58,8 +58,8 @@ class MarketTemperature:
         self.tushare_pro = tushare_pro
         if tushare_pro is None:
             try:
-                import tushare as ts
-                self.tushare_pro = ts.pro_api()
+                from utils.tushare_client import get_tushare_pro
+                self.tushare_pro = get_tushare_pro()
             except Exception as e:
                 logger.warning(f"初始化Tushare失败: {e}")
     
