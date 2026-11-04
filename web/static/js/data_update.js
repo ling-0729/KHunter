@@ -28,10 +28,31 @@ function initDataUpdatePage() {
         
         // 加载上次更新时间
         loadLastUpdateTime();
+        restoreUpdateProgress();
         
         console.log('数据更新页面初始化完成');
     } catch (error) {
         console.error('初始化数据更新页面时出错:', error);
+    }
+}
+
+async function restoreUpdateProgress() {
+    try {
+        const response = await fetch('/api/data/update/progress', { cache: 'no-store' });
+        const result = await response.json();
+        if (!result.success || result.data.status === 'idle') return;
+        const data = result.data;
+        document.getElementById('update-initial-state').style.display = 'none';
+        document.getElementById('update-progress-state').style.display = 'block';
+        document.getElementById('update-completed-state').style.display = 'none';
+        updateProgressUI(data);
+        if (data.running || data.paused || data.status === 'running') {
+            pollUpdateProgress();
+        } else if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+            showUpdateCompleted(data);
+        }
+    } catch (error) {
+        console.error('恢复数据更新进度失败:', error);
     }
 }
 
@@ -179,14 +200,10 @@ function pollUpdateProgress() {
  * 获取更新进度
  */
 async function getUpdateProgress() {
-    if (!updateTaskId) {
-        console.warn('没有任务ID，无法获取进度');
-        return;
-    }
-    
     try {
-        const url = `/api/data/update/progress?taskId=${updateTaskId}`;
-        const response = await fetch(url);
+        // 后端跟踪进程内的当前任务，刷新后无需旧页面的 taskId。
+        const url = '/api/data/update/progress';
+        const response = await fetch(url, { cache: 'no-store' });
         const result = await response.json();
         
         if (result.success) {

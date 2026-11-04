@@ -4,8 +4,18 @@
  * 
  * 注意：此文件中的函数与 app.js 中的函数配合使用
  * 避免重复定义，使用不同的函数名
- * 依赖 app.js 中已定义的 initState 对象
+ * 后台任务状态由进度接口恢复，刷新页面不会启动新任务。
  */
+
+const initState = { isRunning: false };
+let initProgressInterval = null;
+
+async function restoreInitProgress() {
+    await getInitProgress();
+    if (initState.isRunning && initProgressInterval === null) {
+        pollInitProgress();
+    }
+}
 
 /**
  * 开始初始化
@@ -102,27 +112,34 @@ function startInitialization() {
  * 轮询初始化进度
  */
 function pollInitProgress() {
+    if (initProgressInterval !== null) clearInterval(initProgressInterval);
+    initProgressInterval = setInterval(getInitProgress, 1000);
     // 立即获取一次进度
     getInitProgress();
-    
-    // 每1000ms轮询一次进度
-    const intervalId = setInterval(() => {
-        getInitProgress(intervalId);
-    }, 1000);
 }
 
 /**
  * 获取初始化进度
  */
-async function getInitProgress(intervalId) {
+async function getInitProgress() {
     try {
         const url = '/api/data/init/progress';
-        const response = await fetch(url);
+        const response = await fetch(url, { cache: 'no-store' });
         const result = await response.json();
         
         if (result.success) {
+            const data = result.data;
+            initState.isRunning = data.running || data.paused || data.status === 'running';
+            if (data.status !== 'idle') {
+                document.getElementById('init-step1').style.display = 'none';
+            }
+            if (initState.isRunning) {
+                document.getElementById('init-step2').style.display = 'block';
+                document.getElementById('init-step3').style.display = 'none';
+            }
+            if (data.status === 'idle') return;
             // 更新进度UI
-            updateInitProgressDisplay(result.data);
+            updateInitProgressDisplay(data);
             
             // 根据状态判断是否完成
             const status = result.data.status;
@@ -130,9 +147,8 @@ async function getInitProgress(intervalId) {
                 console.log('初始化已完成，状态:', status);
                 
                 // 清除轮询
-                if (intervalId) {
-                    clearInterval(intervalId);
-                }
+                clearInterval(initProgressInterval);
+                initProgressInterval = null;
                 
                 // 显示完成状态
                 if (status === 'completed') {
@@ -143,6 +159,7 @@ async function getInitProgress(intervalId) {
                     resetInitForm();
                 }
             }
+            renderInitTaskLog(data);
         } else {
             console.error('获取进度失败:', result.message || result.error);
         }
@@ -291,6 +308,7 @@ function handleWebSocketInitProgress(data) {
         initState.isRunning = false;
         resetInitForm();
     }
+    renderInitTaskLog(data);
 }
 
 /**
@@ -457,6 +475,7 @@ function showInitError(data) {
 document.addEventListener('DOMContentLoaded', function() {
     // 初始化完成
     console.log('超简洁版初始化页面已加载');
+    restoreInitProgress();
     
     // 注册全局 WebSocket 监听器（备用方式）
     // 这确保即使 HTTP 轮询失败，也能通过 WebSocket 收到完成状态

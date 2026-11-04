@@ -223,3 +223,7 @@ start.zip
 #   ⚠️ 如日后要恢复：`git checkout 1.7.0 -- wsgi.py start_prod.bat` ✓（历史里一直有 ✓）
 /wsgi.py
 /start_prod.bat
+
+# Isolated local deployment environment and service state
+.venv/
+.local/

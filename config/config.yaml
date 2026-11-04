@@ -1,4 +1,4 @@
-﻿# ============================================
+# ============================================
 # A股量化选股系统 - 主配置文件
 # ============================================
 # 说明：此文件由 config.yaml.template 生成
@@ -17,7 +17,7 @@ schedule:
 
 # 定时流水线配置（新版编排）
 pipeline_schedule:
-  enabled: true                          # 是否启用定时流水线
+  enabled: false                         # 是否启用定时流水线
   time: "17:00"                          # 每日执行时间 (北京时间，收盘后)
   detect_trading_day: false              # false=不检测交易日，任何日期均执行完整流水线（数据更新与策略运行均按最近交易日处理，信号 exec_date 自动顺延至下一交易日）
 
@@ -66,7 +66,7 @@ filters:
 # mode: manual - 手工模式，信号生成后人工操作
 # mode: auto   - 自动模式，PTrade 自动读取信号执行并返回结果
 run_mode:
-  mode: "auto"
+  mode: "manual"
 
 # 交易配置
 trading:
@@ -75,10 +75,10 @@ trading:
 
 # PTrade 反馈相关配置
 ptrade:
-  enabled: true
+  enabled: false
   # 信号输出目录（KHunter 写入，PTrade 读取信号文件的绝对路径）
-  signal_dir: "D:/ptrade/output"
+  signal_dir: "data/running/to_ptrade"
   # PTrade 返回结果目录（PTrade 写入反馈文件的绝对路径）
-  feedback_dir: "D:/ptrade/input"
+  feedback_dir: "data/running/ptrade_feedback"
   # 返回文件读取模式: file
   feedback_mode: "file"

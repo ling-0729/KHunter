@@ -627,6 +627,28 @@
                             </div>
                         </div>
                     </div>
+                    <div id="init-task-log-panel" class="card" style="display:none;margin-top:20px;">
+                        <div class="card-body">
+                            <h3 style="margin-top:0;">执行步骤与结果</h3>
+                            <p id="init-task-log-summary" style="font-weight:600;"></p>
+                            <p id="init-task-log-time" style="color:#64748b;font-size:12px;"></p>
+                            <div style="overflow-x:auto;">
+                                <table style="width:100%;border-collapse:collapse;text-align:left;font-size:14px;">
+                                    <thead><tr style="background:#f8fafc;">
+                                        <th style="padding:10px 12px;min-width:140px;">步骤</th>
+                                        <th style="padding:10px 12px;min-width:110px;">状态</th>
+                                        <th style="padding:10px 12px;">日志摘要 / 执行结果</th>
+                                    </tr></thead>
+                                    <tbody id="init-step-log-rows" aria-live="polite"></tbody>
+                                </table>
+                            </div>
+                            <p style="color:#64748b;font-size:12px;">结果依据后台返回的日志与计数。未提供明细的步骤标为待核验；跳过不代表成功。基础流程的内部子步骤当前合并展示。</p>
+                            <details style="margin-top:16px;">
+                                <summary style="cursor:pointer;">查看任务原始日志</summary>
+                                <pre id="init-task-raw-logs" style="max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:14px;font-size:12px;"></pre>
+                            </details>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 数据更新页 - 超简洁版 -->
@@ -2521,14 +2543,15 @@
                    ⇒ 「加仓开盘限幅」下拉保存后永远显示默认 ✓ 已修 ✓；
                 ② 后端 `GET /backtest/configs` 改为**无条件**返回 yaml 值 ✓（DB 无行也返回 ✓）；
                 ③ 后端写 yaml 被拒时**不再假成功** ✗ ⇒ 返回 `success:false` + 原因 ✓ --> 
-    <script src="/static/js/dashboard_stats.js?v=36"></script>
+    <script src="/static/js/dashboard_stats.js?v=38"></script>
     <!-- ★【2026-10-07】v=36：初始化页新增「**大盘指数 ADX**」维度（页面/JS/后端三处同步 ✓）；
          并补齐全新安装的两处结构缺口：`trading_plan` 表（DDL ✓）+ `khunter.key_date` 列（DDL ✓ 与老库迁移 ✓）-->
-    <script type="module" src="/static/js/app.js?v=36"></script>
-    <script src="/static/js/kline_chart.js?v=36"></script>
-    <script src="/static/js/init_simple.js?v=36"></script>
-    <script src="/static/js/trading.js?v=36"></script>
-    <script src="/static/js/data_update.js?v=36"></script>
+    <script type="module" src="/static/js/app.js?v=38"></script>
+    <script src="/static/js/kline_chart.js?v=38"></script>
+    <script src="/static/js/init_task_log.js?v=38"></script>
+    <script src="/static/js/init_simple.js?v=38"></script>
+    <script src="/static/js/trading.js?v=38"></script>
+    <script src="/static/js/data_update.js?v=38"></script>
     
     <!-- 回测结果模态框 -->
     <div id="backtest-result-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">

@@ -79,12 +79,10 @@ export function switchPage(page) {
     } else if (page === 'stocks') {
         imp('./stocks.js').then(module => module.loadStocks());
     } else if (page === 'data-init') {
-        // 初始化数据页面 - 重置表单
-        console.log('调用 resetInitForm()');
-        resetInitForm();
+        window.restoreInitProgress();
     } else if (page === 'data-update') {
         // 数据更新页面 - 初始化
-        initDataUpdatePage();
+        window.initDataUpdatePage();
     } else if (page === 'history') {
         imp('./stocks.js').then(module => module.loadHistoryStrategyOptions());
         // 不再自动查询，等待用户点击查询按钮
@@ -146,22 +144,6 @@ export function switchPage(page) {
             console.error('加载策略执行器模块失败:', err);
         });
     }
-}
-
-/**
- * 重置初始化表单
- */
-function resetInitForm() {
-    // 这里可以添加重置初始化表单的逻辑
-    console.log('重置初始化表单');
-}
-
-/**
- * 初始化数据更新页面
- */
-function initDataUpdatePage() {
-    // 这里可以添加初始化数据更新页面的逻辑
-    console.log('初始化数据更新页面');
 }
 
 /**

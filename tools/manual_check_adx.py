@@ -19,7 +19,7 @@ logging.disable(logging.CRITICAL)          # 自检只输出结论 ✓
 
 from pathlib import Path                                            # noqa: E402
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / 'data' / 'stock_selection.db'
 
 _rows = []
